@@ -1,0 +1,19 @@
+{
+  "received_at": "2026-10-24T10:00:00Z",
+  "environment": "LOCAL / UNVERIFIED",
+  "core": {
+    "status": "unknown",
+    "observed_at": null,
+    "reason": "Application health payload required"
+  },
+  "metrics": {
+    "cpu": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "not configured"},
+    "memory": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "not configured"},
+    "gpu": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "sensor not exposed"}
+  },
+  "components": [],
+  "events": [],
+  "incidents": [],
+  "history": {},
+  "capabilities": {"beszel": {"configured": false}}
+}
