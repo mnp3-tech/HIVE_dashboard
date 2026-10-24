@@ -10,6 +10,6 @@ if (Test-Path -LiteralPath $pidFile) {
 }
 $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if ($listener) { throw "Port $Port is already in use; no process was stopped." }
-$proc = Start-Process -FilePath 'python' -ArgumentList '-m','http.server',$Port,'--bind','127.0.0.1' -WorkingDirectory $root -PassThru -WindowStyle Hidden
+$proc = Start-Process -FilePath 'python' -ArgumentList 'server.py','--port',$Port,'--bind','127.0.0.1' -WorkingDirectory $root -PassThru -WindowStyle Hidden
 Set-Content -LiteralPath $pidFile -Value $proc.Id -NoNewline
 Write-Output "HIVE dashboard started at http://127.0.0.1:$Port/ (PID $($proc.Id))"

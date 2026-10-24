@@ -12,8 +12,10 @@
     "gpu": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "sensor not exposed"}
   },
   "components": [],
+  "projects": [],
+  "workers": [],
   "events": [],
   "incidents": [],
   "history": {},
-  "capabilities": {"beszel": {"configured": false}}
+  "capabilities": {"hive": {"configured": false, "authenticated": false}, "beszel": {"configured": false}}
 }

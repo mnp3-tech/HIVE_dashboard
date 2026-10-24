@@ -37,6 +37,7 @@
           <span class="top-tag" id="environment-tag">LOCAL / UNVERIFIED</span>
           <span class="top-tag" id="freshness-tag">DATA AGE —</span>
           <button class="icon-button" id="reduced-motion" title="Toggle reduced motion" aria-pressed="false">◌</button>
+          <button class="button delegate-trigger" id="delegate-button">Delegate work <span>↗</span></button>
           <button class="button quiet" id="refresh-button">Refresh <span>↻</span></button>
         </div>
       </header>
@@ -104,7 +105,24 @@
 
         <section class="diagnostics-view panel" id="diagnostics-view" hidden>
           <div class="panel-heading"><div><p class="eyebrow">DIAGNOSTICS</p><h2>Provider boundary</h2></div><span class="panel-status">READ-ONLY</span></div>
-          <div class="diagnostic-copy"><strong>Monitoring does not depend on AI.</strong><p>A diagnostic provider may receive a redacted snapshot and bounded event window, but it cannot restart services, call shell commands, or bypass Governor policy. This prototype has no provider configured.</p><div class="diagnostic-grid"><div><span>Provider</span><strong>UNCONFIGURED</strong></div><div><span>Cloud fallback</span><strong>DISABLED</strong></div><div><span>Mutation authority</span><strong>NONE</strong></div></div></div>
+          <div class="diagnostic-copy"><strong>Monitoring does not depend on AI.</strong><p>A diagnostic provider may receive a redacted snapshot and bounded event window, but it cannot restart services, call shell commands, or bypass Governor policy. Delegation goes through HIVE Core; this dashboard never calls GPT or Claude directly.</p><div class="diagnostic-grid"><div><span>Provider route</span><strong id="diagnostic-provider">CORE REGISTRY</strong></div><div><span>Cloud fallback</span><strong>DISABLED</strong></div><div><span>Mutation authority</span><strong>NONE</strong></div></div></div>
+        </section>
+
+        <section class="delegate-view panel" id="delegate-view" hidden>
+          <div class="panel-heading"><div><p class="eyebrow">CONTROLLED DELEGATION</p><h2>Send work through HIVE Core</h2></div><span class="panel-status">GOVERNOR / AUDITED</span></div>
+          <form class="delegate-form" id="delegate-form">
+            <div class="delegate-intro"><strong>Core remains the execution authority.</strong><p>Choose a project and optional worker preference. The request is sent only after confirmation, receives an idempotency key, and is subject to HIVE authorization and Governor policy. Self-upgrade is limited to a proposal task; no deployment or replacement is exposed here.</p></div>
+            <div class="delegate-grid">
+              <label>Request type<select id="delegate-mode"><option value="task">Single task</option><option value="mission">Mission / multi-step</option><option value="evolution-proposal">Self-upgrade proposal (no apply)</option></select></label>
+              <label>Target project<select id="delegate-project"><option value="">Unassigned / Core</option></select></label>
+              <label>Worker preference<select id="delegate-worker"><option value="">AUTO · Governor decides</option></select></label>
+              <label>Task type<select id="delegate-type"><option value="">Auto classify</option><option>GENERAL</option><option>CODING</option><option>CODE_REVIEW</option><option>ANALYSIS</option><option>PROJECT_TASK</option><option>EVOLUTION_TASK</option><option>RESEARCH</option></select></label>
+              <label class="wide-field">Goal or request<textarea id="delegate-prompt" maxlength="8000" minlength="8" required placeholder="Describe the bounded work HIVE should route…"></textarea></label>
+              <label class="check-field"><input id="delegate-local" type="checkbox"> Local-only routing</label>
+              <label class="check-field"><input id="delegate-confirm" type="checkbox" required> I understand this submits an audited request to HIVE Core</label>
+            </div>
+            <div class="delegate-actions"><span id="delegate-status" role="status">Not submitted.</span><button type="submit" class="button primary-action">Submit to Core <span>↗</span></button></div>
+          </form>
         </section>
       </main>
       <footer><span>HIVE / BESZEL PROTOTYPE</span><span>LOCAL BY DEFAULT · NO TELEMETRY UPLOAD</span><span id="footer-version">ADAPTER CONTRACT v0.1</span></footer>

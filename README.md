@@ -10,18 +10,33 @@ this prototype is a separate surface.
 From this directory:
 
 ```powershell
-python -m http.server 4173 --bind 127.0.0.1
+.\start.ps1
 ```
 
-Open `http://127.0.0.1:4173/` for live-adapter mode. The UI requests one same-origin
-endpoint: `GET /api/dashboard/snapshot`.
+Open `http://127.0.0.1:4173/` for live-adapter mode. The local adapter serves the UI and
+requests HIVE Core on loopback. It exposes `GET /api/dashboard/snapshot`,
+`GET /api/control/capabilities`, and the controlled `POST /api/control/dispatch` route.
+
+Set the Core URL and token only in the process environment; never put the token in the
+browser, source tree, or command output:
+
+```powershell
+$env:HIVE_CORE_URL = 'http://127.0.0.1:8765'
+$env:HIVE_API_TOKEN = (Get-Content 'C:\HIVE\runtime\api-token' -Raw).Trim()
+.\start.ps1
+```
+
+The dashboard can submit a single task, a Mission, or an `EVOLUTION_TASK` proposal. The
+last option is explicitly no-apply/no-deploy and cannot promote or replace active Core.
+Worker selection is passed to HIVE's allowlisted worker registry; the dashboard never
+calls GPT, Claude, Codex, or another provider directly.
 
 For visual QA only, use `http://127.0.0.1:4173/?demo=1`. The banner marks fixture mode;
 the default route never fabricates metrics or events.
 
 ## Adapter contract
 
-The endpoint must return the shape in [snapshot.example.json](snapshot.example.json).
+The snapshot endpoint returns the shape in [snapshot.example.json](snapshot.example.json).
 The browser never receives Beszel credentials. A backend adapter is responsible for
 authenticating to Beszel, normalizing upstream changes, redacting data, caching shared
 polls, and setting `validity` to `valid`, `stale`, `unavailable`, or `unknown`.
@@ -45,5 +60,7 @@ retained timestamps are inside the short TTL window.
 - `index.html` — accessible responsive shell and semantic sections.
 - `styles.css` — HIVE visual system, responsive layouts, reduced-motion support.
 - `app.js` — adapter fetch, normalization, evidence states, filters, topology, details,
-  preferences and explicitly gated visual fixture mode.
+  preferences, controlled delegation form, and explicitly gated visual fixture mode.
+- `server.py` — loopback-only static server and narrow HIVE Core adapter. It has no
+  arbitrary proxy, shell route, provider credential forwarding, or self-upgrade apply route.
 - `snapshot.example.json` — backend contract example with unavailable/null semantics.
