@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -449,6 +451,215 @@ class AuthenticatedVsTokenConfiguredTests(unittest.TestCase):
         self.assertTrue(hive["token_configured"])
         self.assertFalse(hive["authenticated"])
         self.assertEqual(hive["authentication_validity"], "unavailable")
+
+
+class AuthRequiredValidityTests(unittest.TestCase):
+    """Protected endpoints that reject an absent/invalid token are distinct from a
+    plain connection failure (unavailable) or a 404 (unknown)."""
+
+    def test_401_maps_to_auth_required(self):
+        self.assertEqual(server.unavailability_validity(http_error_obj(401)), "auth_required")
+
+    def test_403_maps_to_auth_required(self):
+        self.assertEqual(server.unavailability_validity(http_error_obj(403)), "auth_required")
+
+    def test_404_still_maps_to_unknown(self):
+        self.assertEqual(server.unavailability_validity(http_error_obj(404)), "unknown")
+
+    def test_503_still_maps_to_unavailable(self):
+        self.assertEqual(server.unavailability_validity(http_error_obj(503)), "unavailable")
+
+    def test_project_catalog_reports_auth_required_on_401(self):
+        routes = {"/projects": http_error(401)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            projects, evidence = server.project_catalog()
+        self.assertEqual(projects, [])
+        self.assertEqual(evidence["validity"], "auth_required")
+
+    def test_task_queue_reports_auth_required_on_403(self):
+        routes = {"/tasks": http_error(403)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            tasks, evidence = server.task_queue()
+        self.assertEqual(tasks, [])
+        self.assertEqual(evidence["validity"], "auth_required")
+
+
+def http_error_obj(status: int) -> "server.AdapterError":
+    return server.AdapterError("rejected", status)
+
+
+class HealthProbeTests(unittest.TestCase):
+    def test_alive_status_is_recognized_as_valid(self):
+        # A live HIVE Core instance was observed returning status="alive", which
+        # must be treated as healthy, not as an unrecognized/unknown payload.
+        routes = {"/health": {"status": "alive", "service": "hive-core", "version": "0.3.0-alpha"}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertEqual(probe["status"], "alive")
+        self.assertEqual(probe["validity"], "valid")
+        self.assertTrue(probe["reachable"])
+
+    def test_unreachable_is_unavailable_with_no_observed_at(self):
+        routes = {"/health": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertFalse(probe["reachable"])
+        self.assertEqual(probe["validity"], "unavailable")
+        self.assertIsNone(probe["observed_at"])
+
+    def test_401_is_auth_required_not_unavailable(self):
+        routes = {"/health": http_error(401)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertEqual(probe["validity"], "auth_required")
+        self.assertEqual(probe["error_status"], 401)
+
+
+class ReadyProbeTests(unittest.TestCase):
+    def test_ready_status_with_workers_is_recognized_as_valid(self):
+        routes = {
+            "/ready": {
+                "status": "ready", "database": "ok", "queue": "running",
+                "workers": [{"id": "deterministic", "name": "Safe arithmetic evaluator", "provider": "builtin", "status": "available"}],
+            }
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.ready_probe()
+        self.assertEqual(probe["status"], "ready")
+        self.assertEqual(probe["database"], "ok")
+        self.assertEqual(probe["queue"], "running")
+        self.assertEqual(probe["validity"], "valid")
+        self.assertEqual(len(probe["workers"]), 1)
+
+    def test_unreachable_ready_is_unavailable_with_empty_workers(self):
+        routes = {"/ready": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.ready_probe()
+        self.assertFalse(probe["reachable"])
+        self.assertEqual(probe["validity"], "unavailable")
+        self.assertEqual(probe["workers"], [])
+
+    def test_snapshot_exposes_ready_record_under_core(self):
+        routes = {
+            "/health": {"status": "alive"},
+            "/ready": {"status": "ready", "database": "ok", "queue": "running", "workers": []},
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        self.assertEqual(snap["core"]["ready"]["status"], "ready")
+        self.assertEqual(snap["core"]["ready"]["database"], "ok")
+        self.assertEqual(snap["core"]["ready"]["validity"], "valid")
+
+
+class WorkerFallbackTests(unittest.TestCase):
+    """When the authenticated /workers registry is unavailable or auth_required,
+    fall back to the public worker-availability list already embedded in /ready
+    rather than collapsing straight to an empty list."""
+
+    def test_falls_back_to_ready_workers_on_401(self):
+        routes = {
+            "/workers": http_error(401),
+            "/ready": {"status": "ready", "database": "ok", "queue": "running",
+                       "workers": [{"id": "deterministic", "name": "Deterministic", "provider": "builtin", "status": "available"}]},
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            workers, ev = server.worker_registry()
+        self.assertEqual([w["id"] for w in workers], ["deterministic"])
+        self.assertEqual(ev["validity"], "valid")
+        self.assertIn("ready", ev["source"])
+
+    def test_no_fallback_when_ready_also_unreachable(self):
+        routes = {"/workers": http_error(401), "/ready": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            workers, ev = server.worker_registry()
+        self.assertEqual(workers, [])
+        self.assertEqual(ev["validity"], "auth_required")
+
+    def test_authenticated_registry_preferred_when_available(self):
+        routes = {
+            "/workers": {"items": [{"id": "w1", "name": "Full detail"}]},
+            "/ready": {"status": "ready", "database": "ok", "queue": "running", "workers": [{"id": "deterministic"}]},
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            workers, ev = server.worker_registry()
+        self.assertEqual([w["id"] for w in workers], ["w1"])
+        self.assertEqual(ev["validity"], "valid")
+        self.assertIn("/workers", ev["source"])
+
+
+class CreatorOpsStatusTests(unittest.TestCase):
+    def _make_db(self) -> Path:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="creator-ops-test-"))
+        self.addCleanup(lambda: [p.unlink() for p in tmp_dir.glob("*")] and tmp_dir.rmdir())
+        db_path = tmp_dir / "creator_ops.sqlite3"
+        connection = sqlite3.connect(db_path)
+        try:
+            connection.execute("CREATE TABLE accounts (id INTEGER PRIMARY KEY, handle TEXT)")
+            connection.execute("CREATE TABLE posts (id INTEGER PRIMARY KEY, caption TEXT)")
+            connection.execute("INSERT INTO accounts (handle) VALUES ('a'), ('b')")
+            connection.execute("INSERT INTO posts (caption) VALUES ('secret caption text')")
+            connection.commit()
+        finally:
+            connection.close()
+        return db_path
+
+    def test_reports_aggregate_counts_only_no_row_content(self):
+        db_path = self._make_db()
+        with patch.object(server, "CREATOR_OPS_DB_PATH", str(db_path)):
+            status = server.creator_ops_status()
+        self.assertEqual(status["validity"], "valid")
+        self.assertTrue(status["reachable"])
+        self.assertEqual(status["counts"]["accounts"], 2)
+        self.assertEqual(status["counts"]["posts"], 1)
+        # No row-level content (captions, handles) ever appears anywhere in the result.
+        dumped = json.dumps(status)
+        self.assertNotIn("secret caption text", dumped)
+        self.assertNotIn("'a'", dumped)
+
+    def test_missing_table_is_simply_absent_from_counts(self):
+        db_path = self._make_db()
+        with patch.object(server, "CREATOR_OPS_DB_PATH", str(db_path)):
+            status = server.creator_ops_status()
+        self.assertNotIn("media_assets", status["counts"])
+
+    def test_missing_file_is_unavailable_with_reason(self):
+        missing = str(Path(tempfile.mkdtemp(prefix="creator-ops-missing-")) / "does-not-exist.sqlite3")
+        with patch.object(server, "CREATOR_OPS_DB_PATH", missing):
+            status = server.creator_ops_status()
+        self.assertFalse(status["reachable"])
+        self.assertEqual(status["validity"], "unavailable")
+        self.assertIn("not found", status["reason"])
+        self.assertEqual(status["counts"], {})
+
+    def test_corrupt_file_is_unavailable_not_fabricated(self):
+        tmp_dir = Path(tempfile.mkdtemp(prefix="creator-ops-corrupt-"))
+        self.addCleanup(lambda: [p.unlink() for p in tmp_dir.glob("*")] and tmp_dir.rmdir())
+        corrupt_path = tmp_dir / "corrupt.sqlite3"
+        corrupt_path.write_bytes(b"not a real sqlite database")
+        with patch.object(server, "CREATOR_OPS_DB_PATH", str(corrupt_path)):
+            status = server.creator_ops_status()
+        self.assertFalse(status["reachable"])
+        self.assertEqual(status["validity"], "unavailable")
+
+    def test_included_in_snapshot_adapters(self):
+        db_path = self._make_db()
+        routes = {"/health": {"status": "alive"}}
+        with patch.object(server, "CREATOR_OPS_DB_PATH", str(db_path)), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        self.assertIn("creator_ops", snap["adapters"])
+        self.assertEqual(snap["adapters"]["creator_ops"]["validity"], "valid")
+
+
+class AoCapabilityDeclarationTests(unittest.TestCase):
+    """AO session/worker/chat capabilities must be reported as unconfirmed since no
+    public HTTP API contract is documented for them -- only a local CLI is."""
+
+    def test_capabilities_are_all_unconfirmed(self):
+        self.assertFalse(server.AO_CAPABILITIES["session_api_confirmed"])
+        self.assertFalse(server.AO_CAPABILITIES["worker_api_confirmed"])
+        self.assertFalse(server.AO_CAPABILITIES["chat_api_confirmed"])
+        self.assertEqual(server.AO_CAPABILITIES["transport"], "cli_only")
+        self.assertTrue(server.AO_CAPABILITIES["reason"])
 
 
 if __name__ == "__main__":

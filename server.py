@@ -16,6 +16,7 @@ import json
 import mimetypes
 import os
 import secrets
+import sqlite3
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,11 +51,61 @@ MAX_BODY = 12_000
 # token. Left unset, authentication is reported as unknown rather than fabricated true.
 HIVE_HEALTH_REQUIRES_AUTH = os.environ.get("HIVE_HEALTH_REQUIRES_AUTH", "").strip().lower() in {"1", "true", "yes"}
 
+# Recognized /health and /ready status vocabularies. Anything outside these sets is
+# reported as unknown rather than guessed into "healthy" or "degraded".
+HEALTH_OK_STATUSES = {"ok", "healthy", "ready", "online", "alive"}
+HEALTH_DEGRADED_STATUSES = {"degraded", "warning"}
+READY_OK_STATUSES = {"ready", "ok", "true", "online"}
+READY_NOT_READY_STATUSES = {"not_ready", "false", "unready"}
+
 STATUS_BUCKETS = {
     "queued": {"queued", "pending", "new", "submitted", "waiting"},
     "active": {"active", "running", "in_progress", "in-progress", "started", "working"},
     "completed": {"completed", "done", "success", "succeeded", "finished"},
     "blocked": {"blocked", "failed", "error", "cancelled", "canceled", "rejected"},
+}
+
+# Read-only CREATOR OPS status adapter. The adapter never reads or writes anything
+# outside this single local SQLite file, and only ever executes fixed, hardcoded
+# COUNT(*) queries against a small allowlist of tables below -- no row content
+# (captions, handles, notes, URLs, credentials) is ever read or exposed.
+CREATOR_OPS_DB_PATH = os.environ.get(
+    "CREATOR_OPS_DB_PATH",
+    r"C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3",
+)
+CREATOR_OPS_TABLES = (
+    "accounts",
+    "posts",
+    "media_assets",
+    "media_asset_tags",
+    "local_tasks",
+    "local_notifications",
+    "ai_sessions",
+    "ai_messages",
+    "creative_tools",
+)
+
+# AO (Agent Orchestrator) capability declaration. AO's own documented interface is a
+# local CLI (`ao`) over its daemon -- the using-ao skill catalog documents
+# session/spawn/send/project/etc. CLI subcommands only; it does not publish an HTTP
+# API contract for session, worker, or chat data. This adapter never shells out to the
+# `ao` binary, never guesses at or probes the daemon's internal port, and never reads
+# AO's own internal data files from an HTTP-triggered request path. Session, worker,
+# and chat capabilities are therefore always reported as unconfirmed/unavailable here
+# -- a static, non-executing declaration, not a live check -- rather than fabricated
+# as available.
+AO_CAPABILITIES = {
+    "session_api_confirmed": False,
+    "worker_api_confirmed": False,
+    "chat_api_confirmed": False,
+    "transport": "cli_only",
+    "reason": (
+        "AO publishes a local CLI (`ao`) over its daemon; no public HTTP session, "
+        "worker, or chat API contract is documented. This adapter does not shell out "
+        "to the ao binary or guess at the daemon's internal transport from an "
+        "HTTP-triggered request path, so these capabilities are reported as "
+        "unconfirmed rather than fabricated as available."
+    ),
 }
 
 
@@ -136,6 +187,14 @@ def bucket_for(status) -> str:
 
 
 def unavailability_validity(error: AdapterError) -> str:
+    """Map a failed Core call to a validity distinct from plain unreachability.
+
+    A 401/403 proves the endpoint is reachable but rejected the request as
+    unauthenticated/unauthorized -- that is "auth_required", never collapsed into
+    the same "unavailable" bucket as a connection failure or timeout.
+    """
+    if error.status in (401, 403):
+        return "auth_required"
     return "unknown" if error.status == 404 else "unavailable"
 
 
@@ -187,10 +246,9 @@ def task_queue():
     return tasks, evidence("hive:/tasks", observed, "valid")
 
 
-def worker_registry():
-    raw, workers_evidence = fetch_with_evidence("/workers")
+def normalize_workers(items) -> list:
     workers = []
-    for item in unwrap_items(raw):
+    for item in items if isinstance(items, list) else []:
         if not isinstance(item, dict):
             continue
         worker_id = item.get("id") or item.get("worker_id")
@@ -203,13 +261,121 @@ def worker_registry():
             "model": item.get("model", "unknown"),
             "status": item.get("status", "unknown"),
         })
-    return workers, workers_evidence
+    return workers
 
 
-def adapter_health(health_error: AdapterError | None, status_recognized: bool, observed_at: str, reason: str):
-    """status_recognized is True only when a /health call succeeded AND returned a
-    status value we recognize; a successful call with a missing/invalid status field
-    is reported as unknown, never fabricated as valid.
+def worker_registry(ready: dict | None = None):
+    """Prefer the authenticated /workers registry; if it is unavailable or
+    auth_required, fall back to the public, lower-detail worker-availability list
+    HIVE Core already includes in its unauthenticated /ready payload rather than
+    collapsing straight to an empty list. The fallback is always evidenced as such,
+    never presented as the authenticated registry."""
+    raw, workers_evidence = fetch_with_evidence("/workers")
+    if workers_evidence["validity"] == "valid":
+        return normalize_workers(unwrap_items(raw)), workers_evidence
+    ready = ready if ready is not None else ready_probe()
+    fallback_workers = normalize_workers(ready.get("workers")) if ready.get("reachable") else []
+    if fallback_workers:
+        fallback_evidence = evidence(
+            "hive:/ready (public worker-availability list)",
+            utc_now(),
+            "valid",
+            f"Authenticated /workers registry is {workers_evidence['validity']} ({workers_evidence['reason']}); "
+            "showing the public worker-availability list from /ready instead.",
+        )
+        return fallback_workers, fallback_evidence
+    return [], workers_evidence
+
+
+def _call_probe(path: str):
+    try:
+        raw = core_json(path)
+        return (raw if isinstance(raw, dict) else {}), None
+    except AdapterError as error:
+        return {}, error
+
+
+def health_probe() -> dict:
+    """Server-side provenance record for HIVE Core's public /health endpoint."""
+    raw, error = _call_probe("/health")
+    observed = utc_now()
+    if error is not None:
+        return {
+            "status": "unknown", "reachable": False, "observed_at": None,
+            "validity": unavailability_validity(error), "reason": str(error), "error_status": error.status,
+        }
+    status_text = str(raw.get("status", "unknown")).lower()
+    if status_text in HEALTH_OK_STATUSES:
+        return {"status": status_text, "reachable": True, "observed_at": observed, "validity": "valid", "reason": "HIVE Core /health responded", "error_status": None}
+    if status_text in HEALTH_DEGRADED_STATUSES:
+        return {"status": status_text, "reachable": True, "observed_at": observed, "validity": "valid", "reason": "HIVE Core /health reported degradation", "error_status": None}
+    return {"status": "unknown", "reachable": True, "observed_at": observed, "validity": "unknown", "reason": "HIVE Core /health payload missing expected status field", "error_status": None}
+
+
+def ready_probe() -> dict:
+    """Server-side provenance record for HIVE Core's public /ready endpoint,
+    including the public worker-availability list it already embeds (evidence only
+    for readiness, never treated as authorization for protected worker detail)."""
+    raw, error = _call_probe("/ready")
+    observed = utc_now()
+    if error is not None:
+        return {
+            "status": "unknown", "database": "unknown", "queue": "unknown", "workers": [],
+            "reachable": False, "observed_at": None,
+            "validity": unavailability_validity(error), "reason": str(error), "error_status": error.status,
+        }
+    status_text = str(raw.get("status", "unknown")).lower()
+    database = str(raw.get("database", "unknown")).lower()
+    queue = str(raw.get("queue", "unknown")).lower()
+    workers = raw.get("workers") if isinstance(raw.get("workers"), list) else []
+    if status_text in READY_OK_STATUSES:
+        return {"status": status_text, "database": database, "queue": queue, "workers": workers, "reachable": True, "observed_at": observed, "validity": "valid", "reason": "HIVE Core /ready responded", "error_status": None}
+    if status_text in READY_NOT_READY_STATUSES:
+        return {"status": status_text, "database": database, "queue": queue, "workers": workers, "reachable": True, "observed_at": observed, "validity": "valid", "reason": "HIVE Core /ready reported not-ready", "error_status": None}
+    return {"status": "unknown", "database": database, "queue": queue, "workers": workers, "reachable": True, "observed_at": observed, "validity": "unknown", "reason": "HIVE Core /ready payload missing expected status field", "error_status": None}
+
+
+def creator_ops_status() -> dict:
+    """Read-only, privacy-safe CREATOR OPS status adapter.
+
+    Opens the local SQLite file in URI mode=ro (refuses to write) and only ever runs
+    fixed SELECT COUNT(*) queries against the hardcoded CREATOR_OPS_TABLES allowlist
+    above -- table names are never taken from request input or from the database's
+    own catalog, and no column data (captions, handles, notes, URLs, credentials) is
+    ever read. Failure to open or query the file is reported as unavailable with a
+    real reason, never fabricated as empty/zero counts.
+    """
+    db_path = Path(CREATOR_OPS_DB_PATH)
+    base = {"configured": True, "token_configured": False, "authenticated": False,
+            "authentication_validity": "unavailable", "authentication_reason": "No credentials are used; this is a local, read-only file adapter."}
+    if not db_path.is_file():
+        return {**base, "reachable": False, "last_observed_at": None, "last_seen": None,
+                "validity": "unavailable", "reason": f"CREATOR OPS database not found at {db_path}", "counts": {}}
+    try:
+        uri = f"file:{db_path.as_posix()}?mode=ro"
+        connection = sqlite3.connect(uri, uri=True, timeout=2)
+        try:
+            cursor = connection.cursor()
+            existing = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            counts = {}
+            for table in CREATOR_OPS_TABLES:
+                if table not in existing:
+                    continue
+                cursor.execute(f'SELECT COUNT(*) FROM "{table}"')
+                counts[table] = cursor.fetchone()[0]
+        finally:
+            connection.close()
+    except sqlite3.Error as error:
+        return {**base, "reachable": False, "last_observed_at": None, "last_seen": None,
+                "validity": "unavailable", "reason": f"CREATOR OPS database read failed: {error}", "counts": {}}
+    observed = utc_now()
+    return {**base, "reachable": True, "last_observed_at": observed, "last_seen": observed,
+            "validity": "valid", "reason": "Aggregate row counts only; no account, content, or credential fields are read.",
+            "counts": counts}
+
+
+def adapter_health(health: dict, ready: dict) -> dict:
+    """health/ready are the provenance records from health_probe()/ready_probe().
 
     authenticated is fail-closed: a successful /health call does NOT by itself prove
     the bearer token was checked, because /health may require no authentication at
@@ -221,21 +387,15 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
     """
     beszel_url = os.environ.get("BESZEL_URL", "")
     token_configured = bool(API_TOKEN)
-    if health_error is not None:
-        hive_validity = unavailability_validity(health_error)
-        hive_reachable = False
-    elif status_recognized:
-        hive_validity = "valid"
-        hive_reachable = True
-    else:
-        hive_validity = "unknown"
-        hive_reachable = True
+    hive_validity = health["validity"]
+    hive_reachable = health["reachable"]
+    error_status = health.get("error_status")
 
     if not token_configured:
         authenticated, auth_validity, auth_reason = False, "unavailable", "No bearer token is configured; nothing to authenticate."
-    elif health_error is not None and health_error.status in (401, 403):
+    elif error_status in (401, 403):
         authenticated, auth_validity, auth_reason = False, "unavailable", "HIVE Core explicitly rejected the configured bearer token."
-    elif health_error is not None:
+    elif not hive_reachable:
         authenticated, auth_validity, auth_reason = False, "unavailable", "HIVE Core was unreachable; the configured token was never verified."
     elif HIVE_HEALTH_REQUIRES_AUTH:
         authenticated, auth_validity, auth_reason = True, "valid", "HIVE_HEALTH_REQUIRES_AUTH documents that /health validates the bearer token, and the call succeeded."
@@ -250,9 +410,12 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
             "authentication_validity": auth_validity,
             "authentication_reason": auth_reason,
             "reachable": hive_reachable,
-            "last_observed_at": observed_at if hive_reachable else None,
+            "last_observed_at": health["observed_at"] if hive_reachable else None,
+            "last_seen": health["observed_at"] if hive_reachable else None,
             "validity": hive_validity,
-            "reason": reason,
+            "reason": health["reason"],
+            "health": health,
+            "ready": ready,
         },
         "beszel": {
             "configured": bool(beszel_url),
@@ -262,6 +425,7 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
             "authentication_reason": "Beszel integration is not implemented in this MVP; deferred",
             "reachable": False,
             "last_observed_at": None,
+            "last_seen": None,
             "validity": "unknown",
             "reason": "Beszel integration is not implemented in this MVP; deferred",
         },
@@ -269,25 +433,16 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
 
 
 def snapshot():
-    try:
-        health = core_json("/health")
-        health_error = None
-    except AdapterError as error:
-        health = {}
-        health_error = error
-    observed = utc_now()
-    health_status = str(health.get("status", "unknown")).lower() if isinstance(health, dict) else "unknown"
-    status_recognized = health_status in {"ok", "healthy", "ready", "online", "degraded", "warning"}
-    if health_error is not None:
-        core_status, core_reason, core_observed = "unknown", str(health_error), None
-    elif health_status in {"ok", "healthy", "ready", "online"}:
-        core_status, core_reason, core_observed = "running", "HIVE Core application health responded", observed
-    elif health_status in {"degraded", "warning"}:
-        core_status, core_reason, core_observed = "degraded", "HIVE Core health reported degradation", observed
+    health = health_probe()
+    ready = ready_probe()
+    if health["status"] in HEALTH_OK_STATUSES:
+        core_status = "running"
+    elif health["status"] in HEALTH_DEGRADED_STATUSES:
+        core_status = "degraded"
     else:
-        core_status, core_reason, core_observed = "unknown", "Application health payload missing expected status field", observed
+        core_status = "unknown"
 
-    adapters = adapter_health(health_error, status_recognized, observed, core_reason)
+    adapters = adapter_health(health, ready)
 
     system_raw, system_evidence = fetch_with_evidence("/system")
     host = (system_raw.get("host", {}) if isinstance(system_raw, dict) else {}) or {}
@@ -295,7 +450,8 @@ def snapshot():
 
     projects, projects_evidence = project_catalog()
     tasks, tasks_evidence = task_queue()
-    workers, workers_evidence = worker_registry()
+    workers, workers_evidence = worker_registry(ready)
+    creator_ops = creator_ops_status()
     events_raw, events_evidence = fetch_with_evidence("/events?limit=50")
     normalized_events = []
     for event in unwrap_items(events_raw):
@@ -315,13 +471,25 @@ def snapshot():
     return {
         "received_at": utc_now(),
         "environment": "LOCAL / HIVE CORE",
-        "core": {"status": core_status, "observed_at": core_observed, "reason": core_reason},
+        "core": {
+            "status": core_status,
+            "observed_at": health["observed_at"],
+            "reason": health["reason"],
+            "ready": {
+                "status": ready["status"],
+                "database": ready["database"],
+                "queue": ready["queue"],
+                "observed_at": ready["observed_at"],
+                "validity": ready["validity"],
+                "reason": ready["reason"],
+            },
+        },
         "metrics": {
             "cpu": metric(host.get("cpu_percent"), source="hive", reason=metrics_reason),
             "memory": metric(host.get("ram_percent", host.get("memory_percent")), source="hive", reason=metrics_reason),
             "disk": metric(host.get("disk_percent"), source="hive", reason=metrics_reason),
         },
-        "adapters": adapters,
+        "adapters": {**adapters, "creator_ops": creator_ops},
         "projects": {"items": projects, "evidence": projects_evidence},
         "tasks": {"items": tasks, "evidence": tasks_evidence},
         "workers": {"items": workers, "evidence": workers_evidence},
@@ -404,6 +572,7 @@ class Handler(BaseHTTPRequestHandler):
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
+                    "ao": AO_CAPABILITIES,
                 })
             if path.startswith("/api/"):
                 return self.json_response({"detail": "Unknown adapter endpoint"}, 404)

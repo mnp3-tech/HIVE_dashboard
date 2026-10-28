@@ -7,17 +7,21 @@ as a visual reference; this is a separate surface.
 ## Scope of this MVP
 
 1. **Project catalog** — projects known to HIVE Core, with explicit `valid` /
-   `unavailable` / `unknown` evidence instead of a fabricated empty or zeroed list.
+   `unavailable` / `unknown` / `auth_required` evidence instead of a fabricated empty
+   or zeroed list.
 2. **Task queue** — queued / active / completed / blocked task records, bucketed only
    from statuses the adapter actually receives. Unrecognized upstream statuses land in
    an explicit `unknown` bucket rather than being guessed into one of the four.
 3. **Adapter health** — per-adapter `configured` / `authenticated` / `reachable` /
-   `last_observed_at` / `validity` / `reason`, kept distinct from each other (e.g. a
-   stale adapter is never shown as `unavailable`, and an unconfigured one is never
-   shown as `reachable`).
+   `last_observed_at` / `last_seen` / `validity` / `reason`, kept distinct from each
+   other (e.g. a stale adapter is never shown as `unavailable`, and an unconfigured one
+   is never shown as `reachable`). `adapters.hive` additionally carries `health` and
+   `ready` sub-records — the raw server-side provenance from HIVE Core's `/health` and
+   `/ready` endpoints (see item 7).
 4. **Evidence everywhere** — every metric, project-catalog fetch, and task-queue fetch
    carries `source`, `observed_at`, `validity`, and `reason`. Missing or weak evidence
-   is surfaced as `unavailable`/`unknown`, never silently treated as "no change".
+   is surfaced as `unavailable`/`unknown`/`auth_required`, never silently treated as
+   "no change".
 5. **Proposal-only actions** — the only write path is `POST /api/control/dispatch`
    with `mode: "proposal"`. It requires explicit confirmation, requires a live
    reachability check against HIVE Core immediately before submitting (fails closed if
@@ -28,6 +32,39 @@ as a visual reference; this is a separate surface.
    snapshot returns an explicit `topology: {status: "deferred", reason: ...}` record and
    the UI renders a labeled deferred panel instead of a graph. No graph rendering or
    event-derived topology is computed anywhere in this codebase.
+7. **HIVE health/ready monitor with provenance** — `server.py` calls HIVE Core's public
+   `/health` and `/ready` endpoints directly (`health_probe()` / `ready_probe()`) and
+   reports their raw status, database/queue sub-status, `observed_at`, `validity`, and
+   `reason` under `core.ready` and `adapters.hive.health` / `adapters.hive.ready`. A
+   `/health` call that returns an unrecognized status (or a 200 with no `status` field)
+   is `unknown`, never fabricated as healthy.
+8. **`auth_required` is distinct from `unavailable`/`unknown`.** A protected endpoint
+   (`/projects`, `/tasks`, `/workers`, `/events`, `/system`) that rejects the request
+   with HTTP 401/403 is reported with `validity: "auth_required"` — proof the endpoint
+   is reachable and simply needs a valid token — never conflated with a connection
+   failure (`unavailable`) or a 404 (`unknown`).
+9. **Safe worker availability without an authenticated registry.** HIVE Core's public,
+   unauthenticated `/ready` response already embeds a lower-detail worker-availability
+   list. When the authenticated `/workers` registry is `unavailable` or
+   `auth_required`, `worker_registry()` falls back to that public list instead of
+   collapsing to an empty array — always evidenced as a fallback (`evidence.source`
+   names `/ready`, `evidence.reason` explains why), never presented as the
+   authenticated registry.
+10. **CREATOR OPS status adapter (read-only, privacy-safe).** `creator_ops_status()`
+    opens the local CREATOR OPS SQLite file in `mode=ro` (the connection cannot write)
+    and runs only fixed `SELECT COUNT(*)` queries against a small hardcoded table
+    allowlist. It returns aggregate row counts only — no captions, handles, notes,
+    URLs, or credentials are ever read or exposed — surfaced in the snapshot as
+    `adapters.creator_ops`. A missing or unreadable database file is reported
+    `unavailable` with a real reason, never as zeroed counts.
+11. **AO (Agent Orchestrator) session/worker/chat capabilities are unconfirmed.** AO's
+    documented interface is a local CLI (`ao`) over its daemon; no public HTTP API
+    contract for session, worker, or chat data is published. `/api/control/capabilities`
+    reports `ao.session_api_confirmed` / `worker_api_confirmed` / `chat_api_confirmed`
+    as `false` with `transport: "cli_only"` and an explanatory `reason` — a static
+    declaration, not a live check. This adapter never shells out to the `ao` binary,
+    never guesses at or probes the daemon's internal transport, and never reads AO's
+    own internal data files from an HTTP-triggered request path.
 
 ## Run
 
@@ -121,15 +158,23 @@ only ever proves reachability, never authentication.
 
 ## Current evidence and limits
 
-- No HIVE Core credentials or live Core instance were available in this session. Live
-  integration is therefore UNVERIFIED/BLOCKED, not simulated as complete. Every example
-  above was exercised against a deliberately unreachable Core (see the test run) and
-  produces the documented `unavailable` evidence rather than fabricated data.
+- A live local HIVE Core instance (`http://127.0.0.1:8765`, no bearer token
+  configured) was reachable during this session and used to verify the behavior
+  documented above end to end: `/health` returns `status: "alive"` (recognized as
+  healthy), `/ready` returns `status: "ready", database: "ok", queue: "running"` plus
+  a public worker-availability list, and the protected `/projects`, `/tasks`,
+  `/workers`, `/events` endpoints all correctly return `auth_required` rather than
+  being fabricated as an empty-but-valid catalog. [snapshot.example.json](snapshot.example.json)
+  is a real captured snapshot from that session (worker list trimmed for length), not
+  a hand-written fixture.
 - Beszel is intentionally **not implemented** in this MVP. The adapter reports it as
   `configured: false` (or `true` if `BESZEL_URL` happens to be set) with
   `validity: "unknown"` and an explicit "not implemented, deferred" reason; it is never
   shown as reachable.
 - Topology visualization is deferred by design, not by omission — see item 6 above.
+- AO (Agent Orchestrator) session/worker/chat capabilities are reported as
+  unconfirmed — see item 11 above. AO's own documented interface is a CLI, not an HTTP
+  API, so this adapter does not attempt to call it from an HTTP-triggered request path.
 
 ## Files
 
@@ -139,14 +184,31 @@ only ever proves reachability, never authentication.
 - `app.js` — adapter fetch, normalization, per-section evidence rendering, proposal-only
   submission form, and an explicitly gated visual fixture mode (`?demo=1`).
 - `server.py` — loopback-only static server and narrow HIVE Core adapter. Normalizes
-  project/task/adapter-health evidence, and exposes only a proposal-only, fail-closed
-  dispatch route. No arbitrary proxy, shell route, provider credential forwarding,
-  apply/deploy/promote/rollback route, or topology/graph computation.
-- `snapshot.example.json` — backend contract example with unavailable/unknown semantics.
+  project/task/adapter-health evidence (including `/health`/`/ready` provenance and
+  `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, declares
+  AO session/worker/chat capabilities as unconfirmed, and exposes only a
+  proposal-only, fail-closed dispatch route. No arbitrary proxy, shell route, provider
+  credential forwarding, apply/deploy/promote/rollback route, or topology/graph
+  computation.
+- `snapshot.example.json` — a real captured snapshot (worker list trimmed for length)
+  showing the reachable-but-unauthenticated contract: `core.ready`, `auth_required`
+  evidence on protected endpoints, the `/ready`-sourced worker fallback, and the
+  `creator_ops` adapter.
 - `tests/test_server.py` — stdlib `unittest` coverage for the adapter contract
-  (evidence semantics, status bucketing, adapter health) and the proposal-only safety
+  (evidence semantics, status bucketing, adapter health, `/health`+`/ready` probes,
+  `auth_required` vs. `unavailable`/`unknown`, the `/ready` worker fallback, the
+  CREATOR OPS adapter, and the AO capability declaration) and the proposal-only safety
   gates (confirmation required, non-proposal modes rejected, worker allowlist, fail
   closed on missing token or missing reachability evidence).
+
+## CREATOR OPS adapter
+
+Set `CREATOR_OPS_DB_PATH` to override the default location
+(`C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3`). The
+adapter opens this file in SQLite URI `mode=ro` (the connection cannot write) and
+only ever runs fixed `SELECT COUNT(*)` queries against a hardcoded table allowlist —
+no row content is read. A missing file, a locked file, or a non-SQLite file is
+reported `unavailable` with a real reason.
 
 ## Tests
 
@@ -156,4 +218,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-24 unit tests pass.
+65 unit tests pass.

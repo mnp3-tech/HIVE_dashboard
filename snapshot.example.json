@@ -1,15 +1,23 @@
 {
-  "received_at": "2026-10-28T10:00:00Z",
+  "received_at": "2026-10-28T19:34:14.021183Z",
   "environment": "LOCAL / HIVE CORE",
   "core": {
-    "status": "unknown",
-    "observed_at": null,
-    "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"
+    "status": "running",
+    "observed_at": "2026-10-28T19:34:13.513661Z",
+    "reason": "HIVE Core /health responded",
+    "ready": {
+      "status": "ready",
+      "database": "ok",
+      "queue": "running",
+      "observed_at": "2026-10-28T19:34:13.983342Z",
+      "validity": "valid",
+      "reason": "HIVE Core /ready responded"
+    }
   },
   "metrics": {
-    "cpu": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"},
-    "memory": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"},
-    "disk": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"}
+    "cpu": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core rejected authentication or authorization"},
+    "memory": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core rejected authentication or authorization"},
+    "disk": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core rejected authentication or authorization"}
   },
   "adapters": {
     "hive": {
@@ -18,10 +26,33 @@
       "authenticated": false,
       "authentication_validity": "unavailable",
       "authentication_reason": "No bearer token is configured; nothing to authenticate.",
-      "reachable": false,
-      "last_observed_at": null,
-      "validity": "unavailable",
-      "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"
+      "reachable": true,
+      "last_observed_at": "2026-10-28T19:34:13.513661Z",
+      "last_seen": "2026-10-28T19:34:13.513661Z",
+      "validity": "valid",
+      "reason": "HIVE Core /health responded",
+      "health": {
+        "status": "alive",
+        "reachable": true,
+        "observed_at": "2026-10-28T19:34:13.513661Z",
+        "validity": "valid",
+        "reason": "HIVE Core /health responded",
+        "error_status": null
+      },
+      "ready": {
+        "status": "ready",
+        "database": "ok",
+        "queue": "running",
+        "workers": [
+          {"id": "deterministic", "name": "Safe arithmetic evaluator", "provider": "builtin", "type": "deterministic-tool", "status": "available", "model": "safe-expression-v1"},
+          {"id": "lmstudio", "name": "LM Studio", "provider": "local", "type": "local-llm", "status": "available", "model": "qwen3.5-4b"}
+        ],
+        "reachable": true,
+        "observed_at": "2026-10-28T19:34:13.983342Z",
+        "validity": "valid",
+        "reason": "HIVE Core /ready responded",
+        "error_status": null
+      }
     },
     "beszel": {
       "configured": false,
@@ -31,25 +62,58 @@
       "authentication_reason": "Beszel integration is not implemented in this MVP; deferred",
       "reachable": false,
       "last_observed_at": null,
+      "last_seen": null,
       "validity": "unknown",
       "reason": "Beszel integration is not implemented in this MVP; deferred"
+    },
+    "creator_ops": {
+      "configured": true,
+      "token_configured": false,
+      "authenticated": false,
+      "authentication_validity": "unavailable",
+      "authentication_reason": "No credentials are used; this is a local, read-only file adapter.",
+      "reachable": true,
+      "last_observed_at": "2026-10-28T19:34:14.014146Z",
+      "last_seen": "2026-10-28T19:34:14.014146Z",
+      "validity": "valid",
+      "reason": "Aggregate row counts only; no account, content, or credential fields are read.",
+      "counts": {
+        "accounts": 0,
+        "posts": 0,
+        "media_assets": 2776,
+        "media_asset_tags": 6540,
+        "local_tasks": 2,
+        "local_notifications": 2,
+        "ai_sessions": 1,
+        "ai_messages": 4,
+        "creative_tools": 7
+      }
     }
   },
   "projects": {
     "items": [],
-    "evidence": {"source": "hive:/projects", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"}
+    "evidence": {"source": "hive:/projects", "observed_at": null, "validity": "auth_required", "reason": "HIVE Core rejected authentication or authorization"}
   },
   "tasks": {
     "items": [],
-    "evidence": {"source": "hive:/tasks", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"}
+    "evidence": {"source": "hive:/tasks", "observed_at": null, "validity": "auth_required", "reason": "HIVE Core rejected authentication or authorization"}
   },
   "workers": {
-    "items": [],
-    "evidence": {"source": "hive:/workers", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"}
+    "items": [
+      {"id": "deterministic", "name": "Safe arithmetic evaluator", "provider": "builtin", "model": "safe-expression-v1", "status": "available"},
+      {"id": "lmstudio", "name": "LM Studio", "provider": "local", "model": "qwen3.5-4b", "status": "available"},
+      {"id": "openrouter_free", "name": "OpenRouter Free", "provider": "openrouter", "model": "openrouter/free", "status": "configuration_required"}
+    ],
+    "evidence": {
+      "source": "hive:/ready (public worker-availability list)",
+      "observed_at": "2026-10-28T19:34:14.007462Z",
+      "validity": "valid",
+      "reason": "Authenticated /workers registry is auth_required (HIVE Core rejected authentication or authorization); showing the public worker-availability list from /ready instead."
+    }
   },
   "events": {
     "items": [],
-    "evidence": {"source": "hive:/events?limit=50", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"}
+    "evidence": {"source": "hive:/events?limit=50", "observed_at": null, "validity": "auth_required", "reason": "HIVE Core rejected authentication or authorization"}
   },
   "topology": {
     "status": "deferred",
