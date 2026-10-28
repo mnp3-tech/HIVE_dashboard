@@ -2,22 +2,42 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const demoMode = new URLSearchParams(location.search).get('demo') === '1';
-const state = {snapshot:null, view:'overview', range:'1h', query:'', status:'all', reduced:localStorage.getItem('hive.dashboard.preferences.v1') === 'reduced', error:null};
+const state = {snapshot:null, view:'overview', reduced:localStorage.getItem('hive.dashboard.preferences.v1') === 'reduced', error:null};
+
+const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
+const BUCKET_LABELS = {queued:'Queued', active:'Active', completed:'Completed', blocked:'Blocked', unknown:'Unknown status'};
 
 function now(){ return Date.now(); }
 function isoTime(value){ const date = new Date(value || 0); return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
 function age(value){ if(!value) return '—'; const timestamp=new Date(value).getTime(); if(!Number.isFinite(timestamp)) return '—'; const seconds = Math.max(0, Math.round((now() - timestamp) / 1000)); if(seconds < 60) return `${seconds}s`; if(seconds < 3600) return `${Math.round(seconds/60)}m`; return `${Math.round(seconds/3600)}h`; }
-function tone(status){ const normalized = String(status || 'unknown').toLowerCase(); return ['working','running','ok','healthy'].includes(normalized) ? 'ok' : ['blocked','offline','failed','critical'].includes(normalized) ? 'fail' : ['waiting','degraded','stale'].includes(normalized) ? 'warn' : 'unknown'; }
+function tone(status){ const normalized = String(status || 'unknown').toLowerCase(); return ['working','running','active','ok','healthy','valid'].includes(normalized) ? 'ok' : ['blocked','offline','failed','critical','unavailable'].includes(normalized) ? 'fail' : ['waiting','degraded','stale','queued'].includes(normalized) ? 'warn' : 'unknown'; }
 function stateLabel(status){ return String(status || 'unknown').replaceAll('_',' ').toUpperCase(); }
 function valueWithUnit(metric, fallback = '—'){ if(metric == null || metric.value == null) return fallback; return `${Number(metric.value).toFixed(metric.unit === '%' ? 0 : 1)}${metric.unit || ''}`; }
 function metricDetail(metric){ if(!metric) return 'unavailable'; if(metric.validity === 'stale') return `stale · observed ${age(metric.observed_at)} ago`; if(metric.validity === 'unavailable') return metric.reason || 'unavailable'; return metric.source ? `${metric.source} · observed ${age(metric.observed_at)} ago` : `observed ${age(metric.observed_at)} ago`; }
+function evidenceLine(evidence){ if(!evidence) return 'No evidence received from the adapter.'; const parts=[`source ${evidence.source || 'unknown'}`, `validity ${evidence.validity || 'unknown'}`]; if(evidence.observed_at) parts.push(`observed ${age(evidence.observed_at)} ago`); if(evidence.reason) parts.push(evidence.reason); return parts.join(' · '); }
 
 function normalize(raw){
   const source = raw || {};
   const metrics = source.metrics || {};
-  const components = Array.isArray(source.components) ? source.components : [];
   const events = Array.isArray(source.events) ? source.events : [];
-  return { received_at: source.received_at || null, environment: source.environment || 'LOCAL / UNVERIFIED', core: source.core || {status:'unknown', reason:'No application health payload'}, metrics, components, events, incidents: Array.isArray(source.incidents) ? source.incidents : [], history: source.history || {}, projects: Array.isArray(source.projects) ? source.projects : [], workers: Array.isArray(source.workers) ? source.workers : [], capabilities: source.capabilities || {} };
+  const projects = source.projects && Array.isArray(source.projects.items) ? source.projects.items : [];
+  const projectsEvidence = source.projects && source.projects.evidence ? source.projects.evidence : null;
+  const tasks = source.tasks && Array.isArray(source.tasks.items) ? source.tasks.items : [];
+  const tasksEvidence = source.tasks && source.tasks.evidence ? source.tasks.evidence : null;
+  const adapters = source.adapters || {};
+  const topology = source.topology || {status:'deferred', reason:'Topology visualization is deferred for this MVP.'};
+  return {
+    received_at: source.received_at || null,
+    environment: source.environment || 'LOCAL / UNVERIFIED',
+    core: source.core || {status:'unknown', reason:'No application health payload'},
+    metrics,
+    events,
+    projects, projectsEvidence,
+    tasks, tasksEvidence,
+    workers: Array.isArray(source.workers) ? source.workers : [],
+    adapters,
+    topology,
+  };
 }
 
 async function load(){
@@ -40,54 +60,136 @@ function render(){
   setText('freshness-tag', state.error ? 'ADAPTER OFFLINE' : `DATA AGE ${age(snapshot.received_at)}`);
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
-  renderSummary(snapshot); renderTopology(snapshot); renderPressure(snapshot); renderComponents(snapshot); renderEvents(snapshot); renderSources(snapshot); renderTargets(snapshot); renderView();
+  renderSummary(snapshot); renderTopologyDeferred(snapshot); renderProjects(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderEvents(snapshot); renderTargets(snapshot); renderView();
 }
 
 function renderSummary(snapshot){
-  const cpu=snapshot.metrics.cpu, memory=snapshot.metrics.memory, active=snapshot.components.filter(component => ['working','running'].includes(component.status)).length;
-  const incidentCount=snapshot.incidents.length;
-  setText('metric-core', stateLabel(snapshot.core.status)); setText('metric-core-detail', snapshot.core.reason || `health evidence · ${age(snapshot.core.observed_at)} ago`); setText('metric-cpu', valueWithUnit(cpu)); setText('metric-cpu-detail', metricDetail(cpu)); setText('metric-memory', valueWithUnit(memory)); setText('metric-memory-detail', metricDetail(memory)); setText('metric-work', String(active)); setText('metric-work-detail', active ? 'component activity observed' : 'idle / no active event'); setText('metric-incidents', String(incidentCount)); setText('metric-incidents-detail', incidentCount ? 'requires review' : 'no open incident evidence'); setText('incident-count', String(incidentCount)); setText('core-state', stateLabel(snapshot.core.status)); setText('core-state-detail', snapshot.core.reason || 'Application health evidence received'); const dot=$('#core-dot'); dot.className=`status-dot ${tone(snapshot.core.status)}`;
+  const cpu=snapshot.metrics.cpu, memory=snapshot.metrics.memory, disk=snapshot.metrics.disk;
+  setText('metric-core', stateLabel(snapshot.core.status)); setText('metric-core-detail', snapshot.core.reason || `health evidence · ${age(snapshot.core.observed_at)} ago`); setText('metric-cpu', valueWithUnit(cpu)); setText('metric-cpu-detail', metricDetail(cpu)); setText('metric-memory', valueWithUnit(memory)); setText('metric-memory-detail', metricDetail(memory)); setText('metric-disk', valueWithUnit(disk)); setText('metric-disk-detail', metricDetail(disk)); setText('core-state', stateLabel(snapshot.core.status)); setText('core-state-detail', snapshot.core.reason || 'Application health evidence received'); const dot=$('#core-dot'); dot.className=`status-dot ${tone(snapshot.core.status)}`;
 }
 
-function renderTopology(snapshot){
-  const svg=$('#topology-svg'), empty=$('#topology-empty'); if(!snapshot.components.length){ svg.innerHTML=''; empty.hidden=false; setText('topology-status', state.error ? 'ADAPTER OFFLINE' : 'DATA UNAVAILABLE'); return; }
-  empty.hidden=true; setText('topology-status', `${snapshot.components.length} SURFACES / ${snapshot.events.length} EVENTS`);
-  const cx=430, cy=202, radius=144, components=snapshot.components.slice(0,8);
-  const nodes=components.map((component,index)=>{ const angle=(-Math.PI/2)+(Math.PI*2*index/components.length); const x=cx+Math.cos(angle)*radius, y=cy+Math.sin(angle)*radius; return {...component,x,y}; });
-  const defs=`<defs><radialGradient id="coreGlow"><stop offset="0" stop-color="#7ff7e2" stop-opacity=".8"/><stop offset=".5" stop-color="#239f9c" stop-opacity=".24"/><stop offset="1" stop-color="#0b1c27" stop-opacity="0"/></radialGradient><filter id="glow"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
-  const edges=nodes.map(node=>`<line x1="${cx}" y1="${cy}" x2="${node.x}" y2="${node.y}" class="topology-edge ${tone(node.status)}"/>`).join('');
-  const pulses=snapshot.events.filter(event=>now()-new Date(event.timestamp).getTime()<30000).slice(0,6).map((event,index)=>{ const node=nodes.find(item=>item.id===event.component_id) || nodes[index%Math.max(nodes.length,1)]; return node ? `<circle class="topology-pulse" r="4"><animateMotion dur="${1.4+index*.16}s" repeatCount="1" path="M ${cx} ${cy} L ${node.x} ${node.y}"/></circle>` : ''; }).join('');
-  const agentNodes=nodes.map(node=>`<g class="topology-agent" data-component-id="${esc(node.id)}" tabindex="0" role="button" transform="translate(${node.x} ${node.y})"><circle r="29" class="node-orbit ${tone(node.status)}"/><circle r="15" class="node-core ${tone(node.status)}"/><text y="4" class="node-initial">${esc((node.name||'?').slice(0,2).toUpperCase())}</text><text y="49" class="node-name">${esc(node.name||node.id)}</text><text y="62" class="node-status">${esc(stateLabel(node.status))}</text></g>`).join('');
-  svg.innerHTML=defs+`<circle cx="${cx}" cy="${cy}" r="105" fill="url(#coreGlow)"/><circle cx="${cx}" cy="${cy}" r="66" class="core-ring"/><circle cx="${cx}" cy="${cy}" r="45" class="core-disc"/><text x="${cx}" y="${cy-3}" class="core-text">HIVE</text><text x="${cx}" y="${cy+14}" class="core-sub">${esc(stateLabel(snapshot.core.status))}</text>${edges}${pulses}${agentNodes}`;
-  $$('.topology-agent',svg).forEach(node=>{ node.addEventListener('click',()=>openDetail(node.dataset.componentId)); node.addEventListener('keydown',event=>{if(event.key==='Enter') openDetail(node.dataset.componentId);}); });
+function renderTopologyDeferred(snapshot){ setText('topology-deferred-reason', snapshot.topology.reason || 'Topology visualization is deferred for this MVP; no graph or event-derived topology is computed.'); }
+
+function renderProjects(snapshot){
+  const evidence = snapshot.projectsEvidence;
+  const validity = evidence ? evidence.validity : 'unknown';
+  const badge = $('#projects-validity'); badge.textContent = stateLabel(validity); badge.className = `panel-status ${tone(validity)}`;
+  setText('projects-evidence', evidenceLine(evidence));
+  const list = $('#project-list');
+  if(validity === 'unavailable' || validity === 'unknown'){
+    list.innerHTML = `<div class="empty-state compact"><span>⌁</span><strong>Project catalog ${esc(validity)}</strong><small>${esc(evidence && evidence.reason ? evidence.reason : 'No evidence received from HIVE Core.')}</small></div>`;
+    return;
+  }
+  if(!snapshot.projects.length){
+    list.innerHTML = '<div class="empty-state compact"><span>▱</span><strong>No projects registered</strong><small>HIVE Core returned a valid, empty project catalog.</small></div>';
+    return;
+  }
+  list.innerHTML = snapshot.projects.map(project => `<div class="catalog-row"><i class="component-state ${tone(project.status)}"></i><div class="component-main"><strong>${esc(project.name)}</strong><small>${esc(project.id)} · ${esc(project.description || 'no description supplied')}</small></div><span class="component-badge">${esc(stateLabel(project.status))}${project.protected ? ' · PROTECTED' : ''}</span></div>`).join('');
 }
 
-function renderPressure(snapshot){ const metrics=[['CPU',snapshot.metrics.cpu],['MEMORY',snapshot.metrics.memory],['GPU',snapshot.metrics.gpu],['DISK',snapshot.metrics.disk],['NETWORK',snapshot.metrics.network]]; $('#pressure-list').innerHTML=metrics.map(([label,metric])=>{ const available=metric && metric.value != null, percent=available ? Math.max(0,Math.min(100,Number(metric.value))) : 0, status=metric?.validity === 'stale' ? 'warn' : available && percent>85 ? 'fail' : ''; return `<div class="resource-row ${status}"><div class="resource-label"><span>${label}</span><strong>${available ? valueWithUnit(metric) : '—'}</strong></div><div class="resource-bar"><span style="width:${percent}%"></span></div><small class="chart-note">${esc(metricDetail(metric))}</small></div>`; }).join(''); const points=snapshot.history[state.range]?.cpu || []; $('#cpu-sparkline').innerHTML=points.length ? sparkline(points) : '<text x="180" y="42" text-anchor="middle" fill="#4f6878" font-size="10">NO HISTORY EVIDENCE</text>'; setText('chart-note', points.length ? `${state.range.toUpperCase()} · ${points.length} bounded points · source timestamps retained` : `History ${state.range} is unavailable until the adapter provides time-series points.`); }
-function sparkline(points){ const values=points.map(point=>Number(point.value)).filter(Number.isFinite); if(!values.length) return ''; const min=Math.min(...values), max=Math.max(...values), range=Math.max(max-min,1); const coords=values.map((value,index)=>`${(index/(values.length-1||1))*360},${68-((value-min)/range)*56}`).join(' '); return `<polyline points="${coords}" fill="none" stroke="#6ee4d0" stroke-width="2"/><polyline points="0,76 ${coords} 360,76" fill="#2fb8aa" fill-opacity=".08" stroke="none"/>`; }
+function renderTasks(snapshot){
+  const evidence = snapshot.tasksEvidence;
+  const validity = evidence ? evidence.validity : 'unknown';
+  const badge = $('#tasks-validity'); badge.textContent = stateLabel(validity); badge.className = `panel-status ${tone(validity)}`;
+  setText('tasks-evidence', evidenceLine(evidence));
+  const container = $('#task-buckets');
+  if(validity === 'unavailable' || validity === 'unknown'){
+    container.innerHTML = `<div class="empty-state compact"><span>⌁</span><strong>Task queue ${esc(validity)}</strong><small>${esc(evidence && evidence.reason ? evidence.reason : 'No evidence received from HIVE Core.')}</small></div>`;
+    return;
+  }
+  container.innerHTML = TASK_BUCKETS.map(bucket => {
+    const items = snapshot.tasks.filter(task => task.status === bucket);
+    const rows = items.length
+      ? items.map(task => `<div class="task-row"><strong>${esc(task.title)}</strong><small>${esc(task.id)} · ${esc(task.project_id || 'unassigned')} · ${esc(task.worker || 'auto')} · ${esc(task.raw_status || task.status)}</small></div>`).join('')
+      : `<div class="task-row empty">No ${esc(BUCKET_LABELS[bucket].toLowerCase())} tasks.</div>`;
+    return `<div class="bucket-column"><div class="bucket-heading">${esc(BUCKET_LABELS[bucket])} <b>${items.length}</b></div>${rows}</div>`;
+  }).join('');
+}
 
-function renderComponents(snapshot){ const query=state.query.toLowerCase(); const list=snapshot.components.filter(component=>(state.status==='all'||component.status===state.status)&&(!query||`${component.name} ${component.role} ${component.project}`.toLowerCase().includes(query))); $('#component-list').innerHTML=list.length ? list.map(component=>`<div class="component-row" data-component-id="${esc(component.id)}"><i class="component-state ${tone(component.status)}"></i><div class="component-main"><strong>${esc(component.name)}</strong><small>${esc(component.project||'unassigned')} · ${esc(component.role||component.type||'component')} · heartbeat ${age(component.heartbeat_at)} ago</small></div><span class="component-badge">${esc(stateLabel(component.status))}</span></div>`).join('') : `<div class="empty-state"><span>⌕</span><strong>No matching components</strong><small>Change the filter or wait for a new snapshot.</small></div>`; $$('.component-row').forEach(row=>row.addEventListener('click',()=>openDetail(row.dataset.componentId))); }
+function renderAdapters(snapshot){
+  const adapters = snapshot.adapters || {};
+  const ids = Object.keys(adapters);
+  const container = $('#adapter-cards');
+  if(!ids.length){ container.innerHTML = '<div class="empty-state compact"><span>⌁</span><strong>No adapter evidence</strong><small>The adapter has not reported any adapter health records.</small></div>'; return; }
+  container.innerHTML = ids.map(id => {
+    const info = adapters[id] || {};
+    return `<div class="adapter-card"><div class="adapter-card-heading"><strong>${esc(id.toUpperCase())}</strong><span class="source-state ${tone(info.validity)}">${esc(stateLabel(info.validity))}</span></div>
+      <div class="adapter-field"><span>Configured</span><strong>${info.configured ? 'YES' : 'NO'}</strong></div>
+      <div class="adapter-field"><span>Authenticated</span><strong>${info.authenticated ? 'YES' : 'NO'}</strong></div>
+      <div class="adapter-field"><span>Reachable</span><strong>${info.reachable ? 'YES' : 'NO'}</strong></div>
+      <div class="adapter-field"><span>Last observed</span><strong>${info.last_observed_at ? age(info.last_observed_at) + ' ago' : '—'}</strong></div>
+      <div class="adapter-reason">${esc(info.reason || 'No reason supplied.')}</div>
+    </div>`;
+  }).join('');
+}
+
 function renderEvents(snapshot){ $('#event-list').innerHTML=snapshot.events.length ? snapshot.events.slice(0,8).map(event=>`<div class="event-row"><time>${isoTime(event.timestamp)}</time><i class="event-marker ${tone(event.severity)}"></i><div class="event-copy"><strong>${esc(event.title||event.kind||'Observed event')}</strong><small>${esc(event.source||'unknown source')} · ${esc(event.component_id||event.project_id||'unscoped')} · ${age(event.timestamp)} ago</small></div></div>`).join('') : '<div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div>'; }
-function renderSources(snapshot){ const beszel=snapshot.capabilities.beszel || {}; setText('beszel-source-state',beszel.configured ? `v${beszel.version||'unknown'} · ${beszel.host||'read-only'}` : 'Not configured'); const dot=$('#beszel-source-dot'); dot.textContent=beszel.configured?'READY':'UNKNOWN'; dot.className=`source-state ${beszel.configured?'':'unknown'}`; setText('hive-source-state',snapshot.core.observed_at ? `health observed ${age(snapshot.core.observed_at)} ago` : 'Application health required'); const hive=$('#hive-source-dot'); hive.textContent=stateLabel(snapshot.core.status); hive.className=`source-state ${tone(snapshot.core.status)==='ok'?'':'unknown'}`; }
-function renderTargets(snapshot){ const project=$('#delegate-project'), worker=$('#delegate-worker'); if(!project||!worker)return; const projects=snapshot.projects.length?snapshot.projects:[{id:'',name:'Unassigned / Core'},{id:'seed',name:'SEED (adapter mapping required)'},{id:'creator-ops',name:'CREATOR OPS (adapter mapping required)'}]; const oldProject=project.value; project.innerHTML=projects.map(item=>`<option value="${esc(item.id||'')}">${esc(item.name||item.id||'Unassigned / Core')}</option>`).join(''); if([...project.options].some(option=>option.value===oldProject)) project.value=oldProject; const workers=snapshot.workers.filter(item=>item.id||item.worker_id); const oldWorker=worker.value; worker.innerHTML='<option value="">AUTO · Governor decides</option>'+workers.map(item=>{const id=item.id||item.worker_id; return `<option value="${esc(id)}">${esc(item.name||item.provider||id)}${item.model?' · '+esc(item.model):''}</option>`}).join(''); if([...worker.options].some(option=>option.value===oldWorker)) worker.value=oldWorker; }
+
+function renderTargets(snapshot){
+  const project=$('#delegate-project'), worker=$('#delegate-worker'); if(!project||!worker)return;
+  const projects = (snapshot.projects && snapshot.projects.length) ? snapshot.projects : [];
+  const oldProject=project.value;
+  project.innerHTML = '<option value="">Unassigned / Core</option>' + projects.map(item=>`<option value="${esc(item.id||'')}">${esc(item.name||item.id||'Unnamed project')}</option>`).join('');
+  if([...project.options].some(option=>option.value===oldProject)) project.value=oldProject;
+  const workers = snapshot.workers.filter(item=>item.id);
+  const oldWorker=worker.value;
+  worker.innerHTML = '<option value="">AUTO · Governor decides</option>' + workers.map(item=>`<option value="${esc(item.id)}">${esc(item.name||item.provider||item.id)}${item.model?' · '+esc(item.model):''}</option>`).join('');
+  if([...worker.options].some(option=>option.value===oldWorker)) worker.value=oldWorker;
+}
+
 function renderView(){
-  const delegate=$('#delegate-view');
-  const surfaces=['.page-heading','.metric-strip','.overview-grid','.lower-grid','.source-row'];
-  const showAll=state.view==='overview';
-  const showSystems=state.view==='systems';
-  const showWorkspace=state.view==='workspace' || state.view==='incidents';
-  $$('.page-heading,.metric-strip,.overview-grid,.lower-grid,.source-row').forEach(node=>{ node.hidden=state.view==='diagnostics' || state.view==='delegate' || (!showAll && !((showSystems && ['page-heading','metric-strip','overview-grid'].some(name=>node.classList.contains(name))) || (showWorkspace && ['page-heading','metric-strip','lower-grid','source-row'].some(name=>node.classList.contains(name))))); });
-  if(delegate) delegate.hidden=state.view!=='delegate';
-  $('#diagnostics-view').hidden=state.view!=='diagnostics';
-  if(state.view==='diagnostics') $('#diagnostics-view').scrollIntoView({block:'start'});
+  $$('[data-views]').forEach(section => {
+    const views = (section.dataset.views || '').split(' ').filter(Boolean);
+    section.hidden = !views.includes(state.view);
+  });
   $$('.nav-item').forEach(item=>item.classList.toggle('active',item.dataset.view===state.view));
 }
 
-function openDetail(id){ const component=(state.snapshot?.components||[]).find(item=>item.id===id); if(!component)return; $('#dialog-title').textContent=component.name; $('#dialog-body').innerHTML=`<div class="dialog-copy"><p><strong>${esc(component.project||'Unassigned')}</strong> · ${esc(component.role||component.type||'component')}</p><p>${esc(component.description||'No component description supplied by the adapter.')}</p></div><div class="detail-grid"><div class="detail-cell"><span>Status</span><strong>${esc(stateLabel(component.status))}</strong></div><div class="detail-cell"><span>Heartbeat</span><strong>${esc(age(component.heartbeat_at))} ago</strong></div><div class="detail-cell"><span>Version</span><strong>${esc(component.version||'unknown')}</strong></div><div class="detail-cell"><span>Capabilities</span><strong>${esc((component.capabilities||[]).join(', ')||'none declared')}</strong></div></div><div class="dialog-copy"><p>Health evidence: <strong>${esc(component.health_evidence||'not supplied')}</strong></p><p>Authorized actions: <strong>${esc((component.authorized_actions||[]).join(', ')||'none')}</strong></p></div>`; const dialog=$('#component-dialog'); if(!dialog.open) dialog.showModal(); }
-async function submitDelegation(event){ event.preventDefault(); const form=event.currentTarget, status=$('#delegate-status'), button=form.querySelector('button[type="submit"]'); const mode=$('#delegate-mode').value, prompt=$('#delegate-prompt').value.trim(), project=$('#delegate-project').value||null, worker=$('#delegate-worker').value||null, taskType=$('#delegate-type').value||null, localOnly=$('#delegate-local').checked; if(prompt.length<8){status.textContent='Goal must contain at least 8 characters.';return;} if(!$('#delegate-confirm').checked){status.textContent='Confirmation is required before submission.';return;} button.disabled=true; status.textContent=demoMode?'Demo mode: request not sent.':'Submitting to HIVE Core…'; if(demoMode){button.disabled=false;return;} try{ const response=await fetch('/api/control/dispatch',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({mode,goal:prompt,project_id:project,preferred_worker:worker,task_type:taskType,local_only:localOnly,confirm:true})}); const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data.detail||`Core rejected request (HTTP ${response.status})`); status.textContent=`Accepted by Core: ${data.kind||mode} ${data.id||'queued'} · ${data.status||'submitted'}`; form.reset(); $('#delegate-project').value=project||''; }catch(error){status.textContent=`Not submitted: ${error.message}`;}finally{button.disabled=false;} }
+async function submitDelegation(event){
+  event.preventDefault();
+  const form=event.currentTarget, status=$('#delegate-status'), button=form.querySelector('button[type="submit"]');
+  const prompt=$('#delegate-prompt').value.trim(), project=$('#delegate-project').value||null, worker=$('#delegate-worker').value||null, taskType=$('#delegate-type').value||null, localOnly=$('#delegate-local').checked;
+  if(prompt.length<8){status.textContent='Proposal goal must contain at least 8 characters.';return;}
+  if(!$('#delegate-confirm').checked){status.textContent='Confirmation is required before submission.';return;}
+  button.disabled=true; status.textContent=demoMode?'Demo mode: request not sent.':'Submitting proposal to HIVE Core…';
+  if(demoMode){button.disabled=false;return;}
+  try{
+    const response=await fetch('/api/control/dispatch',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({mode:'proposal',goal:prompt,project_id:project,preferred_worker:worker,task_type:taskType,local_only:localOnly,confirm:true})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.detail||`Core rejected request (HTTP ${response.status})`);
+    status.textContent=`Accepted by Core: proposal ${data.id||'queued'} · ${data.status||'submitted'}`;
+    form.reset(); $('#delegate-project').value=project||'';
+  }catch(error){status.textContent=`Not submitted: ${error.message}`;}
+  finally{button.disabled=false;}
+}
 
-function demoSnapshot(){ const received=new Date().toISOString(); const agoSeconds=seconds=>new Date(Date.now()-seconds*1000).toISOString(); return {received_at:received,environment:'LOCAL / DEMO FIXTURE',core:{status:'working',observed_at:agoSeconds(4),reason:'Application health payload accepted · fixture only'},metrics:{cpu:{value:42,unit:'%',source:'beszel',observed_at:agoSeconds(12),validity:'valid'},memory:{value:58,unit:'%',source:'beszel',observed_at:agoSeconds(12),validity:'valid'},gpu:{value:null,unit:'%',source:'beszel',observed_at:agoSeconds(12),validity:'unavailable',reason:'GPU sensor not exposed by current agent'},disk:{value:71,unit:'%',source:'beszel',observed_at:agoSeconds(12),validity:'valid'},network:{value:34,unit:'%',source:'beszel',observed_at:agoSeconds(12),validity:'valid'}},components:[{id:'core',name:'HIVE Core',project:'HIVE',role:'orchestrator',status:'working',heartbeat_at:agoSeconds(4),version:'v0.3',capabilities:['health','events'],health_evidence:'GET /health returned application payload'},{id:'seed',name:'SEED',project:'SEED',role:'build / test',status:'working',heartbeat_at:agoSeconds(18),version:'candidate',capabilities:['build','review'],health_evidence:'task event received'},{id:'creator',name:'CREATOR OPS',project:'CREATOR OPS',role:'media pipeline',status:'waiting',heartbeat_at:agoSeconds(48),version:'v0.5',capabilities:['media-state'],health_evidence:'last heartbeat retained'},{id:'uatu',name:'UATU',project:'HIVE',role:'observer',status:'working',heartbeat_at:agoSeconds(26),version:'read-only',capabilities:['observe'],health_evidence:'observation event received'},{id:'beszel',name:'Beszel hub',project:'INFRA',role:'monitoring',status:'waiting',heartbeat_at:agoSeconds(12),version:'0.21.1',capabilities:['metrics','history'],health_evidence:'PocketBase snapshot accepted'}],events:[{timestamp:agoSeconds(5),kind:'TASK_ROUTED',title:'Task routed to SEED',source:'HIVE event bus',component_id:'seed',severity:'info'},{timestamp:agoSeconds(19),kind:'HEALTH_OBSERVED',title:'Beszel snapshot received',source:'Beszel adapter',component_id:'beszel',severity:'info'},{timestamp:agoSeconds(42),kind:'REVIEW_BLOCKED',title:'Review waiting for approval',source:'Governor audit',component_id:'core',severity:'warning'}],incidents:[{id:'inc-1',title:'Approval gate waiting',severity:'warning'}],history:{'1h':{cpu:[{value:34},{value:40},{value:38},{value:44},{value:42},{value:48},{value:42}]},'24h':{cpu:[{value:29},{value:37},{value:31},{value:45},{value:40},{value:52},{value:42}]},'7d':{cpu:[{value:24},{value:32},{value:28},{value:46},{value:39},{value:50},{value:42}]}},capabilities:{beszel:{configured:true,version:'0.21.1',host:'read-only adapter'}}}; }
+function demoSnapshot(){
+  const received=new Date().toISOString(); const agoSeconds=seconds=>new Date(Date.now()-seconds*1000).toISOString();
+  return {
+    received_at: received,
+    environment: 'LOCAL / DEMO FIXTURE',
+    core: {status:'running', observed_at:agoSeconds(4), reason:'Application health payload accepted · fixture only'},
+    metrics: {
+      cpu:{value:42,unit:'%',source:'hive',observed_at:agoSeconds(12),validity:'valid'},
+      memory:{value:58,unit:'%',source:'hive',observed_at:agoSeconds(12),validity:'valid'},
+      disk:{value:71,unit:'%',source:'hive',observed_at:agoSeconds(12),validity:'valid'}
+    },
+    adapters: {
+      hive:{configured:true,authenticated:true,reachable:true,last_observed_at:agoSeconds(4),validity:'valid',reason:'HIVE Core /health responded · fixture only'},
+      beszel:{configured:false,authenticated:false,reachable:false,last_observed_at:null,validity:'unknown',reason:'Beszel integration is not implemented in this MVP; deferred'}
+    },
+    projects: {items:[{id:'seed',name:'SEED',status:'active',description:'Build / test pipeline',protected:false},{id:'creator-ops',name:'CREATOR OPS',status:'waiting',description:'Media pipeline',protected:true}], evidence:{source:'hive:/projects',observed_at:agoSeconds(4),validity:'valid',reason:null}},
+    tasks: {items:[{id:'t-1',title:'Review PR #42',status:'active',raw_status:'running',project_id:'seed',worker:'codex',created_at:agoSeconds(300)},{id:'t-2',title:'Draft proposal: cache layer',status:'queued',raw_status:'pending',project_id:'creator-ops',worker:null,created_at:agoSeconds(900)},{id:'t-3',title:'Build fixture data',status:'completed',raw_status:'done',project_id:'seed',worker:'deterministic',created_at:agoSeconds(1800)}], evidence:{source:'hive:/tasks',observed_at:agoSeconds(4),validity:'valid',reason:null}},
+    workers: [{id:'deterministic',name:'Deterministic worker',provider:'local',model:'n/a',status:'idle'}],
+    events: [{timestamp:agoSeconds(5),kind:'TASK_ROUTED',title:'Task routed to SEED',source:'HIVE event bus',component_id:'seed',severity:'info'},{timestamp:agoSeconds(42),kind:'REVIEW_BLOCKED',title:'Review waiting for approval',source:'Governor audit',component_id:'core',severity:'warning'}],
+    topology: {status:'deferred', reason:'Topology visualization is deferred for this MVP · fixture only.'}
+  };
+}
 
-$$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.view=item.dataset.view; $('#detail-view').hidden=true; render();}));
-$$('[data-view-target]').forEach(item=>item.addEventListener('click',()=>{state.view=item.dataset.viewTarget; render();}));
-$('#delegate-button').addEventListener('click',()=>{state.view='delegate'; $('#detail-view').hidden=true; render();}); $('#delegate-form').addEventListener('submit',submitDelegation); $('#refresh-button').addEventListener('click',load); $('#reduced-motion').addEventListener('click',()=>{state.reduced=!state.reduced; localStorage.setItem('hive.dashboard.preferences.v1',state.reduced?'reduced':'full'); $('#reduced-motion').setAttribute('aria-pressed',String(state.reduced)); render();}); $('#close-detail').addEventListener('click',()=>{$('#detail-view').hidden=true;}); $('#dialog-close').addEventListener('click',()=>$('#component-dialog').close()); $('#component-search').addEventListener('input',event=>{state.query=event.target.value; renderComponents(state.snapshot||normalize(null));}); $('#status-filter').addEventListener('change',event=>{state.status=event.target.value; renderComponents(state.snapshot||normalize(null));}); $$('.range').forEach(button=>button.addEventListener('click',()=>{state.range=button.dataset.range; $$('.range').forEach(item=>item.classList.toggle('active',item===button)); renderPressure(state.snapshot||normalize(null));}));
-$('#reduced-motion').setAttribute('aria-pressed',String(state.reduced)); load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);
+$$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.view=item.dataset.view; render();}));
+$('#delegate-button').addEventListener('click',()=>{state.view='proposals'; render();});
+$('#delegate-form').addEventListener('submit',submitDelegation);
+$('#refresh-button').addEventListener('click',load);
+$('#reduced-motion').addEventListener('click',()=>{state.reduced=!state.reduced; localStorage.setItem('hive.dashboard.preferences.v1',state.reduced?'reduced':'full'); $('#reduced-motion').setAttribute('aria-pressed',String(state.reduced)); render();});
+$('#reduced-motion').setAttribute('aria-pressed',String(state.reduced));
+load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);

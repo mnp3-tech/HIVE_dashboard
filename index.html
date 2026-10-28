@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#071019">
-  <title>HIVE // Beszel observability</title>
+  <title>Unified Dashboard // HIVE</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -12,21 +12,21 @@
     <aside class="sidebar" aria-label="Primary navigation">
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
-        <div><strong>HIVE</strong><small>OBSERVABILITY / E3</small></div>
+        <div><strong>HIVE</strong><small>UNIFIED DASHBOARD / MVP</small></div>
       </div>
       <div class="sidebar-label">CONTROL SURFACES</div>
       <nav id="primary-nav">
         <button class="nav-item active" data-view="overview"><span>◈</span>Overview</button>
-        <button class="nav-item" data-view="systems"><span>⌁</span>Systems</button>
-        <button class="nav-item" data-view="workspace"><span>▦</span>Workspace</button>
-        <button class="nav-item" data-view="incidents"><span>!</span>Incidents <b id="incident-count">0</b></button>
-        <button class="nav-item" data-view="diagnostics"><span>⌘</span>Diagnostics</button>
+        <button class="nav-item" data-view="projects"><span>▦</span>Projects</button>
+        <button class="nav-item" data-view="tasks"><span>☰</span>Tasks</button>
+        <button class="nav-item" data-view="adapters"><span>⌁</span>Adapters</button>
+        <button class="nav-item" data-view="proposals"><span>✎</span>Proposals</button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-foot">
         <div class="connection-line"><i id="connection-dot"></i><span id="connection-label">Adapter offline</span></div>
         <small>READ-ONLY MONITORING PLANE</small>
-        <small>HIVE CORE AUTHORITY REMAINS SEPARATE</small>
+        <small>PROPOSAL-ONLY · NO APPLY / DEPLOY / PROMOTE</small>
       </div>
     </aside>
 
@@ -37,98 +37,78 @@
           <span class="top-tag" id="environment-tag">LOCAL / UNVERIFIED</span>
           <span class="top-tag" id="freshness-tag">DATA AGE —</span>
           <button class="icon-button" id="reduced-motion" title="Toggle reduced motion" aria-pressed="false">◌</button>
-          <button class="button delegate-trigger" id="delegate-button">Delegate work <span>↗</span></button>
+          <button class="button delegate-trigger" id="delegate-button">Draft proposal <span>↗</span></button>
           <button class="button quiet" id="refresh-button">Refresh <span>↻</span></button>
         </div>
       </header>
 
       <main>
         <div class="demo-banner" id="demo-banner" hidden><span>VISUAL QA MODE</span> Synthetic fixture data is shown. Disable <code>?demo=1</code> for live adapter mode.</div>
-        <section class="page-heading">
+        <section class="page-heading" data-views="overview projects tasks adapters">
           <div>
-            <p class="eyebrow">HIVE / SYSTEM OBSERVABILITY</p>
-            <h1>One machine. <span>Many signals.</span></h1>
-            <p class="lede">A read-only operating picture for HIVE Core, Beszel, SEED and CREATOR OPS.</p>
+            <p class="eyebrow">HIVE / UNIFIED DASHBOARD</p>
+            <h1>One machine. <span>Bounded evidence.</span></h1>
+            <p class="lede">A read-only, proposal-only operating picture for HIVE Core: project catalog, task queue, and adapter health. Nothing here applies, deploys, promotes, or replaces anything.</p>
           </div>
           <div class="heading-state"><span class="status-dot unknown" id="core-dot"></span><div><strong id="core-state">UNKNOWN</strong><small id="core-state-detail">Waiting for an application health payload</small></div></div>
         </section>
 
-        <section class="metric-strip" aria-label="Summary metrics">
+        <section class="metric-strip" aria-label="Summary metrics" data-views="overview">
           <article class="metric-card"><div class="metric-label">CORE HEALTH <span class="source-pill">HIVE</span></div><strong id="metric-core">—</strong><small id="metric-core-detail">No health evidence</small></article>
-          <article class="metric-card"><div class="metric-label">HOST CPU <span class="source-pill">BESZEL</span></div><strong id="metric-cpu">—</strong><small id="metric-cpu-detail">unavailable</small></article>
-          <article class="metric-card"><div class="metric-label">MEMORY <span class="source-pill">BESZEL</span></div><strong id="metric-memory">—</strong><small id="metric-memory-detail">unavailable</small></article>
-          <article class="metric-card"><div class="metric-label">ACTIVE WORK <span class="source-pill">EVENT BUS</span></div><strong id="metric-work">—</strong><small id="metric-work-detail">No live event evidence</small></article>
-          <article class="metric-card alert-card"><div class="metric-label">INCIDENTS <span class="source-pill">CORRELATED</span></div><strong id="metric-incidents">—</strong><small id="metric-incidents-detail">No incident feed</small></article>
+          <article class="metric-card"><div class="metric-label">HOST CPU <span class="source-pill">HIVE</span></div><strong id="metric-cpu">—</strong><small id="metric-cpu-detail">unavailable</small></article>
+          <article class="metric-card"><div class="metric-label">MEMORY <span class="source-pill">HIVE</span></div><strong id="metric-memory">—</strong><small id="metric-memory-detail">unavailable</small></article>
+          <article class="metric-card"><div class="metric-label">DISK <span class="source-pill">HIVE</span></div><strong id="metric-disk">—</strong><small id="metric-disk-detail">unavailable</small></article>
         </section>
 
-        <section class="overview-grid">
-          <article class="panel topology-panel" id="topology-panel">
-            <div class="panel-heading"><div><p class="eyebrow">LIVE TOPOLOGY</p><h2>HIVE Core and connected surfaces</h2></div><span class="panel-status" id="topology-status">DATA UNAVAILABLE</span></div>
-            <div class="topology-stage" id="topology-stage">
-              <div class="topology-empty" id="topology-empty"><span class="empty-glyph">◌</span><strong>No topology evidence</strong><small>The adapter must return components and timestamped events before activity is rendered.</small></div>
-              <svg id="topology-svg" viewBox="0 0 860 420" role="img" aria-label="HIVE Core topology"></svg>
-            </div>
-            <div class="legend"><span><i class="legend-core"></i>HIVE Core</span><span><i class="legend-agent"></i>Component</span><span><i class="legend-event"></i>Observed event</span><span><i class="legend-boundary"></i>External resource</span></div>
-          </article>
-
-          <article class="panel pressure-panel">
-            <div class="panel-heading"><div><p class="eyebrow">HOST PRESSURE</p><h2>System resources</h2></div><button class="text-button" data-view-target="systems">Inspect →</button></div>
-            <div class="pressure-list" id="pressure-list"><div class="unavailable-card">Waiting for Beszel snapshot…</div></div>
-            <div class="chart-heading"><span>CPU HISTORY</span><div class="range-buttons"><button class="range active" data-range="1h">1H</button><button class="range" data-range="24h">24H</button><button class="range" data-range="7d">7D</button></div></div>
-            <svg class="sparkline" id="cpu-sparkline" viewBox="0 0 360 76" preserveAspectRatio="none" aria-label="CPU history"></svg>
-            <div class="chart-note" id="chart-note">History is unavailable until the adapter provides time-series points.</div>
-          </article>
+        <section class="panel deferred-panel" id="topology-deferred" data-views="overview">
+          <div class="panel-heading"><div><p class="eyebrow">TOPOLOGY VISUALIZATION</p><h2>Deferred for this MVP</h2></div><span class="panel-status deferred">DEFERRED</span></div>
+          <div class="deferred-copy">
+            <p id="topology-deferred-reason">Topology visualization is deferred for this MVP; no graph or event-derived topology is computed.</p>
+            <p>Use <strong>Projects</strong>, <strong>Tasks</strong>, and <strong>Adapters</strong> for the current bounded operating picture.</p>
+          </div>
         </section>
 
-        <section class="lower-grid">
-          <article class="panel workspace-panel">
-            <div class="panel-heading"><div><p class="eyebrow">PROJECT WORKSPACE</p><h2>Execution and review</h2></div><button class="text-button" data-view-target="workspace">Open ledger →</button></div>
-            <div class="filter-row"><div class="search-box"><span>⌕</span><input id="component-search" type="search" placeholder="Filter components, projects, roles…" aria-label="Filter components"></div><select id="status-filter" aria-label="Filter status"><option value="all">All states</option><option value="working">Working</option><option value="waiting">Waiting</option><option value="blocked">Blocked</option><option value="offline">Offline</option></select></div>
-            <div class="component-list" id="component-list"><div class="empty-state"><span>▱</span><strong>No components received</strong><small>Live component health will appear here when the HIVE adapter is connected.</small></div></div>
-          </article>
-          <article class="panel activity-panel">
-            <div class="panel-heading"><div><p class="eyebrow">EVIDENCE STREAM</p><h2>Recent events</h2></div><span class="source-pill">TTL / DEDUPED</span></div>
-            <div class="event-list" id="event-list"><div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div></div>
-          </article>
+        <section class="panel catalog-panel" id="projects-panel" data-views="overview projects">
+          <div class="panel-heading"><div><p class="eyebrow">PROJECT CATALOG</p><h2>Projects known to HIVE Core</h2></div><span class="panel-status" id="projects-validity">UNKNOWN</span></div>
+          <div class="evidence-line" id="projects-evidence">Waiting for first snapshot…</div>
+          <div class="catalog-list" id="project-list"><div class="empty-state compact"><span>▱</span><strong>No projects received</strong><small>The project catalog will appear here once the adapter returns evidence.</small></div></div>
         </section>
 
-        <section class="source-row">
-          <article class="source-card"><div class="source-icon beszel">B</div><div><strong>Beszel adapter</strong><small id="beszel-source-state">Not configured</small></div><span class="source-state unknown" id="beszel-source-dot">UNKNOWN</span></article>
-          <article class="source-card"><div class="source-icon hive">H</div><div><strong>HIVE Core</strong><small id="hive-source-state">Application health required</small></div><span class="source-state unknown" id="hive-source-dot">UNKNOWN</span></article>
-          <article class="source-card"><div class="source-icon ai">⌘</div><div><strong>Diagnostic provider</strong><small id="diagnostic-source-state">No provider configured</small></div><span class="source-state muted">OPTIONAL</span></article>
+        <section class="panel queue-panel" id="tasks-panel" data-views="overview tasks">
+          <div class="panel-heading"><div><p class="eyebrow">TASK QUEUE</p><h2>Queued, active, completed, and blocked tasks</h2></div><span class="panel-status" id="tasks-validity">UNKNOWN</span></div>
+          <div class="evidence-line" id="tasks-evidence">Waiting for first snapshot…</div>
+          <div class="bucket-grid" id="task-buckets"></div>
         </section>
 
-        <section class="detail-view panel" id="detail-view" hidden>
-          <div class="panel-heading"><div><p class="eyebrow">COMPONENT DETAIL</p><h2 id="detail-title">—</h2></div><button class="button quiet" id="close-detail">Close ×</button></div>
-          <div class="detail-grid" id="detail-content"></div>
+        <section class="panel adapters-panel" id="adapters-panel" data-views="overview adapters">
+          <div class="panel-heading"><div><p class="eyebrow">ADAPTER HEALTH</p><h2>Configured, authenticated, reachable</h2></div><span class="panel-status">PER-ADAPTER EVIDENCE</span></div>
+          <div class="adapter-grid" id="adapter-cards"></div>
         </section>
 
-        <section class="diagnostics-view panel" id="diagnostics-view" hidden>
-          <div class="panel-heading"><div><p class="eyebrow">DIAGNOSTICS</p><h2>Provider boundary</h2></div><span class="panel-status">READ-ONLY</span></div>
-          <div class="diagnostic-copy"><strong>Monitoring does not depend on AI.</strong><p>A diagnostic provider may receive a redacted snapshot and bounded event window, but it cannot restart services, call shell commands, or bypass Governor policy. Delegation goes through HIVE Core; this dashboard never calls GPT or Claude directly.</p><div class="diagnostic-grid"><div><span>Provider route</span><strong id="diagnostic-provider">CORE REGISTRY</strong></div><div><span>Cloud fallback</span><strong>DISABLED</strong></div><div><span>Mutation authority</span><strong>NONE</strong></div></div></div>
+        <section class="panel activity-panel" id="events-panel" data-views="overview">
+          <div class="panel-heading"><div><p class="eyebrow">EVIDENCE STREAM</p><h2>Recent events</h2></div><span class="source-pill">TTL / DEDUPED</span></div>
+          <div class="event-list" id="event-list"><div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div></div>
         </section>
 
-        <section class="delegate-view panel" id="delegate-view" hidden>
-          <div class="panel-heading"><div><p class="eyebrow">CONTROLLED DELEGATION</p><h2>Send work through HIVE Core</h2></div><span class="panel-status">GOVERNOR / AUDITED</span></div>
+        <section class="delegate-view panel" id="delegate-view" hidden data-views="proposals">
+          <div class="panel-heading"><div><p class="eyebrow">PROPOSAL-ONLY ACTIONS</p><h2>Draft a proposal for HIVE Core</h2></div><span class="panel-status">GOVERNOR / AUDITED</span></div>
           <form class="delegate-form" id="delegate-form">
-            <div class="delegate-intro"><strong>Core remains the execution authority.</strong><p>Choose a project and optional worker preference. The request is sent only after confirmation, receives an idempotency key, and is subject to HIVE authorization and Governor policy. Self-upgrade is limited to a proposal task; no deployment or replacement is exposed here.</p></div>
+            <div class="delegate-intro"><strong>This dashboard cannot apply, deploy, promote, or roll back anything.</strong><p>Submitting here only creates an immutable proposal task in HIVE Core's own queue. Core remains the sole execution authority, and the request is sent only after explicit confirmation, with an idempotency key, and only when HIVE Core reachability evidence is present. Credentials never leave the server process.</p></div>
             <div class="delegate-grid">
-              <label>Request type<select id="delegate-mode"><option value="task">Single task</option><option value="mission">Mission / multi-step</option><option value="evolution-proposal">Self-upgrade proposal (no apply)</option></select></label>
               <label>Target project<select id="delegate-project"><option value="">Unassigned / Core</option></select></label>
               <label>Worker preference<select id="delegate-worker"><option value="">AUTO · Governor decides</option></select></label>
-              <label>Task type<select id="delegate-type"><option value="">Auto classify</option><option>GENERAL</option><option>CODING</option><option>CODE_REVIEW</option><option>ANALYSIS</option><option>PROJECT_TASK</option><option>EVOLUTION_TASK</option><option>RESEARCH</option></select></label>
-              <label class="wide-field">Goal or request<textarea id="delegate-prompt" maxlength="8000" minlength="8" required placeholder="Describe the bounded work HIVE should route…"></textarea></label>
+              <label>Task type<select id="delegate-type"><option value="EVOLUTION_TASK">Proposal (default)</option><option value="GENERAL">GENERAL</option><option value="ANALYSIS">ANALYSIS</option><option value="PROJECT_TASK">PROJECT_TASK</option><option value="RESEARCH">RESEARCH</option></select></label>
+              <label class="wide-field">Proposal goal<textarea id="delegate-prompt" maxlength="8000" minlength="8" required placeholder="Describe the bounded proposal HIVE should queue for review…"></textarea></label>
               <label class="check-field"><input id="delegate-local" type="checkbox"> Local-only routing</label>
-              <label class="check-field"><input id="delegate-confirm" type="checkbox" required> I understand this submits an audited request to HIVE Core</label>
+              <label class="check-field"><input id="delegate-confirm" type="checkbox" required> I understand this only drafts a proposal; it cannot apply, deploy, promote, or roll back anything</label>
             </div>
-            <div class="delegate-actions"><span id="delegate-status" role="status">Not submitted.</span><button type="submit" class="button primary-action">Submit to Core <span>↗</span></button></div>
+            <div class="delegate-actions"><span id="delegate-status" role="status">Not submitted.</span><button type="submit" class="button primary-action">Submit proposal <span>↗</span></button></div>
           </form>
         </section>
       </main>
-      <footer><span>HIVE / BESZEL PROTOTYPE</span><span>LOCAL BY DEFAULT · NO TELEMETRY UPLOAD</span><span id="footer-version">ADAPTER CONTRACT v0.1</span></footer>
+      <footer><span>HIVE / UNIFIED DASHBOARD MVP</span><span>LOCAL BY DEFAULT · NO TELEMETRY UPLOAD</span><span id="footer-version">ADAPTER CONTRACT v0.2</span></footer>
     </div>
   </div>
-  <dialog id="component-dialog"><div class="dialog-heading"><div><p class="eyebrow">COMPONENT EVIDENCE</p><h2 id="dialog-title">—</h2></div><button class="icon-button" id="dialog-close">×</button></div><div id="dialog-body"></div></dialog>
   <script src="app.js" defer></script>
 </body>
 </html>

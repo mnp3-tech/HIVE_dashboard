@@ -1,21 +1,46 @@
 {
-  "received_at": "2026-10-24T10:00:00Z",
-  "environment": "LOCAL / UNVERIFIED",
+  "received_at": "2026-10-28T10:00:00Z",
+  "environment": "LOCAL / HIVE CORE",
   "core": {
     "status": "unknown",
     "observed_at": null,
     "reason": "Application health payload required"
   },
   "metrics": {
-    "cpu": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "not configured"},
-    "memory": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "not configured"},
-    "gpu": {"value": null, "unit": "%", "source": "beszel", "observed_at": null, "validity": "unavailable", "reason": "sensor not exposed"}
+    "cpu": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "not supplied"},
+    "memory": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "not supplied"},
+    "disk": {"value": null, "unit": "%", "source": "hive", "observed_at": null, "validity": "unavailable", "reason": "not supplied"}
   },
-  "components": [],
-  "projects": [],
+  "adapters": {
+    "hive": {
+      "configured": true,
+      "authenticated": false,
+      "reachable": false,
+      "last_observed_at": null,
+      "validity": "unavailable",
+      "reason": "HIVE Core is unavailable: [Errno 111] Connection refused"
+    },
+    "beszel": {
+      "configured": false,
+      "authenticated": false,
+      "reachable": false,
+      "last_observed_at": null,
+      "validity": "unknown",
+      "reason": "Beszel integration is not implemented in this MVP; deferred"
+    }
+  },
+  "projects": {
+    "items": [],
+    "evidence": {"source": "hive:/projects", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable"}
+  },
+  "tasks": {
+    "items": [],
+    "evidence": {"source": "hive:/tasks", "observed_at": null, "validity": "unavailable", "reason": "HIVE Core is unavailable"}
+  },
   "workers": [],
   "events": [],
-  "incidents": [],
-  "history": {},
-  "capabilities": {"hive": {"configured": false, "authenticated": false}, "beszel": {"configured": false}}
+  "topology": {
+    "status": "deferred",
+    "reason": "Topology visualization is deferred for this MVP; no graph or event-derived topology is computed."
+  }
 }
