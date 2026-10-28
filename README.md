@@ -50,6 +50,18 @@ $env:HIVE_API_TOKEN = (Get-Content 'C:\HIVE\runtime\api-token' -Raw).Trim()
 .\start.ps1
 ```
 
+`HIVE_CORE_URL` must resolve to a loopback address (`127.0.0.1`, `::1`, or
+`localhost`); the adapter refuses to start otherwise, and `core_json()` refuses every
+individual request to a non-loopback target as a second, independent check. `--bind`
+is checked the same way.
+
+Only set `HIVE_API_TOKEN` if you also have a real HIVE Core token. Additionally, only
+set `$env:HIVE_HEALTH_REQUIRES_AUTH = 'true'` if you have independently verified that
+*this* HIVE Core deployment's `/health` route requires and validates that bearer
+token — this is what allows `adapters.hive.authenticated` to become `true` on a
+successful call. Leaving it unset is the safe default: a successful `/health` call
+then only ever proves reachability, never authentication.
+
 For visual QA only, use `http://127.0.0.1:4173/?demo=1`. The banner marks fixture mode;
 the default route never fabricates projects, tasks, or adapter health.
 
@@ -94,6 +106,18 @@ remediated here:
   rejected; a `token_configured` field reports the separate, weaker fact that a token
   string is present in the environment — a 401/403 rejection (or any other failure) now
   always reports `authenticated: false`, even when a token is configured.
+
+A follow-up review found that this last fix still fabricated `authenticated: true`
+whenever a token was configured and `/health` happened to return 200 — but a
+successful response does not, by itself, prove `/health` even checks the token (it
+may be a public endpoint). This is fixed: `authenticated` is now `false` by default
+whenever that proof is missing, and `adapters.hive.authentication_validity` reports
+`"unknown"` (distinct from both `token_configured` and from an explicit `401`/`403`
+rejection, which is `"unavailable"`). `authenticated` only becomes `true` if the
+operator sets `HIVE_HEALTH_REQUIRES_AUTH=true` — an explicit, documented statement
+that *this* HIVE Core deployment's `/health` route is known to validate the bearer
+token — and the call still succeeds. Left unset (the default), a successful call
+only ever proves reachability, never authentication.
 
 ## Current evidence and limits
 

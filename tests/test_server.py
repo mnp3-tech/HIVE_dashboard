@@ -405,23 +405,41 @@ class AuthenticatedVsTokenConfiguredTests(unittest.TestCase):
         hive = snap["adapters"]["hive"]
         self.assertTrue(hive["token_configured"])
         self.assertFalse(hive["authenticated"])
+        self.assertEqual(hive["authentication_validity"], "unavailable")
         self.assertFalse(hive["reachable"])
 
-    def test_token_configured_and_call_succeeds_is_authenticated(self):
+    def test_token_configured_and_call_succeeds_is_not_fabricated_authenticated(self):
+        # A successful /health call does not by itself prove the bearer token was
+        # ever checked (the endpoint may require no auth at all), so authenticated
+        # must stay false and be reported as a distinct "unknown" validity rather
+        # than fabricated true merely because a token is configured.
         routes = {"/health": {"status": "ok"}}
-        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "HIVE_HEALTH_REQUIRES_AUTH", False), patch.object(server, "urlopen", fake_urlopen(routes)):
             snap = server.snapshot()
         hive = snap["adapters"]["hive"]
         self.assertTrue(hive["token_configured"])
+        self.assertFalse(hive["authenticated"])
+        self.assertEqual(hive["authentication_validity"], "unknown")
+
+    def test_documented_auth_guaranteed_endpoint_allows_authenticated_true(self):
+        # Only when the operator has explicitly documented that this HIVE Core
+        # deployment's /health route validates the bearer token does a successful
+        # call count as proof of authentication.
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "HIVE_HEALTH_REQUIRES_AUTH", True), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
         self.assertTrue(hive["authenticated"])
+        self.assertEqual(hive["authentication_validity"], "valid")
 
     def test_no_token_is_never_reported_authenticated(self):
         routes = {"/health": {"status": "ok"}}
-        with patch.object(server, "API_TOKEN", ""), patch.object(server, "urlopen", fake_urlopen(routes)):
+        with patch.object(server, "API_TOKEN", ""), patch.object(server, "HIVE_HEALTH_REQUIRES_AUTH", True), patch.object(server, "urlopen", fake_urlopen(routes)):
             snap = server.snapshot()
         hive = snap["adapters"]["hive"]
         self.assertFalse(hive["token_configured"])
         self.assertFalse(hive["authenticated"])
+        self.assertEqual(hive["authentication_validity"], "unavailable")
 
     def test_token_configured_but_unreachable_is_not_reported_authenticated(self):
         routes = {"/health": URLError("refused")}
@@ -430,6 +448,7 @@ class AuthenticatedVsTokenConfiguredTests(unittest.TestCase):
         hive = snap["adapters"]["hive"]
         self.assertTrue(hive["token_configured"])
         self.assertFalse(hive["authenticated"])
+        self.assertEqual(hive["authentication_validity"], "unavailable")
 
 
 if __name__ == "__main__":

@@ -43,6 +43,12 @@ ALLOWED_WORKERS = {"deterministic", "lmstudio", "openrouter_free", "antigravity"
 LOCAL_ONLY_INCOMPATIBLE_WORKERS = {"openrouter_free", "antigravity", "codex"}
 ALLOWED_TASK_TYPES = {"EVOLUTION_TASK", "GENERAL", "ANALYSIS", "PROJECT_TASK", "RESEARCH"}
 MAX_BODY = 12_000
+# A successful /health response does not, by itself, prove the bearer token was
+# checked: /health may be a public endpoint with no auth requirement at all. Operators
+# must explicitly document (and set) this flag only if they have verified that this
+# specific HIVE Core deployment's /health route requires and validates the bearer
+# token. Left unset, authentication is reported as unknown rather than fabricated true.
+HIVE_HEALTH_REQUIRES_AUTH = os.environ.get("HIVE_HEALTH_REQUIRES_AUTH", "").strip().lower() in {"1", "true", "yes"}
 
 STATUS_BUCKETS = {
     "queued": {"queued", "pending", "new", "submitted", "waiting"},
@@ -203,7 +209,16 @@ def worker_registry():
 def adapter_health(health_error: AdapterError | None, status_recognized: bool, observed_at: str, reason: str):
     """status_recognized is True only when a /health call succeeded AND returned a
     status value we recognize; a successful call with a missing/invalid status field
-    is reported as unknown, never fabricated as valid."""
+    is reported as unknown, never fabricated as valid.
+
+    authenticated is fail-closed: a successful /health call does NOT by itself prove
+    the bearer token was checked, because /health may require no authentication at
+    all. authenticated is only ever true when HIVE_HEALTH_REQUIRES_AUTH documents that
+    this specific Core deployment's /health route validates the token. Otherwise
+    authenticated stays false and authentication_validity reports "unknown" (call
+    succeeded but auth was never proven) as distinct from token_configured (merely
+    that a token string is present) and from an explicit 401/403 rejection.
+    """
     beszel_url = os.environ.get("BESZEL_URL", "")
     token_configured = bool(API_TOKEN)
     if health_error is not None:
@@ -215,15 +230,25 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
     else:
         hive_validity = "unknown"
         hive_reachable = True
-    # authenticated reflects a verified credential (token sent and not rejected), not
-    # merely that a token string is configured; any health_error — including an
-    # explicit 401/403 rejection — means authentication was not verified.
-    authenticated = token_configured if health_error is None else False
+
+    if not token_configured:
+        authenticated, auth_validity, auth_reason = False, "unavailable", "No bearer token is configured; nothing to authenticate."
+    elif health_error is not None and health_error.status in (401, 403):
+        authenticated, auth_validity, auth_reason = False, "unavailable", "HIVE Core explicitly rejected the configured bearer token."
+    elif health_error is not None:
+        authenticated, auth_validity, auth_reason = False, "unavailable", "HIVE Core was unreachable; the configured token was never verified."
+    elif HIVE_HEALTH_REQUIRES_AUTH:
+        authenticated, auth_validity, auth_reason = True, "valid", "HIVE_HEALTH_REQUIRES_AUTH documents that /health validates the bearer token, and the call succeeded."
+    else:
+        authenticated, auth_validity, auth_reason = False, "unknown", "A successful /health response does not prove the token was checked (HIVE_HEALTH_REQUIRES_AUTH is unset); authentication is unverified."
+
     return {
         "hive": {
             "configured": True,
             "token_configured": token_configured,
             "authenticated": authenticated,
+            "authentication_validity": auth_validity,
+            "authentication_reason": auth_reason,
             "reachable": hive_reachable,
             "last_observed_at": observed_at if hive_reachable else None,
             "validity": hive_validity,
@@ -233,6 +258,8 @@ def adapter_health(health_error: AdapterError | None, status_recognized: bool, o
             "configured": bool(beszel_url),
             "token_configured": False,
             "authenticated": False,
+            "authentication_validity": "unavailable",
+            "authentication_reason": "Beszel integration is not implemented in this MVP; deferred",
             "reachable": False,
             "last_observed_at": None,
             "validity": "unknown",
