@@ -248,5 +248,189 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(result["id"], "task-123")
 
 
+class LoopbackEnforcementTests(unittest.TestCase):
+    """Finding 1 (HIGH): loopback-only bind and Core target must be enforced, not optional."""
+
+    def test_is_loopback_hostname_accepts_only_loopback_forms(self):
+        self.assertTrue(server._is_loopback_hostname("127.0.0.1"))
+        self.assertTrue(server._is_loopback_hostname("::1"))
+        self.assertTrue(server._is_loopback_hostname("localhost"))
+        self.assertTrue(server._is_loopback_hostname("LOCALHOST"))
+        self.assertFalse(server._is_loopback_hostname("0.0.0.0"))
+        self.assertFalse(server._is_loopback_hostname("::"))
+        self.assertFalse(server._is_loopback_hostname("example.com"))
+        self.assertFalse(server._is_loopback_hostname("8.8.8.8"))
+        self.assertFalse(server._is_loopback_hostname(None))
+        self.assertFalse(server._is_loopback_hostname(""))
+
+    def test_core_json_refuses_non_loopback_core_without_sending_request(self):
+        calls = []
+
+        def _must_not_be_called(request, timeout=4):
+            calls.append(request)
+            raise AssertionError("urlopen must not be called for a non-loopback Core target")
+
+        with patch.object(server, "CORE_URL_IS_LOOPBACK", False), patch.object(server, "urlopen", _must_not_be_called):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.core_json("/health")
+        self.assertEqual(calls, [])
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_dispatch_reachability_check_also_fails_closed_on_non_loopback_core(self):
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "CORE_URL_IS_LOOPBACK", False):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.dispatch({"mode": "proposal", "goal": "a valid goal", "confirm": True}, None)
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_main_refuses_to_start_on_non_loopback_bind(self):
+        with patch.object(sys, "argv", ["server.py", "--bind", "0.0.0.0"]):
+            with self.assertRaises(SystemExit):
+                server.main()
+
+    def test_main_refuses_to_start_on_non_loopback_core_url(self):
+        with patch.object(sys, "argv", ["server.py"]), patch.object(server, "CORE_URL_IS_LOOPBACK", False):
+            with self.assertRaises(SystemExit):
+                server.main()
+
+
+class TaskTypeAllowlistTests(unittest.TestCase):
+    """Finding 2 (HIGH): task_type must be enforced server-side, not left to client-only UI validation."""
+
+    def test_unlisted_task_type_is_rejected(self):
+        with patch.object(server, "API_TOKEN", "tok"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.dispatch({"mode": "proposal", "goal": "a valid goal", "confirm": True, "task_type": "DEPLOY"}, None)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_default_task_type_is_allowlisted_and_succeeds(self):
+        routes = {"/health": {"status": "ok"}, "/tasks": {"id": "task-999"}}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            result = server.dispatch({"mode": "proposal", "goal": "draft a safe proposal", "confirm": True}, None)
+        self.assertEqual(result["id"], "task-999")
+
+
+class WorkerRegistryEvidenceTests(unittest.TestCase):
+    """Finding 3 (MEDIUM): optional adapter failures must preserve unknown/unavailable provenance."""
+
+    def test_success_marks_valid(self):
+        routes = {"/workers": {"items": [{"id": "w1", "name": "Worker 1"}]}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            workers, ev = server.worker_registry()
+        self.assertEqual([w["id"] for w in workers], ["w1"])
+        self.assertEqual(ev["validity"], "valid")
+
+    def test_failure_is_not_collapsed_to_silent_empty_default(self):
+        routes = {"/workers": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            workers, ev = server.worker_registry()
+        self.assertEqual(workers, [])
+        self.assertEqual(ev["validity"], "unavailable")
+        self.assertIsNotNone(ev["reason"])
+
+
+class SnapshotEvidencePreservationTests(unittest.TestCase):
+    """Finding 3 (MEDIUM): snapshot() must expose workers/events/metrics provenance on failure."""
+
+    def test_workers_and_events_carry_unavailable_evidence_when_core_fails(self):
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        self.assertEqual(snap["workers"]["items"], [])
+        self.assertEqual(snap["workers"]["evidence"]["validity"], "unavailable")
+        self.assertEqual(snap["events"]["items"], [])
+        self.assertEqual(snap["events"]["evidence"]["validity"], "unavailable")
+
+    def test_metric_reason_reflects_real_system_fetch_failure(self):
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        cpu = snap["metrics"]["cpu"]
+        self.assertEqual(cpu["validity"], "unavailable")
+        self.assertNotEqual(cpu["reason"], "not supplied")
+        self.assertIn("unavailable", cpu["reason"].lower())
+
+
+class EventTimestampTests(unittest.TestCase):
+    """Finding 4 (MEDIUM): missing event timestamps must not be fabricated as utc_now()."""
+
+    def test_missing_timestamp_is_reported_unknown_not_fabricated(self):
+        routes = {
+            "/health": {"status": "ok"},
+            "/events": {"items": [{"event_type": "NO_TIMESTAMP", "source": "test"}]},
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        events = snap["events"]["items"]
+        self.assertEqual(len(events), 1)
+        self.assertIsNone(events[0]["timestamp"])
+        self.assertEqual(events[0]["timestamp_validity"], "unknown")
+
+    def test_present_timestamp_is_preserved_verbatim(self):
+        routes = {
+            "/health": {"status": "ok"},
+            "/events": {"items": [{"event_type": "X", "timestamp": "2026-01-01T00:00:00Z"}]},
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        events = snap["events"]["items"]
+        self.assertEqual(events[0]["timestamp"], "2026-01-01T00:00:00Z")
+        self.assertEqual(events[0]["timestamp_validity"], "valid")
+
+
+class HealthValidityTests(unittest.TestCase):
+    """Finding 4 (MEDIUM): a 200 response with a missing/invalid status must not be marked valid."""
+
+    def test_successful_call_with_missing_status_is_unknown_not_valid(self):
+        routes = {"/health": {}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        self.assertEqual(snap["core"]["status"], "unknown")
+        self.assertEqual(snap["adapters"]["hive"]["validity"], "unknown")
+        self.assertTrue(snap["adapters"]["hive"]["reachable"])
+
+    def test_successful_call_with_recognized_status_is_valid(self):
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        self.assertEqual(snap["adapters"]["hive"]["validity"], "valid")
+
+
+class AuthenticatedVsTokenConfiguredTests(unittest.TestCase):
+    """Finding 4 (MEDIUM): distinguish a configured token from a verified authentication."""
+
+    def test_token_configured_but_rejected_is_not_reported_authenticated(self):
+        routes = {"/health": http_error(401)}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
+        self.assertTrue(hive["token_configured"])
+        self.assertFalse(hive["authenticated"])
+        self.assertFalse(hive["reachable"])
+
+    def test_token_configured_and_call_succeeds_is_authenticated(self):
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
+        self.assertTrue(hive["token_configured"])
+        self.assertTrue(hive["authenticated"])
+
+    def test_no_token_is_never_reported_authenticated(self):
+        routes = {"/health": {"status": "ok"}}
+        with patch.object(server, "API_TOKEN", ""), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
+        self.assertFalse(hive["token_configured"])
+        self.assertFalse(hive["authenticated"])
+
+    def test_token_configured_but_unreachable_is_not_reported_authenticated(self):
+        routes = {"/health": URLError("refused")}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
+        self.assertTrue(hive["token_configured"])
+        self.assertFalse(hive["authenticated"])
+
+
 if __name__ == "__main__":
     unittest.main()

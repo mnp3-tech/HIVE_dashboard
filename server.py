@@ -11,6 +11,7 @@ does not compute or expose graph/topology data.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import mimetypes
 import os
@@ -23,11 +24,24 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
+def _is_loopback_hostname(hostname: str | None) -> bool:
+    if not hostname:
+        return False
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False
+
+
 ROOT = Path(__file__).resolve().parent
 CORE_URL = os.environ.get("HIVE_CORE_URL", "http://127.0.0.1:8765").rstrip("/")
+CORE_URL_IS_LOOPBACK = _is_loopback_hostname(urlparse(CORE_URL).hostname)
 API_TOKEN = os.environ.get("HIVE_API_TOKEN", "")
 ALLOWED_WORKERS = {"deterministic", "lmstudio", "openrouter_free", "antigravity", "codex"}
 LOCAL_ONLY_INCOMPATIBLE_WORKERS = {"openrouter_free", "antigravity", "codex"}
+ALLOWED_TASK_TYPES = {"EVOLUTION_TASK", "GENERAL", "ANALYSIS", "PROJECT_TASK", "RESEARCH"}
 MAX_BODY = 12_000
 
 STATUS_BUCKETS = {
@@ -59,6 +73,8 @@ def evidence(source: str, observed_at, validity: str, reason: str | None = None)
 
 
 def core_json(path: str, method: str = "GET", body: dict | None = None, idempotency_key: str | None = None):
+    if not CORE_URL_IS_LOOPBACK:
+        raise AdapterError("HIVE_CORE_URL does not resolve to a loopback address; refusing to contact a non-loopback Core", 503)
     if not path.startswith(("/health", "/ready", "/projects", "/workers", "/system", "/events", "/engineering/architecture", "/tasks", "/missions")):
         raise AdapterError("Adapter path is not allowlisted", 403)
     headers = {"Accept": "application/json"}
@@ -85,16 +101,19 @@ def core_json(path: str, method: str = "GET", body: dict | None = None, idempote
         raise AdapterError(f"HIVE Core returned invalid JSON: {error}", 502) from None
 
 
-def optional_core(path: str, default):
+def fetch_with_evidence(path: str):
+    """Fetch an optional Core path, preserving unavailable/unknown provenance on failure
+    instead of silently collapsing to an untagged default."""
     try:
-        return core_json(path)
-    except AdapterError:
-        return default
+        raw = core_json(path)
+    except AdapterError as error:
+        return None, evidence(f"hive:{path}", None, unavailability_validity(error), str(error))
+    return raw, evidence(f"hive:{path}", utc_now(), "valid")
 
 
-def metric(value, unit="%", source="hive", validity="unavailable", reason="not supplied"):
+def metric(value, unit="%", source="hive", reason=None):
     if value is None:
-        return {"value": None, "unit": unit, "source": source, "observed_at": None, "validity": validity, "reason": reason}
+        return {"value": None, "unit": unit, "source": source, "observed_at": None, "validity": "unavailable", "reason": reason or "not supplied"}
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -163,7 +182,7 @@ def task_queue():
 
 
 def worker_registry():
-    raw = optional_core("/workers", [])
+    raw, workers_evidence = fetch_with_evidence("/workers")
     workers = []
     for item in unwrap_items(raw):
         if not isinstance(item, dict):
@@ -178,22 +197,41 @@ def worker_registry():
             "model": item.get("model", "unknown"),
             "status": item.get("status", "unknown"),
         })
-    return workers
+    return workers, workers_evidence
 
 
-def adapter_health(hive_error: AdapterError | None, observed_at: str, reason: str):
+def adapter_health(health_error: AdapterError | None, status_recognized: bool, observed_at: str, reason: str):
+    """status_recognized is True only when a /health call succeeded AND returned a
+    status value we recognize; a successful call with a missing/invalid status field
+    is reported as unknown, never fabricated as valid."""
     beszel_url = os.environ.get("BESZEL_URL", "")
+    token_configured = bool(API_TOKEN)
+    if health_error is not None:
+        hive_validity = unavailability_validity(health_error)
+        hive_reachable = False
+    elif status_recognized:
+        hive_validity = "valid"
+        hive_reachable = True
+    else:
+        hive_validity = "unknown"
+        hive_reachable = True
+    # authenticated reflects a verified credential (token sent and not rejected), not
+    # merely that a token string is configured; any health_error — including an
+    # explicit 401/403 rejection — means authentication was not verified.
+    authenticated = token_configured if health_error is None else False
     return {
         "hive": {
             "configured": True,
-            "authenticated": bool(API_TOKEN),
-            "reachable": hive_error is None,
-            "last_observed_at": observed_at if hive_error is None else None,
-            "validity": "valid" if hive_error is None else unavailability_validity(hive_error),
+            "token_configured": token_configured,
+            "authenticated": authenticated,
+            "reachable": hive_reachable,
+            "last_observed_at": observed_at if hive_reachable else None,
+            "validity": hive_validity,
             "reason": reason,
         },
         "beszel": {
             "configured": bool(beszel_url),
+            "token_configured": False,
             "authenticated": False,
             "reachable": False,
             "last_observed_at": None,
@@ -212,6 +250,7 @@ def snapshot():
         health_error = error
     observed = utc_now()
     health_status = str(health.get("status", "unknown")).lower() if isinstance(health, dict) else "unknown"
+    status_recognized = health_status in {"ok", "healthy", "ready", "online", "degraded", "warning"}
     if health_error is not None:
         core_status, core_reason, core_observed = "unknown", str(health_error), None
     elif health_status in {"ok", "healthy", "ready", "online"}:
@@ -221,19 +260,24 @@ def snapshot():
     else:
         core_status, core_reason, core_observed = "unknown", "Application health payload missing expected status field", observed
 
-    adapters = adapter_health(health_error, observed, core_reason)
-    system = optional_core("/system", {})
-    host = (system.get("host", {}) if isinstance(system, dict) else {}) or {}
+    adapters = adapter_health(health_error, status_recognized, observed, core_reason)
+
+    system_raw, system_evidence = fetch_with_evidence("/system")
+    host = (system_raw.get("host", {}) if isinstance(system_raw, dict) else {}) or {}
+    metrics_reason = None if system_evidence["validity"] == "valid" else system_evidence["reason"]
+
     projects, projects_evidence = project_catalog()
     tasks, tasks_evidence = task_queue()
-    workers = worker_registry()
-    raw_events = unwrap_items(optional_core("/events?limit=50", []))
+    workers, workers_evidence = worker_registry()
+    events_raw, events_evidence = fetch_with_evidence("/events?limit=50")
     normalized_events = []
-    for event in raw_events:
+    for event in unwrap_items(events_raw):
         if not isinstance(event, dict):
             continue
+        raw_timestamp = event.get("timestamp") or event.get("created_at")
         normalized_events.append({
-            "timestamp": event.get("timestamp") or event.get("created_at") or utc_now(),
+            "timestamp": raw_timestamp,
+            "timestamp_validity": "valid" if raw_timestamp else "unknown",
             "kind": event.get("event_type", "OBSERVED_EVENT"),
             "title": event.get("event_type", "Observed HIVE event"),
             "source": event.get("source", "HIVE Core"),
@@ -246,15 +290,15 @@ def snapshot():
         "environment": "LOCAL / HIVE CORE",
         "core": {"status": core_status, "observed_at": core_observed, "reason": core_reason},
         "metrics": {
-            "cpu": metric(host.get("cpu_percent"), source="hive"),
-            "memory": metric(host.get("ram_percent", host.get("memory_percent")), source="hive"),
-            "disk": metric(host.get("disk_percent"), source="hive"),
+            "cpu": metric(host.get("cpu_percent"), source="hive", reason=metrics_reason),
+            "memory": metric(host.get("ram_percent", host.get("memory_percent")), source="hive", reason=metrics_reason),
+            "disk": metric(host.get("disk_percent"), source="hive", reason=metrics_reason),
         },
         "adapters": adapters,
         "projects": {"items": projects, "evidence": projects_evidence},
         "tasks": {"items": tasks, "evidence": tasks_evidence},
-        "workers": workers,
-        "events": normalized_events[:50],
+        "workers": {"items": workers, "evidence": workers_evidence},
+        "events": {"items": normalized_events[:50], "evidence": events_evidence},
         "topology": {"status": "deferred", "reason": "Topology visualization is deferred for this MVP; no graph or event-derived topology is computed."},
     }
 
@@ -277,13 +321,15 @@ def dispatch(payload: dict, idempotency_key: str | None):
     local_only = bool(payload.get("local_only"))
     if local_only and worker in LOCAL_ONLY_INCOMPATIBLE_WORKERS:
         raise AdapterError("Local-only routing conflicts with the selected external worker", 400)
+    task_type = payload.get("task_type") or "EVOLUTION_TASK"
+    if task_type not in ALLOWED_TASK_TYPES:
+        raise AdapterError("Task type is not in the proposal allowlist", 400)
 
     try:
         core_json("/health")
     except AdapterError as error:
         raise AdapterError(f"Proposal not submitted: HIVE Core reachability evidence is absent ({error})", 503) from None
 
-    task_type = payload.get("task_type") or "EVOLUTION_TASK"
     task_prompt = (
         "Prepare an immutable proposal only. Do not apply, deploy, promote, or replace "
         f"active state. Proposal scope: {goal}"
@@ -330,6 +376,7 @@ class Handler(BaseHTTPRequestHandler):
                     "delegation": {"proposal": True, "task": False, "mission": False, "self_upgrade_apply": False},
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
                     "core_endpoint": CORE_URL,
+                    "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                 })
             if path.startswith("/api/"):
                 return self.json_response({"detail": "Unknown adapter endpoint"}, 404)
@@ -378,6 +425,10 @@ def main():
     parser.add_argument("--port", type=int, default=4173)
     parser.add_argument("--bind", default="127.0.0.1")
     args = parser.parse_args()
+    if not _is_loopback_hostname(args.bind):
+        parser.error(f"--bind must be a loopback address (127.0.0.1, ::1, or localhost); got {args.bind!r}")
+    if not CORE_URL_IS_LOOPBACK:
+        parser.error(f"HIVE_CORE_URL must target a loopback address; got {CORE_URL!r}")
     server = ThreadingHTTPServer((args.bind, args.port), Handler)
     print(f"Unified dashboard adapter listening on http://{args.bind}:{args.port}/", flush=True)
     server.serve_forever()

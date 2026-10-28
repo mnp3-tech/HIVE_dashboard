@@ -87,6 +87,7 @@
 
         <section class="panel activity-panel" id="events-panel" data-views="overview">
           <div class="panel-heading"><div><p class="eyebrow">EVIDENCE STREAM</p><h2>Recent events</h2></div><span class="source-pill">TTL / DEDUPED</span></div>
+          <div class="evidence-line" id="events-evidence">Waiting for first snapshot…</div>
           <div class="event-list" id="event-list"><div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div></div>
         </section>
 
@@ -96,7 +97,7 @@
             <div class="delegate-intro"><strong>This dashboard cannot apply, deploy, promote, or roll back anything.</strong><p>Submitting here only creates an immutable proposal task in HIVE Core's own queue. Core remains the sole execution authority, and the request is sent only after explicit confirmation, with an idempotency key, and only when HIVE Core reachability evidence is present. Credentials never leave the server process.</p></div>
             <div class="delegate-grid">
               <label>Target project<select id="delegate-project"><option value="">Unassigned / Core</option></select></label>
-              <label>Worker preference<select id="delegate-worker"><option value="">AUTO · Governor decides</option></select></label>
+              <label>Worker preference<select id="delegate-worker"><option value="">AUTO · Governor decides</option></select><small class="evidence-line" id="delegate-worker-evidence" style="padding:4px 0 0">Waiting for first snapshot…</small></label>
               <label>Task type<select id="delegate-type"><option value="EVOLUTION_TASK">Proposal (default)</option><option value="GENERAL">GENERAL</option><option value="ANALYSIS">ANALYSIS</option><option value="PROJECT_TASK">PROJECT_TASK</option><option value="RESEARCH">RESEARCH</option></select></label>
               <label class="wide-field">Proposal goal<textarea id="delegate-prompt" maxlength="8000" minlength="8" required placeholder="Describe the bounded proposal HIVE should queue for review…"></textarea></label>
               <label class="check-field"><input id="delegate-local" type="checkbox"> Local-only routing</label>

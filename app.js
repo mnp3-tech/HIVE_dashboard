@@ -19,11 +19,14 @@ function evidenceLine(evidence){ if(!evidence) return 'No evidence received from
 function normalize(raw){
   const source = raw || {};
   const metrics = source.metrics || {};
-  const events = Array.isArray(source.events) ? source.events : [];
+  const events = source.events && Array.isArray(source.events.items) ? source.events.items : [];
+  const eventsEvidence = source.events && source.events.evidence ? source.events.evidence : null;
   const projects = source.projects && Array.isArray(source.projects.items) ? source.projects.items : [];
   const projectsEvidence = source.projects && source.projects.evidence ? source.projects.evidence : null;
   const tasks = source.tasks && Array.isArray(source.tasks.items) ? source.tasks.items : [];
   const tasksEvidence = source.tasks && source.tasks.evidence ? source.tasks.evidence : null;
+  const workers = source.workers && Array.isArray(source.workers.items) ? source.workers.items : [];
+  const workersEvidence = source.workers && source.workers.evidence ? source.workers.evidence : null;
   const adapters = source.adapters || {};
   const topology = source.topology || {status:'deferred', reason:'Topology visualization is deferred for this MVP.'};
   return {
@@ -31,10 +34,10 @@ function normalize(raw){
     environment: source.environment || 'LOCAL / UNVERIFIED',
     core: source.core || {status:'unknown', reason:'No application health payload'},
     metrics,
-    events,
+    events, eventsEvidence,
     projects, projectsEvidence,
     tasks, tasksEvidence,
-    workers: Array.isArray(source.workers) ? source.workers : [],
+    workers, workersEvidence,
     adapters,
     topology,
   };
@@ -115,7 +118,8 @@ function renderAdapters(snapshot){
     const info = adapters[id] || {};
     return `<div class="adapter-card"><div class="adapter-card-heading"><strong>${esc(id.toUpperCase())}</strong><span class="source-state ${tone(info.validity)}">${esc(stateLabel(info.validity))}</span></div>
       <div class="adapter-field"><span>Configured</span><strong>${info.configured ? 'YES' : 'NO'}</strong></div>
-      <div class="adapter-field"><span>Authenticated</span><strong>${info.authenticated ? 'YES' : 'NO'}</strong></div>
+      <div class="adapter-field"><span>Token configured</span><strong>${info.token_configured ? 'YES' : 'NO'}</strong></div>
+      <div class="adapter-field"><span>Authenticated (verified)</span><strong>${info.authenticated ? 'YES' : 'NO'}</strong></div>
       <div class="adapter-field"><span>Reachable</span><strong>${info.reachable ? 'YES' : 'NO'}</strong></div>
       <div class="adapter-field"><span>Last observed</span><strong>${info.last_observed_at ? age(info.last_observed_at) + ' ago' : '—'}</strong></div>
       <div class="adapter-reason">${esc(info.reason || 'No reason supplied.')}</div>
@@ -123,7 +127,10 @@ function renderAdapters(snapshot){
   }).join('');
 }
 
-function renderEvents(snapshot){ $('#event-list').innerHTML=snapshot.events.length ? snapshot.events.slice(0,8).map(event=>`<div class="event-row"><time>${isoTime(event.timestamp)}</time><i class="event-marker ${tone(event.severity)}"></i><div class="event-copy"><strong>${esc(event.title||event.kind||'Observed event')}</strong><small>${esc(event.source||'unknown source')} · ${esc(event.component_id||event.project_id||'unscoped')} · ${age(event.timestamp)} ago</small></div></div>`).join('') : '<div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div>'; }
+function renderEvents(snapshot){
+  setText('events-evidence', evidenceLine(snapshot.eventsEvidence));
+  $('#event-list').innerHTML=snapshot.events.length ? snapshot.events.slice(0,8).map(event=>`<div class="event-row"><time>${event.timestamp ? isoTime(event.timestamp) : '—'}</time><i class="event-marker ${tone(event.severity)}"></i><div class="event-copy"><strong>${esc(event.title||event.kind||'Observed event')}</strong><small>${esc(event.source||'unknown source')} · ${esc(event.component_id||event.project_id||'unscoped')} · ${event.timestamp ? age(event.timestamp) + ' ago' : 'timestamp unknown'}</small></div></div>`).join('') : '<div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div>';
+}
 
 function renderTargets(snapshot){
   const project=$('#delegate-project'), worker=$('#delegate-worker'); if(!project||!worker)return;
@@ -135,6 +142,7 @@ function renderTargets(snapshot){
   const oldWorker=worker.value;
   worker.innerHTML = '<option value="">AUTO · Governor decides</option>' + workers.map(item=>`<option value="${esc(item.id)}">${esc(item.name||item.provider||item.id)}${item.model?' · '+esc(item.model):''}</option>`).join('');
   if([...worker.options].some(option=>option.value===oldWorker)) worker.value=oldWorker;
+  setText('delegate-worker-evidence', evidenceLine(snapshot.workersEvidence));
 }
 
 function renderView(){
@@ -175,13 +183,13 @@ function demoSnapshot(){
       disk:{value:71,unit:'%',source:'hive',observed_at:agoSeconds(12),validity:'valid'}
     },
     adapters: {
-      hive:{configured:true,authenticated:true,reachable:true,last_observed_at:agoSeconds(4),validity:'valid',reason:'HIVE Core /health responded · fixture only'},
-      beszel:{configured:false,authenticated:false,reachable:false,last_observed_at:null,validity:'unknown',reason:'Beszel integration is not implemented in this MVP; deferred'}
+      hive:{configured:true,token_configured:true,authenticated:true,reachable:true,last_observed_at:agoSeconds(4),validity:'valid',reason:'HIVE Core /health responded · fixture only'},
+      beszel:{configured:false,token_configured:false,authenticated:false,reachable:false,last_observed_at:null,validity:'unknown',reason:'Beszel integration is not implemented in this MVP; deferred'}
     },
     projects: {items:[{id:'seed',name:'SEED',status:'active',description:'Build / test pipeline',protected:false},{id:'creator-ops',name:'CREATOR OPS',status:'waiting',description:'Media pipeline',protected:true}], evidence:{source:'hive:/projects',observed_at:agoSeconds(4),validity:'valid',reason:null}},
     tasks: {items:[{id:'t-1',title:'Review PR #42',status:'active',raw_status:'running',project_id:'seed',worker:'codex',created_at:agoSeconds(300)},{id:'t-2',title:'Draft proposal: cache layer',status:'queued',raw_status:'pending',project_id:'creator-ops',worker:null,created_at:agoSeconds(900)},{id:'t-3',title:'Build fixture data',status:'completed',raw_status:'done',project_id:'seed',worker:'deterministic',created_at:agoSeconds(1800)}], evidence:{source:'hive:/tasks',observed_at:agoSeconds(4),validity:'valid',reason:null}},
-    workers: [{id:'deterministic',name:'Deterministic worker',provider:'local',model:'n/a',status:'idle'}],
-    events: [{timestamp:agoSeconds(5),kind:'TASK_ROUTED',title:'Task routed to SEED',source:'HIVE event bus',component_id:'seed',severity:'info'},{timestamp:agoSeconds(42),kind:'REVIEW_BLOCKED',title:'Review waiting for approval',source:'Governor audit',component_id:'core',severity:'warning'}],
+    workers: {items:[{id:'deterministic',name:'Deterministic worker',provider:'local',model:'n/a',status:'idle'}], evidence:{source:'hive:/workers',observed_at:agoSeconds(4),validity:'valid',reason:null}},
+    events: {items:[{timestamp:agoSeconds(5),timestamp_validity:'valid',kind:'TASK_ROUTED',title:'Task routed to SEED',source:'HIVE event bus',component_id:'seed',severity:'info'},{timestamp:agoSeconds(42),timestamp_validity:'valid',kind:'REVIEW_BLOCKED',title:'Review waiting for approval',source:'Governor audit',component_id:'core',severity:'warning'}], evidence:{source:'hive:/events',observed_at:agoSeconds(4),validity:'valid',reason:null}},
     topology: {status:'deferred', reason:'Topology visualization is deferred for this MVP · fixture only.'}
   };
 }

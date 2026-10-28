@@ -67,6 +67,34 @@ result. A 404 from HIVE Core on an allowlisted path is treated as `unknown` (end
 present on this Core version); a connection failure or timeout is treated as
 `unavailable`.
 
+## Security hardening applied after independent review
+
+An independent review of an earlier commit on this branch found four issues, all
+remediated here:
+
+- **Loopback enforced, not assumed.** `--bind` and `HIVE_CORE_URL` are both validated
+  against loopback forms (`127.0.0.1`, `::1`, `localhost`) at process startup, and the
+  server refuses to start otherwise. `core_json()` re-checks this on every call *before*
+  constructing the request or attaching the bearer token, so a misconfigured
+  `HIVE_CORE_URL` can never cause the token to be sent to a non-loopback host.
+- **`task_type` is allowlisted server-side.** The UI only offers a fixed list, but that
+  was client-side only; `dispatch()` now independently rejects any `task_type` outside
+  `{EVOLUTION_TASK, GENERAL, ANALYSIS, PROJECT_TASK, RESEARCH}`.
+- **Optional adapter fetches keep their evidence on failure.** `/system`, `/workers`,
+  and `/events` failures used to collapse into an empty/default value with no
+  provenance. They now go through `fetch_with_evidence()`, and `workers`/`events` in the
+  snapshot carry the same `{items, evidence}` shape as `projects`/`tasks`; a failed
+  `/system` fetch also propagates its real reason into the CPU/memory/disk metrics
+  instead of a generic "not supplied".
+- **No more fabricated timestamps or validity.** A missing event timestamp is reported
+  as `timestamp: null, timestamp_validity: "unknown"` instead of being stamped with the
+  current time. A `/health` call that returns 200 with a missing or unrecognized
+  `status` field is reported as adapter `validity: "unknown"` (not `"valid"`) even
+  though it was reachable. `authenticated` now means a token was actually sent and not
+  rejected; a `token_configured` field reports the separate, weaker fact that a token
+  string is present in the environment — a 401/403 rejection (or any other failure) now
+  always reports `authenticated: false`, even when a token is configured.
+
 ## Current evidence and limits
 
 - No HIVE Core credentials or live Core instance were available in this session. Live
