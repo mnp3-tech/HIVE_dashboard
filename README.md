@@ -57,14 +57,32 @@ as a visual reference; this is a separate surface.
     URLs, or credentials are ever read or exposed — surfaced in the snapshot as
     `adapters.creator_ops`. A missing or unreadable database file is reported
     `unavailable` with a real reason, never as zeroed counts.
-11. **AO (Agent Orchestrator) session/worker/chat capabilities are unconfirmed.** AO's
-    documented interface is a local CLI (`ao`) over its daemon; no public HTTP API
-    contract for session, worker, or chat data is published. `/api/control/capabilities`
-    reports `ao.session_api_confirmed` / `worker_api_confirmed` / `chat_api_confirmed`
-    as `false` with `transport: "cli_only"` and an explanatory `reason` — a static
-    declaration, not a live check. This adapter never shells out to the `ao` binary,
+11. **AO (Agent Orchestrator) CLI bridge — session listing, history, and controlled
+    send only.** AO's documented interface is a local CLI (`ao`) over its daemon; no
+    public HTTP API is published for session, worker, or chat data, and this adapter
     never guesses at or probes the daemon's internal transport, and never reads AO's
-    own internal data files from an HTTP-triggered request path.
+    own internal SQLite store. Instead it bridges exactly three documented, verified
+    `ao` subcommands via `subprocess.run(..., shell=False)` with a hardcoded argv
+    allowlist:
+    - `GET /api/ao/sessions` → `ao session ls --all --json`
+    - `GET /api/ao/sessions/<id>/history?limit=&offset=` → `ao session history <id> --limit --offset`
+    - `POST /api/ao/sessions/<id>/send` (requires `{"message": ..., "confirm": true}`) → `ao send --session <id> --message <text>`
+
+    The bridge is disabled unless `AO_CLI_PATH` is set to an absolute path to an
+    existing `ao` binary; when disabled, or when a CLI call fails or times out, these
+    routes report `validity: "unavailable"` with a real reason instead of fabricating
+    success. Session ids are validated against a fixed allowlist pattern, send
+    messages are length-bounded, `history` `limit`/`offset` are bounded server-side
+    (limit ≤ 50, matching the CLI's own cap), every call has an 8-second timeout, and
+    CLI stdout/stderr is bounded to 200,000 characters. `redact_secrets()` applies a
+    best-effort regex redaction (bearer tokens, `key=value` secrets, provider API-key
+    prefixes, AWS access key IDs, JWT-shaped strings) to all CLI output before it is
+    returned — a defensive filter, not a guarantee, since session history is free-form
+    chat text that could contain an inline secret in an unanticipated shape.
+    `/api/control/capabilities` reports `ao.session_list_confirmed` /
+    `session_history_confirmed` / `send_confirmed` as `true` only when `AO_CLI_PATH`
+    is actually configured; `worker_api_confirmed` and `chat_realtime_api_confirmed`
+    remain `false` always — no such contract is documented for AO.
 
 ## Run
 
@@ -76,7 +94,21 @@ From this directory:
 
 Open `http://127.0.0.1:4173/` for live-adapter mode. The local adapter serves the UI and
 requests HIVE Core on loopback only. It exposes `GET /api/dashboard/snapshot`,
-`GET /api/control/capabilities`, and the controlled `POST /api/control/dispatch` route.
+`GET /api/control/capabilities`, the controlled `POST /api/control/dispatch` route, and
+the AO CLI bridge routes (`GET /api/ao/sessions`, `GET /api/ao/sessions/<id>/history`,
+`POST /api/ao/sessions/<id>/send`) described in item 11 above.
+
+To enable the AO CLI bridge, set `AO_CLI_PATH` to an absolute path to the `ao` binary
+before starting the adapter:
+
+```powershell
+$env:AO_CLI_PATH = 'C:\Users\Martin\AppData\Local\Programs\agent-orchestrator\resources\daemon\ao.exe'
+.\start.ps1
+```
+
+Leaving `AO_CLI_PATH` unset is the safe default: the three AO routes report
+`validity: "unavailable"` rather than attempting to locate or guess at the `ao`
+binary's location.
 
 Set the Core URL and token only in the process environment; never put the token in the
 browser, source tree, or command output:
@@ -172,9 +204,9 @@ only ever proves reachability, never authentication.
   `validity: "unknown"` and an explicit "not implemented, deferred" reason; it is never
   shown as reachable.
 - Topology visualization is deferred by design, not by omission — see item 6 above.
-- AO (Agent Orchestrator) session/worker/chat capabilities are reported as
-  unconfirmed — see item 11 above. AO's own documented interface is a CLI, not an HTTP
-  API, so this adapter does not attempt to call it from an HTTP-triggered request path.
+- The AO CLI bridge (session listing, history, controlled send) is reported as
+  unavailable unless `AO_CLI_PATH` is configured — see item 11 above. No other AO
+  surface (worker registry, realtime chat, HTTP API, or internal SQLite) is read.
 
 ## Files
 
@@ -185,11 +217,11 @@ only ever proves reachability, never authentication.
   submission form, and an explicitly gated visual fixture mode (`?demo=1`).
 - `server.py` — loopback-only static server and narrow HIVE Core adapter. Normalizes
   project/task/adapter-health evidence (including `/health`/`/ready` provenance and
-  `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, declares
-  AO session/worker/chat capabilities as unconfirmed, and exposes only a
-  proposal-only, fail-closed dispatch route. No arbitrary proxy, shell route, provider
-  credential forwarding, apply/deploy/promote/rollback route, or topology/graph
-  computation.
+  `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, bridges
+  a fixed, verified slice of the AO CLI contract (session listing, history, controlled
+  send) gated by `AO_CLI_PATH`, and exposes only a proposal-only, fail-closed dispatch
+  route. No arbitrary proxy, shell route, provider credential forwarding,
+  apply/deploy/promote/rollback route, or topology/graph computation.
 - `snapshot.example.json` — a real captured snapshot (worker list trimmed for length)
   showing the reachable-but-unauthenticated contract: `core.ready`, `auth_required`
   evidence on protected endpoints, the `/ready`-sourced worker fallback, and the
@@ -197,9 +229,14 @@ only ever proves reachability, never authentication.
 - `tests/test_server.py` — stdlib `unittest` coverage for the adapter contract
   (evidence semantics, status bucketing, adapter health, `/health`+`/ready` probes,
   `auth_required` vs. `unavailable`/`unknown`, the `/ready` worker fallback, the
-  CREATOR OPS adapter, and the AO capability declaration) and the proposal-only safety
-  gates (confirmation required, non-proposal modes rejected, worker allowlist, fail
-  closed on missing token or missing reachability evidence).
+  CREATOR OPS adapter) and the proposal-only safety gates (confirmation required,
+  non-proposal modes rejected, worker allowlist, fail closed on missing token or
+  missing reachability evidence). Also covers the AO CLI bridge: `AO_CLI_PATH`
+  configuration detection, the argv allowlist (refusing to spawn when unconfigured or
+  when a subcommand prefix isn't allowlisted), `shell=False` and exact argv
+  assertions, timeout/non-zero-exit/invalid-JSON handling, session-id/message/limit/
+  offset validation, session-list normalization, controlled send (including
+  `--steer`), and secret redaction.
 
 ## CREATOR OPS adapter
 
@@ -218,4 +255,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-65 unit tests pass.
+108 unit tests pass.

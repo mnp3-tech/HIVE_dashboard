@@ -6,6 +6,12 @@ plus a proposal-only submission route through the authenticated HIVE Core
 API. Credentials stay in the server process environment and never reach the
 browser or logs. Topology visualization is explicitly deferred: this adapter
 does not compute or expose graph/topology data.
+
+A second, independent adapter bridges a small, fixed slice of the AO (Agent
+Orchestrator) CLI contract -- `ao session ls --all --json`, `ao session
+history`, and `ao send` -- via subprocess.run() with shell=False and a fixed
+argv allowlist. It never shells out with arbitrary arguments, never guesses
+at AO's internal HTTP/IPC transport, and never reads AO's own SQLite store.
 """
 
 from __future__ import annotations
@@ -15,13 +21,15 @@ import ipaddress
 import json
 import mimetypes
 import os
+import re
 import secrets
 import sqlite3
+import subprocess
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -85,28 +93,91 @@ CREATOR_OPS_TABLES = (
     "creative_tools",
 )
 
-# AO (Agent Orchestrator) capability declaration. AO's own documented interface is a
-# local CLI (`ao`) over its daemon -- the using-ao skill catalog documents
-# session/spawn/send/project/etc. CLI subcommands only; it does not publish an HTTP
-# API contract for session, worker, or chat data. This adapter never shells out to the
-# `ao` binary, never guesses at or probes the daemon's internal port, and never reads
-# AO's own internal data files from an HTTP-triggered request path. Session, worker,
-# and chat capabilities are therefore always reported as unconfirmed/unavailable here
-# -- a static, non-executing declaration, not a live check -- rather than fabricated
-# as available.
-AO_CAPABILITIES = {
-    "session_api_confirmed": False,
-    "worker_api_confirmed": False,
-    "chat_api_confirmed": False,
-    "transport": "cli_only",
-    "reason": (
-        "AO publishes a local CLI (`ao`) over its daemon; no public HTTP session, "
-        "worker, or chat API contract is documented. This adapter does not shell out "
-        "to the ao binary or guess at the daemon's internal transport from an "
-        "HTTP-triggered request path, so these capabilities are reported as "
-        "unconfirmed rather than fabricated as available."
-    ),
-}
+# AO (Agent Orchestrator) CLI bridge. AO's own documented interface is a local CLI
+# (`ao`) over its daemon -- it does not publish an HTTP API contract for session,
+# worker, or chat data, and this adapter never guesses at or probes the daemon's
+# internal transport, and never reads AO's own internal data files directly. Instead,
+# a narrow, fixed slice of the documented `ao` CLI contract is bridged via
+# subprocess.run() with shell=False and a hardcoded argv-prefix allowlist:
+#   - `ao session ls --all --json`              (session listing)
+#   - `ao session history <id> --limit --offset` (session history, best-effort redacted)
+#   - `ao send --session <id> --message <text>`  (controlled send)
+# No other subcommand, flag, or dynamically-assembled shell string is ever executed.
+# The bridge is disabled unless AO_CLI_PATH names an absolute, existing file; when
+# disabled or when the CLI invocation fails, routes report unavailable evidence
+# instead of fabricating success or falling back to any other transport.
+AO_CLI_PATH = os.environ.get("AO_CLI_PATH", "")
+AO_CLI_TIMEOUT_SECONDS = 8
+AO_CLI_MAX_OUTPUT_CHARS = 200_000
+AO_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
+AO_SEND_MESSAGE_MAX_LEN = 4000
+AO_HISTORY_MIN_LIMIT = 1
+AO_HISTORY_MAX_LIMIT = 50  # ao session history itself caps --limit at 50
+AO_HISTORY_MAX_OFFSET = 100_000
+
+# Best-effort redaction of credential-shaped substrings (bearer tokens, key=value
+# secrets, provider API key prefixes, AWS access key IDs, JWT-shaped strings) from
+# raw `ao` CLI text before it ever reaches a response. This is a defensive, imperfect
+# filter -- not a guarantee that every possible pasted secret is caught -- so callers
+# must still treat AO_CLI_PATH / the ao daemon's own session content as semi-trusted.
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9\-_.=]{8,}"),
+    re.compile(r"(?i)\b(api[_-]?key|token|access[_-]?token|auth[_-]?token|secret|password|passwd|client[_-]?secret|private[_-]?key)\b\s*[:=]\s*[\"']?[^\s\"',}]{4,}"),
+    re.compile(r"\bsk-[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\b[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),  # JWT-shaped
+)
+
+
+def redact_secrets(text: str) -> str:
+    if not text:
+        return text
+    redacted = text
+    for pattern in _SECRET_PATTERNS:
+        redacted = pattern.sub("[REDACTED]", redacted)
+    return redacted
+
+
+def ao_cli_configured() -> bool:
+    if not AO_CLI_PATH:
+        return False
+    try:
+        path = Path(AO_CLI_PATH)
+        return path.is_absolute() and path.is_file()
+    except OSError:
+        return False
+
+
+def ao_capabilities() -> dict:
+    """Capability declaration for the AO CLI bridge.
+
+    session_list/history/send are verified, documented `ao` CLI subcommands (see the
+    module docstring); they are only ever reported confirmed when AO_CLI_PATH is
+    configured, since an unconfigured bridge cannot actually serve them. worker_api
+    and realtime chat remain unconfirmed: no public HTTP/worker-registry contract is
+    documented for AO, and this adapter never guesses at one.
+    """
+    configured = ao_cli_configured()
+    return {
+        "session_list_confirmed": configured,
+        "session_history_confirmed": configured,
+        "send_confirmed": configured,
+        "worker_api_confirmed": False,
+        "chat_realtime_api_confirmed": False,
+        "transport": "cli_subprocess" if configured else "cli_disabled",
+        "cli_path_configured": configured,
+        "reason": (
+            "Session listing (`ao session ls --all --json`), history "
+            "(`ao session history <id>`), and controlled send "
+            "(`ao send --session <id> --message <text>`) are verified, documented "
+            "`ao` CLI subcommands, bridged via subprocess.run(shell=False) with a "
+            "fixed argv allowlist, bounded timeout/output, and best-effort secret "
+            "redaction -- only when AO_CLI_PATH names an absolute, existing ao "
+            "binary. No other AO HTTP endpoint, worker registry, or internal SQLite "
+            "store is read, and the bridge reports unavailable rather than "
+            "fabricating success when unconfigured or when a call fails."
+        ),
+    }
 
 
 class AdapterError(Exception):
@@ -127,6 +198,139 @@ def unwrap_items(value):
 
 def evidence(source: str, observed_at, validity: str, reason: str | None = None) -> dict:
     return {"source": source, "observed_at": observed_at, "validity": validity, "reason": reason}
+
+
+def run_ao_cli(args: list[str], allow_prefix: tuple[str, ...]) -> str:
+    """Execute the local `ao` CLI with a fixed, allowlisted subcommand prefix.
+
+    shell=False and an argv list (never a shell string) are used throughout, so no
+    session id or message content can be interpreted as shell syntax. allow_prefix is
+    an explicit, hardcoded defense-in-depth check: even if a future code change built
+    `args` incorrectly, a call whose first tokens are not one of the three allowlisted
+    subcommand prefixes is refused before any process is spawned.
+    """
+    if not ao_cli_configured():
+        raise AdapterError(
+            "AO CLI bridge is not configured; set AO_CLI_PATH to an absolute path to the ao binary to enable it",
+            503,
+        )
+    if tuple(args[: len(allow_prefix)]) != allow_prefix:
+        raise AdapterError("AO CLI subcommand is not in the allowlist", 403)
+    try:
+        result = subprocess.run(
+            [AO_CLI_PATH, *args],
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=AO_CLI_TIMEOUT_SECONDS,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.TimeoutExpired:
+        raise AdapterError(f"AO CLI timed out after {AO_CLI_TIMEOUT_SECONDS}s", 504) from None
+    except OSError as error:
+        raise AdapterError(f"AO CLI could not be executed: {error}", 502) from None
+    stdout = (result.stdout or "")[:AO_CLI_MAX_OUTPUT_CHARS]
+    if result.returncode != 0:
+        detail = redact_secrets((result.stderr or result.stdout or "").strip())[:500]
+        raise AdapterError(f"AO CLI exited with status {result.returncode}: {detail}", 502)
+    return stdout
+
+
+def validate_ao_session_id(session_id) -> str:
+    if not isinstance(session_id, str) or not AO_SESSION_ID_PATTERN.match(session_id):
+        raise AdapterError("Invalid session id", 400)
+    return session_id
+
+
+def parse_bounded_int(raw: str, name: str, minimum: int, maximum: int, default: int) -> int:
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        raise AdapterError(f"{name} must be an integer", 400) from None
+    if not (minimum <= value <= maximum):
+        raise AdapterError(f"{name} must be between {minimum} and {maximum}", 400)
+    return value
+
+
+def ao_sessions() -> tuple[list, dict]:
+    """Normalize `ao session ls --all --json` into a safe, fixed field set.
+
+    Unavailable (bridge disabled, CLI error, timeout) and unknown (non-JSON or
+    unexpected shape) are reported distinctly, never collapsed into a fabricated
+    empty-but-valid list."""
+    source = "ao-cli:session ls --all --json"
+    try:
+        raw = run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+    except AdapterError as error:
+        return [], evidence(source, None, "unavailable", str(error))
+    try:
+        parsed = json.loads(raw) if raw.strip() else {}
+    except (ValueError, UnicodeError) as error:
+        return [], evidence(source, None, "unknown", f"AO CLI returned invalid JSON: {error}")
+    items = parsed.get("data") if isinstance(parsed, dict) else parsed
+    items = items if isinstance(items, list) else []
+    sessions = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        sessions.append({
+            "id": item["id"],
+            "project_id": item.get("projectId"),
+            "role": item.get("role"),
+            "display_name": redact_secrets(str(item.get("displayName") or "")),
+            "status": item.get("status", "unknown"),
+            "activity": item.get("activity"),
+            "harness": item.get("harness"),
+            "branch": redact_secrets(str(item.get("branch") or "")) or None,
+            "is_terminated": bool(item.get("isTerminated", False)),
+            "last_activity_at": item.get("lastActivityAt"),
+            "created_at": item.get("createdAt"),
+            "updated_at": item.get("updatedAt"),
+        })
+    return sessions, evidence(source, utc_now(), "valid")
+
+
+def ao_session_history(session_id: str, limit: int, offset: int) -> tuple[str, dict]:
+    """Fetch `ao session history <id> --limit --offset` text verbatim (bounded,
+    best-effort secret-redacted), with explicit provenance. Never fabricated when the
+    CLI is unavailable or fails -- an empty string with unavailable evidence instead."""
+    source = f"ao-cli:session history {session_id} --limit {limit} --offset {offset}"
+    try:
+        raw = run_ao_cli(
+            ["session", "history", session_id, "--limit", str(limit), "--offset", str(offset)],
+            ("session", "history"),
+        )
+    except AdapterError as error:
+        return "", evidence(source, None, "unavailable", str(error))
+    return redact_secrets(raw), evidence(source, utc_now(), "valid")
+
+
+def ao_send(session_id, message, steer: bool, confirm) -> dict:
+    """Controlled, fail-closed bridge to `ao send --session <id> --message <text>`.
+
+    Mirrors dispatch()'s confirmation gate: an explicit confirm=true is required, the
+    session id and message are validated before any process is spawned, and failure
+    (bridge disabled, CLI error, timeout) raises rather than reporting fabricated
+    success."""
+    if confirm is not True:
+        raise AdapterError("Explicit confirmation is required", 400)
+    validate_ao_session_id(session_id)
+    text = str(message or "").strip()
+    if not (1 <= len(text) <= AO_SEND_MESSAGE_MAX_LEN):
+        raise AdapterError(f"message must be between 1 and {AO_SEND_MESSAGE_MAX_LEN} characters", 400)
+    args = ["send", "--session", session_id, "--message", text]
+    if steer:
+        args.append("--steer")
+    raw = run_ao_cli(args, ("send",))
+    return {
+        "session_id": session_id,
+        "steered": bool(steer),
+        "output": redact_secrets(raw.strip())[:2000],
+        "evidence": evidence(f"ao-cli:send --session {session_id}", utc_now(), "valid"),
+    }
 
 
 def core_json(path: str, method: str = "GET", body: dict | None = None, idempotency_key: str | None = None):
@@ -549,6 +753,10 @@ def dispatch(payload: dict, idempotency_key: str | None):
     return {"kind": "proposal", "id": result.get("id") or result.get("task_id"), "status": "accepted", "core": result}
 
 
+AO_SESSION_HISTORY_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/history$")
+AO_SESSION_SEND_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/send$")
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Unified-Dashboard-Adapter/0.2"
 
@@ -579,8 +787,21 @@ class Handler(BaseHTTPRequestHandler):
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
-                    "ao": AO_CAPABILITIES,
+                    "ao": ao_capabilities(),
                 })
+            if path == "/api/ao/sessions":
+                sessions, ev = ao_sessions()
+                return self.json_response({"items": sessions, "evidence": ev})
+            history_match = AO_SESSION_HISTORY_PATH.match(path)
+            if history_match:
+                session_id = validate_ao_session_id(history_match.group(1))
+                query = parse_qs(urlparse(self.path).query)
+                limit = parse_bounded_int(
+                    (query.get("limit") or [None])[0], "limit", AO_HISTORY_MIN_LIMIT, AO_HISTORY_MAX_LIMIT, 10
+                )
+                offset = parse_bounded_int((query.get("offset") or [None])[0], "offset", 0, AO_HISTORY_MAX_OFFSET, 0)
+                text, ev = ao_session_history(session_id, limit, offset)
+                return self.json_response({"session_id": session_id, "text": text, "evidence": ev})
             if path.startswith("/api/"):
                 return self.json_response({"detail": "Unknown adapter endpoint"}, 404)
             self.serve_static(path)
@@ -592,14 +813,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
-            if path != "/api/control/dispatch":
-                return self.json_response({"detail": "Only controlled proposal dispatch is available"}, 404)
-            length = int(self.headers.get("Content-Length", "0"))
-            if length <= 0 or length > MAX_BODY:
-                raise AdapterError("Request body is missing or too large", 413)
-            body = json.loads(self.rfile.read(length).decode("utf-8"))
-            result = dispatch(body, self.headers.get("Idempotency-Key"))
-            self.json_response(result, 202)
+            if path == "/api/control/dispatch":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = dispatch(body, self.headers.get("Idempotency-Key"))
+                return self.json_response(result, 202)
+            send_match = AO_SESSION_SEND_PATH.match(path)
+            if send_match:
+                session_id = send_match.group(1)
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = ao_send(session_id, body.get("message"), bool(body.get("steer")), body.get("confirm"))
+                return self.json_response(result, 202)
+            return self.json_response({"detail": "Unknown adapter endpoint"}, 404)
         except (ValueError, UnicodeError):
             self.json_response({"detail": "Invalid JSON request"}, 400)
         except AdapterError as error:

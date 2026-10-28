@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -724,16 +725,289 @@ class CreatorOpsStatusTests(unittest.TestCase):
         self.assertEqual(snap["adapters"]["creator_ops"]["validity"], "valid")
 
 
-class AoCapabilityDeclarationTests(unittest.TestCase):
-    """AO session/worker/chat capabilities must be reported as unconfirmed since no
-    public HTTP API contract is documented for them -- only a local CLI is."""
+def fake_completed(stdout="", stderr="", returncode=0):
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
-    def test_capabilities_are_all_unconfirmed(self):
-        self.assertFalse(server.AO_CAPABILITIES["session_api_confirmed"])
-        self.assertFalse(server.AO_CAPABILITIES["worker_api_confirmed"])
-        self.assertFalse(server.AO_CAPABILITIES["chat_api_confirmed"])
-        self.assertEqual(server.AO_CAPABILITIES["transport"], "cli_only")
-        self.assertTrue(server.AO_CAPABILITIES["reason"])
+
+class AoCliConfigurationTests(unittest.TestCase):
+    """The AO CLI bridge is disabled unless AO_CLI_PATH is an absolute, existing file
+    -- never fabricated as available."""
+
+    def test_unset_path_is_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            self.assertFalse(server.ao_cli_configured())
+
+    def test_relative_path_is_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", "ao"):
+            self.assertFalse(server.ao_cli_configured())
+
+    def test_absolute_nonexistent_path_is_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", r"C:\definitely\not\a\real\path\ao.exe"):
+            self.assertFalse(server.ao_cli_configured())
+
+    def test_absolute_existing_file_is_configured(self):
+        with patch.object(server, "AO_CLI_PATH", sys.executable):
+            self.assertTrue(server.ao_cli_configured())
+
+
+class AoCapabilitiesTests(unittest.TestCase):
+    """ao_capabilities() must reflect the CLI bridge's actual configuration state
+    rather than a fixed static declaration."""
+
+    def test_unconfigured_reports_all_false(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            caps = server.ao_capabilities()
+        self.assertFalse(caps["session_list_confirmed"])
+        self.assertFalse(caps["session_history_confirmed"])
+        self.assertFalse(caps["send_confirmed"])
+        self.assertFalse(caps["worker_api_confirmed"])
+        self.assertFalse(caps["chat_realtime_api_confirmed"])
+        self.assertEqual(caps["transport"], "cli_disabled")
+        self.assertTrue(caps["reason"])
+
+    def test_configured_reports_verified_subcommands_true(self):
+        with patch.object(server, "AO_CLI_PATH", sys.executable):
+            caps = server.ao_capabilities()
+        self.assertTrue(caps["session_list_confirmed"])
+        self.assertTrue(caps["session_history_confirmed"])
+        self.assertTrue(caps["send_confirmed"])
+        self.assertFalse(caps["worker_api_confirmed"])
+        self.assertFalse(caps["chat_realtime_api_confirmed"])
+        self.assertEqual(caps["transport"], "cli_subprocess")
+
+
+class RunAoCliTests(unittest.TestCase):
+    """run_ao_cli() must never spawn a process when the bridge is unconfigured or
+    when the requested argv is outside the hardcoded allowlist, and must enforce
+    shell=False, a bounded timeout, and bounded/redacted failure output."""
+
+    def test_refuses_when_not_configured_without_spawning(self):
+        with patch.object(server, "AO_CLI_PATH", ""), patch.object(server, "subprocess") as mock_subprocess:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+        self.assertEqual(ctx.exception.status, 503)
+        mock_subprocess.run.assert_not_called()
+
+    def test_refuses_disallowed_prefix_without_spawning(self):
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "subprocess") as mock_subprocess:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.run_ao_cli(["session", "kill", "mer-3"], ("session", "ls"))
+        self.assertEqual(ctx.exception.status, 403)
+        mock_subprocess.run.assert_not_called()
+
+    def test_success_calls_with_shell_false_and_exact_argv(self):
+        with patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), patch("server.subprocess.run", return_value=fake_completed(stdout="ok")) as mock_run, \
+             patch.object(server, "ao_cli_configured", return_value=True):
+            result = server.run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+        self.assertEqual(result, "ok")
+        args, kwargs = mock_run.call_args
+        self.assertEqual(args[0], [r"C:\ao\ao.exe", "session", "ls", "--all", "--json"])
+        self.assertFalse(kwargs["shell"])
+        self.assertEqual(kwargs["timeout"], server.AO_CLI_TIMEOUT_SECONDS)
+
+    def test_timeout_raises_504(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ao", timeout=8)):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.run_ao_cli(["send", "--session", "s1", "--message", "hi"], ("send",))
+        self.assertEqual(ctx.exception.status, 504)
+
+    def test_nonzero_exit_raises_502_with_redacted_detail(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stderr="token=supersecretvalue123 failed", returncode=1)):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+        self.assertEqual(ctx.exception.status, 502)
+        self.assertNotIn("supersecretvalue123", str(ctx.exception))
+
+    def test_oserror_raises_502(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", side_effect=OSError("no such file")):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+        self.assertEqual(ctx.exception.status, 502)
+
+    def test_output_is_bounded(self):
+        huge = "x" * (server.AO_CLI_MAX_OUTPUT_CHARS + 1000)
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout=huge)):
+            result = server.run_ao_cli(["session", "ls", "--all", "--json"], ("session", "ls"))
+        self.assertEqual(len(result), server.AO_CLI_MAX_OUTPUT_CHARS)
+
+
+class ValidateAoSessionIdTests(unittest.TestCase):
+    def test_accepts_realistic_ids(self):
+        for valid in ("mer-3", "unified-dashboard-8", "ao-pilot-issue-1", "a"):
+            self.assertEqual(server.validate_ao_session_id(valid), valid)
+
+    def test_rejects_non_string_and_malformed(self):
+        for invalid in (None, "", "has space", "../etc/passwd", "semi;colon", "$(rm -rf)", 123, "-leading-hyphen"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.validate_ao_session_id(invalid)
+            self.assertEqual(ctx.exception.status, 400)
+
+
+class ParseBoundedIntTests(unittest.TestCase):
+    def test_none_returns_default(self):
+        self.assertEqual(server.parse_bounded_int(None, "limit", 1, 50, 10), 10)
+
+    def test_valid_value_within_bounds(self):
+        self.assertEqual(server.parse_bounded_int("25", "limit", 1, 50, 10), 25)
+
+    def test_non_integer_raises_400(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.parse_bounded_int("not-a-number", "limit", 1, 50, 10)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_out_of_bounds_raises_400(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.parse_bounded_int("51", "limit", 1, 50, 10)
+        self.assertEqual(ctx.exception.status, 400)
+        with self.assertRaises(server.AdapterError):
+            server.parse_bounded_int("-1", "offset", 0, 100000, 0)
+
+
+class RedactSecretsTests(unittest.TestCase):
+    def test_bearer_token_is_redacted(self):
+        text = server.redact_secrets("Authorization: Bearer abcdef1234567890xyz")
+        self.assertNotIn("abcdef1234567890xyz", text)
+        self.assertIn("[REDACTED]", text)
+
+    def test_key_value_secret_is_redacted(self):
+        text = server.redact_secrets('api_key="sk-live-1234567890abcdef"')
+        self.assertNotIn("sk-live-1234567890abcdef", text)
+
+    def test_plain_text_is_unchanged(self):
+        text = "Please investigate session_manager.go line 142."
+        self.assertEqual(server.redact_secrets(text), text)
+
+    def test_empty_string_passthrough(self):
+        self.assertEqual(server.redact_secrets(""), "")
+
+
+class AoSessionsTests(unittest.TestCase):
+    """ao_sessions() normalizes `ao session ls --all --json` into a fixed, safe
+    field set and preserves unavailable/unknown evidence on failure."""
+
+    def test_success_normalizes_expected_fields_and_redacts(self):
+        payload = json.dumps({
+            "data": [
+                {
+                    "id": "unified-dashboard-8", "projectId": "unified-dashboard", "role": "worker",
+                    "displayName": "token=sk-shouldnotleak1234567890 bridge work", "status": "idle",
+                    "activity": "idle", "harness": "claude-code", "branch": "ao/unified-dashboard-ao-chat-bridge",
+                    "isTerminated": False, "lastActivityAt": "2026-10-28T19:00:00Z",
+                    "createdAt": "2026-10-28T18:00:00Z", "updatedAt": "2026-10-28T19:00:00Z",
+                },
+                {"name": "dropped, no id"},
+            ]
+        })
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout=payload)):
+            sessions, ev = server.ao_sessions()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["id"], "unified-dashboard-8")
+        self.assertEqual(sessions[0]["project_id"], "unified-dashboard")
+        self.assertNotIn("sk-shouldnotleak1234567890", json.dumps(sessions))
+        self.assertEqual(ev["validity"], "valid")
+        self.assertIsNotNone(ev["observed_at"])
+
+    def test_invalid_json_is_unknown_not_fabricated(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="not json {{{")):
+            sessions, ev = server.ao_sessions()
+        self.assertEqual(sessions, [])
+        self.assertEqual(ev["validity"], "unknown")
+
+    def test_unavailable_when_bridge_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            sessions, ev = server.ao_sessions()
+        self.assertEqual(sessions, [])
+        self.assertEqual(ev["validity"], "unavailable")
+        self.assertIsNone(ev["observed_at"])
+
+
+class AoSessionHistoryTests(unittest.TestCase):
+    def test_success_returns_redacted_text_with_valid_evidence(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="## Turn 1\npassword=hunter2hunter2 was pasted")) as mock_run:
+            text, ev = server.ao_session_history("mer-3", 5, 0)
+        self.assertNotIn("hunter2hunter2", text)
+        self.assertEqual(ev["validity"], "valid")
+        args, _ = mock_run.call_args
+        self.assertEqual(args[0], [r"C:\ao\ao.exe", "session", "history", "mer-3", "--limit", "5", "--offset", "0"])
+
+    def test_unavailable_when_bridge_not_configured_never_fabricates_history(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            text, ev = server.ao_session_history("mer-3", 10, 0)
+        self.assertEqual(text, "")
+        self.assertEqual(ev["validity"], "unavailable")
+        self.assertIsNone(ev["observed_at"])
+
+    def test_nonzero_exit_is_unavailable_not_fabricated(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stderr="no such session", returncode=1)):
+            text, ev = server.ao_session_history("no-such-session", 10, 0)
+        self.assertEqual(text, "")
+        self.assertEqual(ev["validity"], "unavailable")
+
+
+class AoSendTests(unittest.TestCase):
+    """Controlled send: explicit confirmation, validated session id/message, fixed
+    argv, fail-closed when the bridge is unavailable."""
+
+    def test_requires_explicit_confirmation(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_send("mer-3", "hello", False, False)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_rejects_invalid_session_id(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_send("not a valid id", "hello", False, True)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_rejects_empty_message(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_send("mer-3", "   ", False, True)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_rejects_overlong_message(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_send("mer-3", "x" * (server.AO_SEND_MESSAGE_MAX_LEN + 1), False, True)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_success_builds_expected_argv_without_steer(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
+            result = server.ao_send("mer-3", "Focus on the backend.", False, True)
+        args, _ = mock_run.call_args
+        self.assertEqual(args[0], [r"C:\ao\ao.exe", "send", "--session", "mer-3", "--message", "Focus on the backend."])
+        self.assertEqual(result["session_id"], "mer-3")
+        self.assertFalse(result["steered"])
+        self.assertEqual(result["evidence"]["validity"], "valid")
+
+    def test_steer_appends_flag(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
+            result = server.ao_send("mer-3", "Use the daemon DTO.", True, True)
+        args, _ = mock_run.call_args
+        self.assertIn("--steer", args[0])
+        self.assertTrue(result["steered"])
+
+    def test_output_is_redacted(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="Bearer abcdef1234567890xyz accepted")):
+            result = server.ao_send("mer-3", "hello", False, True)
+        self.assertNotIn("abcdef1234567890xyz", result["output"])
+
+    def test_fails_closed_when_bridge_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("mer-3", "hello", False, True)
+        self.assertEqual(ctx.exception.status, 503)
 
 
 if __name__ == "__main__":
