@@ -300,8 +300,12 @@ def health_probe() -> dict:
     raw, error = _call_probe("/health")
     observed = utc_now()
     if error is not None:
+        # A 401/403 is itself proof Core is up and reachable -- it processed the
+        # request and explicitly rejected it on auth grounds, which is a different
+        # fact from a connection failure/timeout where no response was ever received.
+        reachable = error.status in (401, 403)
         return {
-            "status": "unknown", "reachable": False, "observed_at": None,
+            "status": "unknown", "reachable": reachable, "observed_at": observed if reachable else None,
             "validity": unavailability_validity(error), "reason": str(error), "error_status": error.status,
         }
     status_text = str(raw.get("status", "unknown")).lower()
@@ -319,9 +323,12 @@ def ready_probe() -> dict:
     raw, error = _call_probe("/ready")
     observed = utc_now()
     if error is not None:
+        # See health_probe(): a 401/403 proves Core is reachable and simply rejected
+        # the request on auth grounds, unlike a connection failure/timeout.
+        reachable = error.status in (401, 403)
         return {
             "status": "unknown", "database": "unknown", "queue": "unknown", "workers": [],
-            "reachable": False, "observed_at": None,
+            "reachable": reachable, "observed_at": observed if reachable else None,
             "validity": unavailability_validity(error), "reason": str(error), "error_status": error.status,
         }
     status_text = str(raw.get("status", "unknown")).lower()

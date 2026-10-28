@@ -408,7 +408,10 @@ class AuthenticatedVsTokenConfiguredTests(unittest.TestCase):
         self.assertTrue(hive["token_configured"])
         self.assertFalse(hive["authenticated"])
         self.assertEqual(hive["authentication_validity"], "unavailable")
-        self.assertFalse(hive["reachable"])
+        # A 401 is itself proof Core is up and reachable; it is the auth check that
+        # was rejected, not connectivity. See ReachabilityVsAuthRequiredTests below.
+        self.assertTrue(hive["reachable"])
+        self.assertEqual(hive["validity"], "auth_required")
 
     def test_token_configured_and_call_succeeds_is_not_fabricated_authenticated(self):
         # A successful /health call does not by itself prove the bearer token was
@@ -513,6 +516,9 @@ class HealthProbeTests(unittest.TestCase):
             probe = server.health_probe()
         self.assertEqual(probe["validity"], "auth_required")
         self.assertEqual(probe["error_status"], 401)
+        # A 401 proves Core processed and rejected the request -- it is reachable.
+        self.assertTrue(probe["reachable"])
+        self.assertIsNotNone(probe["observed_at"])
 
 
 class ReadyProbeTests(unittest.TestCase):
@@ -549,6 +555,74 @@ class ReadyProbeTests(unittest.TestCase):
         self.assertEqual(snap["core"]["ready"]["status"], "ready")
         self.assertEqual(snap["core"]["ready"]["database"], "ok")
         self.assertEqual(snap["core"]["ready"]["validity"], "valid")
+
+
+class ReachabilityVsAuthRequiredTests(unittest.TestCase):
+    """A 401/403 proves Core processed and rejected the request -- it is reachable,
+    distinct from a connection failure/timeout where no response was ever received.
+    unavailability_validity() already encodes this distinction (auth_required vs.
+    unavailable); health_probe()/ready_probe() must agree with it instead of
+    reporting reachable=false for every error uniformly."""
+
+    def test_health_probe_401_is_reachable_with_observed_at(self):
+        routes = {"/health": http_error(401)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertTrue(probe["reachable"])
+        self.assertIsNotNone(probe["observed_at"])
+        self.assertEqual(probe["validity"], "auth_required")
+
+    def test_health_probe_403_is_reachable_with_observed_at(self):
+        routes = {"/health": http_error(403)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertTrue(probe["reachable"])
+        self.assertIsNotNone(probe["observed_at"])
+        self.assertEqual(probe["validity"], "auth_required")
+
+    def test_health_probe_connection_failure_stays_unreachable(self):
+        routes = {"/health": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertFalse(probe["reachable"])
+        self.assertIsNone(probe["observed_at"])
+        self.assertEqual(probe["validity"], "unavailable")
+
+    def test_health_probe_404_is_out_of_narrow_fix_scope_stays_unreachable(self):
+        # Only 401/403 prove reachability for this fix; a 404 is left as-is
+        # (reachable=false) -- this test pins that boundary so it isn't widened
+        # silently in a future change.
+        routes = {"/health": http_error(404)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.health_probe()
+        self.assertFalse(probe["reachable"])
+        self.assertEqual(probe["validity"], "unknown")
+
+    def test_ready_probe_401_is_reachable_with_observed_at(self):
+        routes = {"/ready": http_error(401)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.ready_probe()
+        self.assertTrue(probe["reachable"])
+        self.assertIsNotNone(probe["observed_at"])
+        self.assertEqual(probe["validity"], "auth_required")
+        self.assertEqual(probe["workers"], [])
+
+    def test_ready_probe_connection_failure_stays_unreachable(self):
+        routes = {"/ready": URLError("refused")}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            probe = server.ready_probe()
+        self.assertFalse(probe["reachable"])
+        self.assertIsNone(probe["observed_at"])
+        self.assertEqual(probe["validity"], "unavailable")
+
+    def test_snapshot_hive_adapter_reflects_reachable_auth_required(self):
+        routes = {"/health": http_error(401)}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            snap = server.snapshot()
+        hive = snap["adapters"]["hive"]
+        self.assertTrue(hive["reachable"])
+        self.assertIsNotNone(hive["last_observed_at"])
+        self.assertEqual(hive["validity"], "auth_required")
 
 
 class WorkerFallbackTests(unittest.TestCase):
