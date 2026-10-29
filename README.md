@@ -176,6 +176,13 @@ as a visual reference; this is a separate surface.
     accepts a command, path, prompt or workspace from the request, and never runs a
     model/task; unavailable or non-zero probes remain unavailable evidence.
 
+15. **OpenCode disposable execution (`POST /api/local-workers/opencode/run`).** The
+    route is disabled by default and requires explicit confirmation, a verified
+    provider-session flag, network confirmation, an existing workspace below the
+    disposable root, scoped context and fixed WSL argv. It never accepts arbitrary
+    commands, sessions, forks, server mode or workspace escape. Freebuff has no
+    execution route until its non-interactive output contract is verified.
+
 ## Run
 
 From this directory:

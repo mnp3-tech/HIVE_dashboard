@@ -1096,6 +1096,9 @@ LOCAL_CLI_PROBES = (
     ("opencode-local", "OpenCode", ("wsl.exe", "-d", "Ubuntu-24.04", "--", "opencode", "--version")),
     ("freebuff-local", "Freebuff", ("wsl.exe", "-d", "Ubuntu-24.04", "--", "freebuff", "--version")),
 )
+OPENCODE_EXECUTION_CONFIRMED = os.environ.get("OPENCODE_EXECUTION_CONFIRMED", "").strip().lower() in {"1", "true", "yes"}
+OPENCODE_WORKSPACE_ROOT = ROOT / "work" / "opencode-disposable"
+OPENCODE_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 
 
 def local_worker_status():
@@ -1164,6 +1167,68 @@ def local_cli_worker_status() -> tuple[list, dict]:
     statuses = {item["status"] for item in items}
     validity = "valid" if statuses == {"available"} else "degraded" if "available" in statuses else "unavailable"
     return items, evidence("local:cli-worker-probe", utc_now(), validity, "Only fixed --version argv was executed; no provider, model, task, or workspace action was launched.")
+
+
+def _wsl_workspace_path(path: Path) -> str:
+    drive = path.drive.rstrip(":").lower()
+    if not drive:
+        raise AdapterError("OpenCode workspace must be on a Windows drive", 400)
+    return f"/mnt/{drive}{path.as_posix()[2:]}"
+
+
+def opencode_run(payload: dict) -> dict:
+    """Run only an explicitly enabled OpenCode task in a disposable workspace."""
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise AdapterError("Explicit confirmation is required for OpenCode execution", 400)
+    if not OPENCODE_EXECUTION_CONFIRMED:
+        raise AdapterError("OpenCode execution is disabled until its provider session is explicitly verified", 503)
+    if payload.get("provider_session_confirmed") is not True or payload.get("network_confirmed") is not True:
+        raise AdapterError("Provider-session and network confirmation are required for OpenCode execution", 400)
+    task_id = str(payload.get("task_id") or "")
+    if not OPENCODE_TASK_ID_PATTERN.fullmatch(task_id):
+        raise AdapterError("Invalid OpenCode task_id", 400)
+    workspace_raw = str(payload.get("workspace") or "")
+    try:
+        workspace = Path(workspace_raw).resolve()
+        root = Path(OPENCODE_WORKSPACE_ROOT).resolve()
+    except OSError as error:
+        raise AdapterError(f"OpenCode workspace is invalid: {error}", 400) from None
+    if not workspace.is_dir() or root not in workspace.parents:
+        raise AdapterError("OpenCode workspace must be an existing directory inside the disposable root", 400)
+    project_id = str(payload.get("project_id") or "")
+    instruction = redact_secrets(str(payload.get("instruction") or "").strip())
+    if not project_id or not (1 <= len(instruction) <= LOCAL_INFERENCE_MAX_INSTRUCTION):
+        raise AdapterError("project_id and bounded instruction are required", 400)
+    context = context_build(project_id, payload.get("record_ids"), CONTEXT_MAX_CHARS)
+    context_text = "\n\n".join(f"[{record['record_id']}]\n{record.get('content', '')}" for record in context["records"])
+    prompt = f"{instruction}\n\nBounded context:\n{context_text}"
+    argv = [
+        "wsl.exe", "-d", "Ubuntu-24.04", "--cd", _wsl_workspace_path(workspace), "--",
+        "/usr/local/bin/opencode", "run", "--format", "json", "--log-level", "error",
+        "--title", task_id, prompt,
+    ]
+    try:
+        result = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=120, encoding="utf-8", errors="replace")
+    except subprocess.TimeoutExpired:
+        raise AdapterError("OpenCode execution timed out after 120s", 504) from None
+    except (FileNotFoundError, OSError) as error:
+        raise AdapterError(f"OpenCode execution unavailable: {error}", 503) from None
+    stdout = redact_secrets((result.stdout or "").strip())[:65_536]
+    stderr = redact_secrets((result.stderr or "").strip())[:8_000]
+    if result.returncode != 0:
+        status, validity, reason = "failed", "degraded", f"OpenCode exited with status {result.returncode}"
+    else:
+        try:
+            parsed = json.loads(stdout) if stdout else None
+        except (ValueError, UnicodeError):
+            parsed = None
+        status, validity, reason = ("completed", "valid", "Bounded OpenCode JSON output received") if isinstance(parsed, dict) else ("degraded", "degraded", "OpenCode returned empty or invalid JSON output")
+    return {
+        "worker_id": "opencode-local", "task_id": task_id, "status": status,
+        "exit_code": result.returncode, "stdout": stdout, "stderr": stderr,
+        "workspace": str(workspace), "context_hash": context["content_hash"],
+        "evidence": evidence("local:opencode/run", utc_now(), validity, reason),
+    }
 
 
 def lmstudio_infer(payload: dict) -> dict:
@@ -1576,6 +1641,7 @@ class Handler(BaseHTTPRequestHandler):
                     "memory": {"operations": ["status", "search", "get", "build_context", "propose"], "canonical_write": False, "project_scoped": True},
                     "local_inference": {"route": "/api/local-workers/lmstudio/infer", "confirm_required": True, "canonical_write": False, "loopback_only": True},
                     "cli_worker_probe": {"route": "/api/local-workers/cli-status", "fixed_argv_only": True, "execution": "version-only", "canonical_write": False},
+                    "opencode_execution": {"route": "/api/local-workers/opencode/run", "enabled_by_default": False, "disposable_workspace_only": True, "fixed_argv": True},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
@@ -1641,6 +1707,12 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > MAX_BODY:
                     raise AdapterError("Request body is missing or too large", 413)
                 result = lmstudio_infer(json.loads(self.rfile.read(length).decode("utf-8")))
+                return self.json_response(result, 200)
+            if path == "/api/local-workers/opencode/run":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                result = opencode_run(json.loads(self.rfile.read(length).decode("utf-8")))
                 return self.json_response(result, 200)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:

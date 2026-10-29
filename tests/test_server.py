@@ -319,6 +319,46 @@ class LocalCliWorkerProbeTests(unittest.TestCase):
         self.assertTrue(all(item["version"] is None for item in items))
 
 
+class OpenCodeAdapterTests(unittest.TestCase):
+    def _payload(self, workspace):
+        return {"confirm": True, "provider_session_confirmed": True, "network_confirmed": True, "task_id": "P-020-smoke", "project_id": "demo", "record_ids": ["P-DEMO"], "workspace": str(workspace), "instruction": "Return a bounded JSON result."}
+
+    def test_execution_is_disabled_by_default_before_subprocess(self):
+        with patch.object(server, "OPENCODE_EXECUTION_CONFIRMED", False), patch.object(server.subprocess, "run") as run:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.opencode_run(self._payload(Path("C:/missing")))
+        self.assertEqual(ctx.exception.status, 503)
+        run.assert_not_called()
+
+    def test_enabled_execution_uses_fixed_argv_and_disposable_workspace(self):
+        with tempfile.TemporaryDirectory() as root:
+            workspace = Path(root) / "task"
+            workspace.mkdir()
+            calls = []
+
+            def fake_run(argv, **kwargs):
+                calls.append((argv, kwargs))
+                return subprocess.CompletedProcess(argv, 0, stdout='{"ok":true}\n', stderr="")
+
+            with patch.object(server, "OPENCODE_EXECUTION_CONFIRMED", True), patch.object(server, "OPENCODE_WORKSPACE_ROOT", Path(root)), patch.object(server, "context_build", return_value={"records": [{"record_id": "P-DEMO", "content": "safe"}], "content_hash": "a" * 64}), patch.object(server.subprocess, "run", fake_run):
+                result = server.opencode_run(self._payload(workspace))
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["evidence"]["validity"], "valid")
+        argv = calls[0][0]
+        self.assertEqual(argv[:4], ["wsl.exe", "-d", "Ubuntu-24.04", "--cd"])
+        self.assertIn("/usr/local/bin/opencode", argv)
+        self.assertIn("--format", argv)
+        self.assertEqual(calls[0][1]["shell"], False)
+        self.assertEqual(calls[0][1]["timeout"], 120)
+
+    def test_workspace_escape_is_blocked(self):
+        with tempfile.TemporaryDirectory() as root:
+            with patch.object(server, "OPENCODE_EXECUTION_CONFIRMED", True), patch.object(server, "OPENCODE_WORKSPACE_ROOT", Path(root)):
+                with self.assertRaises(server.AdapterError) as ctx:
+                    server.opencode_run(self._payload(Path(root).parent))
+        self.assertEqual(ctx.exception.status, 400)
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:
