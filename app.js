@@ -165,10 +165,12 @@ function renderCliWorkers(){
 
 function renderHandoff(){
   const handoff=state.capabilities&&state.capabilities.handoff;
+  const routing=state.capabilities&&state.capabilities.routing;
   const valid=Boolean(handoff&&handoff.route&&handoff.proposal_only===true&&handoff.delivery===false&&handoff.retry===false);
   const badge=$('#handoff-validity'); if(badge){ badge.textContent=valid?'PROPOSAL ONLY':'UNKNOWN'; badge.className=`panel-status ${valid?'warn':'unknown'}`; }
   setText('handoff-evidence', valid ? `source ${handoff.route} · proposal-only · no delivery or retry` : 'Handoff capability evidence unavailable.');
   setText('handoff-summary', valid ? 'Bounded attempt/idempotency metadata supports resume-from-checkpoint. Uncertain or delivered attempts require recovery; no resend is allowed.' : 'No delivery, retry, provider launch, or canonical state change is performed by this route.');
+  setText('provider-readiness', routing && routing.provider_execution === false && routing.attestation_shape_only === true ? 'PROVIDER EXECUTION BLOCKED · attestation is shape-only; verified HIVE/provider identity and protected routes are required.' : 'Provider execution readiness is unknown.');
 }
 
 function openEvidenceDrawer(key, title){
@@ -389,7 +391,7 @@ function demoWorkerPolicy(){
   };
 }
 
-function demoCapabilities(){ return {handoff:{route:'/api/control/handoff-proposal', proposal_only:true, delivery:false, retry:false}}; }
+function demoCapabilities(){ return {handoff:{route:'/api/control/handoff-proposal', proposal_only:true, delivery:false, retry:false}, routing:{provider_execution:false, attestation_shape_only:true}}; }
 
 function demoChat(){
   return {sessions:[{id:'hive-demo',name:'HIVE / demo fixture',status:'working',harness:'local'}],selected:'hive-demo',evidence:{source:'ao:fixture',validity:'valid'},history:[
