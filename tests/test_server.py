@@ -6,12 +6,14 @@ All HIVE Core network access is mocked via server.urlopen.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -755,25 +757,39 @@ class AoCapabilitiesTests(unittest.TestCase):
     rather than a fixed static declaration."""
 
     def test_unconfigured_reports_all_false(self):
-        with patch.object(server, "AO_CLI_PATH", ""):
+        with patch.object(server, "AO_CLI_PATH", ""), patch.object(server, "AO_SEND_CALLER_TOKEN", ""):
             caps = server.ao_capabilities()
         self.assertFalse(caps["session_list_confirmed"])
         self.assertFalse(caps["session_history_confirmed"])
         self.assertFalse(caps["send_confirmed"])
+        self.assertFalse(caps["send_recover_confirmed"])
+        self.assertFalse(caps["caller_auth_configured"])
         self.assertFalse(caps["worker_api_confirmed"])
         self.assertFalse(caps["chat_realtime_api_confirmed"])
         self.assertEqual(caps["transport"], "cli_disabled")
         self.assertTrue(caps["reason"])
 
     def test_configured_reports_verified_subcommands_true(self):
-        with patch.object(server, "AO_CLI_PATH", sys.executable):
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
             caps = server.ao_capabilities()
         self.assertTrue(caps["session_list_confirmed"])
         self.assertTrue(caps["session_history_confirmed"])
         self.assertTrue(caps["send_confirmed"])
+        self.assertTrue(caps["send_recover_confirmed"])
+        self.assertTrue(caps["caller_auth_configured"])
         self.assertFalse(caps["worker_api_confirmed"])
         self.assertFalse(caps["chat_realtime_api_confirmed"])
         self.assertEqual(caps["transport"], "cli_subprocess")
+
+    def test_cli_configured_but_caller_auth_missing_keeps_send_unconfirmed(self):
+        # send/send_recover must reflect whether the route is actually reachable by
+        # any caller, not merely whether the ao binary exists.
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", ""):
+            caps = server.ao_capabilities()
+        self.assertTrue(caps["session_list_confirmed"])
+        self.assertFalse(caps["send_confirmed"])
+        self.assertFalse(caps["send_recover_confirmed"])
+        self.assertFalse(caps["caller_auth_configured"])
 
 
 class RunAoCliTests(unittest.TestCase):
@@ -1103,6 +1119,172 @@ class AoRecoverSendTests(unittest.TestCase):
             with self.assertRaises(server.AdapterError) as ctx:
                 server.ao_recover_send("mer-3", "handle-1", True)
         self.assertEqual(ctx.exception.status, 503)
+
+
+class RequireAoSendCallerAuthTests(unittest.TestCase):
+    """Fail-closed caller-auth gate for send/recover (addresses the independent
+    review finding that P-009 shipped send/recover with no caller-auth gate at
+    all). Missing/malformed/wrong tokens are always rejected, and an unconfigured
+    server token rejects every request rather than letting it through."""
+
+    def test_unconfigured_token_rejects_even_with_a_header(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", ""):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.require_ao_send_caller_auth({"Authorization": "Bearer anything"})
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_missing_header_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.require_ao_send_caller_auth({})
+        self.assertEqual(ctx.exception.status, 401)
+
+    def test_malformed_header_without_bearer_prefix_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.require_ao_send_caller_auth({"Authorization": "secret-token"})
+        self.assertEqual(ctx.exception.status, 401)
+
+    def test_empty_bearer_value_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.require_ao_send_caller_auth({"Authorization": "Bearer "})
+        self.assertEqual(ctx.exception.status, 401)
+
+    def test_wrong_token_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.require_ao_send_caller_auth({"Authorization": "Bearer wrong-token"})
+        self.assertEqual(ctx.exception.status, 401)
+
+    def test_correct_token_passes_without_raising(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            server.require_ao_send_caller_auth({"Authorization": "Bearer secret-token"})
+
+    def test_client_cannot_make_its_own_value_the_expected_token(self):
+        # Pins the comparison direction: the header value is always the candidate
+        # being checked against the server-held AO_SEND_CALLER_TOKEN, never used as
+        # the expected value itself.
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+            with self.assertRaises(server.AdapterError):
+                server.require_ao_send_caller_auth({"Authorization": "Bearer secret-token-but-longer"})
+
+
+class AoSendCallerAuthHttpTests(unittest.TestCase):
+    """HTTP-level coverage for the send/recover caller-auth gate: real requests
+    against a loopback-bound server.Handler (default HTTP/1.0, closes per request),
+    proving rejection happens before the body is read or AO is ever invoked."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        cls.port = cls.httpd.server_address[1]
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.thread.join(timeout=2)
+
+    def _post(self, path, body=b"", headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            conn.request("POST", path, body=body, headers=headers or {})
+            resp = conn.getresponse()
+            data = resp.read()
+            return resp.status, (json.loads(data) if data else {})
+        finally:
+            conn.close()
+
+    def test_send_missing_authorization_header_is_rejected_before_body_read(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_send") as mock_send:
+            status, _ = self._post("/api/ao/sessions/mer-3/send", body=b'{"message": "hi", "confirm": true}')
+        self.assertEqual(status, 401)
+        mock_send.assert_not_called()
+
+    def test_send_malformed_authorization_header_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_send") as mock_send:
+            status, _ = self._post(
+                "/api/ao/sessions/mer-3/send",
+                body=b'{"message": "hi", "confirm": true}',
+                headers={"Authorization": "Basic secret-token"},
+            )
+        self.assertEqual(status, 401)
+        mock_send.assert_not_called()
+
+    def test_send_wrong_token_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_send") as mock_send:
+            status, _ = self._post(
+                "/api/ao/sessions/mer-3/send",
+                body=b'{"message": "hi", "confirm": true}',
+                headers={"Authorization": "Bearer wrong-token"},
+            )
+        self.assertEqual(status, 401)
+        mock_send.assert_not_called()
+
+    def test_send_unconfigured_caller_token_fails_closed(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", ""), patch.object(server, "ao_send") as mock_send:
+            status, _ = self._post(
+                "/api/ao/sessions/mer-3/send",
+                body=b'{"message": "hi", "confirm": true}',
+                headers={"Authorization": "Bearer anything"},
+            )
+        self.assertEqual(status, 503)
+        mock_send.assert_not_called()
+
+    def test_send_malformed_json_body_never_reached_when_auth_missing(self):
+        # Proves auth is checked strictly before the body is parsed: an
+        # invalid-JSON body with no Authorization header must still fail with 401
+        # (caller-auth rejection), never a 400 "Invalid JSON request".
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_send") as mock_send:
+            status, _ = self._post("/api/ao/sessions/mer-3/send", body=b"not json {{{")
+        self.assertEqual(status, 401)
+        mock_send.assert_not_called()
+
+    def test_recover_missing_authorization_header_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_recover_send") as mock_recover:
+            status, _ = self._post("/api/ao/sessions/mer-3/send/recover", body=b'{"client_message_id": "h1", "confirm": true}')
+        self.assertEqual(status, 401)
+        mock_recover.assert_not_called()
+
+    def test_recover_wrong_token_is_rejected(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), patch.object(server, "ao_recover_send") as mock_recover:
+            status, _ = self._post(
+                "/api/ao/sessions/mer-3/send/recover",
+                body=b'{"client_message_id": "h1", "confirm": true}',
+                headers={"Authorization": "Bearer wrong"},
+            )
+        self.assertEqual(status, 401)
+        mock_recover.assert_not_called()
+
+    def test_recover_unconfigured_caller_token_fails_closed(self):
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", ""), patch.object(server, "ao_recover_send") as mock_recover:
+            status, _ = self._post(
+                "/api/ao/sessions/mer-3/send/recover",
+                body=b'{"client_message_id": "h1", "confirm": true}',
+                headers={"Authorization": "Bearer anything"},
+            )
+        self.assertEqual(status, 503)
+        mock_recover.assert_not_called()
+
+    def test_send_valid_token_with_mocked_cli_reaches_ao_send_and_succeeds(self):
+        # Positive fixture: a correct token clears the gate and the request reaches
+        # the real ao_send() code path end to end over real HTTP; the ao CLI itself
+        # is fully mocked at the subprocess boundary, so no real AO send occurs.
+        with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), \
+             patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")):
+            status, payload = self._post(
+                "/api/ao/sessions/mer-3/send",
+                body=b'{"message": "hello", "confirm": true}',
+                headers={"Authorization": "Bearer secret-token", "Content-Type": "application/json"},
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["session_id"], "mer-3")
+        self.assertTrue(payload["client_message_id"])
 
 
 if __name__ == "__main__":

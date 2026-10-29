@@ -17,6 +17,7 @@ at AO's internal HTTP/IPC transport, and never reads AO's own SQLite store.
 from __future__ import annotations
 
 import argparse
+import hmac
 import ipaddress
 import json
 import mimetypes
@@ -116,6 +117,14 @@ AO_HISTORY_MIN_LIMIT = 1
 AO_HISTORY_MAX_LIMIT = 50  # ao session history itself caps --limit at 50
 AO_HISTORY_MAX_OFFSET = 100_000
 
+# Caller-authentication gate for the two routes that actually act on a live AO
+# session (send, send/recover). This is independent of AO_CLI_PATH: even when the
+# CLI bridge is fully configured, a request to send/recover must present a valid
+# bearer token before its body is ever read or AO is ever invoked. Unset (the
+# default) is fail-closed -- every send/recover request is rejected, not silently
+# allowed -- since there would be no server-held value to authenticate against.
+AO_SEND_CALLER_TOKEN = os.environ.get("AO_SEND_CALLER_TOKEN", "")
+
 # Best-effort redaction of credential-shaped substrings (bearer tokens, key=value
 # secrets, provider API key prefixes, AWS access key IDs, JWT-shaped strings) from
 # raw `ao` CLI text before it ever reaches a response. This is a defensive, imperfect
@@ -149,21 +158,52 @@ def ao_cli_configured() -> bool:
         return False
 
 
+def ao_send_caller_auth_configured() -> bool:
+    return bool(AO_SEND_CALLER_TOKEN)
+
+
+def require_ao_send_caller_auth(headers) -> None:
+    """Fail-closed caller-authentication gate for the send/recover routes only.
+
+    Independent of AO_CLI_PATH: this must be checked, and must reject, before the
+    request body is read or ao_send()/ao_recover_send() are ever called. If
+    AO_SEND_CALLER_TOKEN is not configured there is no server-held value to
+    authenticate against, so every request is rejected rather than treated as
+    "no auth required". Comparison uses hmac.compare_digest (constant-time) against
+    the server-configured token; the value a client presents is only ever the
+    candidate being checked, never the expected value.
+    """
+    if not AO_SEND_CALLER_TOKEN:
+        raise AdapterError("AO send/recover caller authentication is not configured; refusing all requests", 503)
+    header = headers.get("Authorization", "") or ""
+    if not header.startswith("Bearer ") or len(header) <= len("Bearer "):
+        raise AdapterError("Missing or malformed Authorization header", 401)
+    provided = header[len("Bearer "):]
+    if not hmac.compare_digest(provided.encode("utf-8"), AO_SEND_CALLER_TOKEN.encode("utf-8")):
+        raise AdapterError("Invalid caller token", 401)
+
+
 def ao_capabilities() -> dict:
     """Capability declaration for the AO CLI bridge.
 
-    session_list/history/send are verified, documented `ao` CLI subcommands (see the
-    module docstring); they are only ever reported confirmed when AO_CLI_PATH is
-    configured, since an unconfigured bridge cannot actually serve them. worker_api
-    and realtime chat remain unconfirmed: no public HTTP/worker-registry contract is
-    documented for AO, and this adapter never guesses at one.
+    session_list/history are verified, documented `ao` CLI subcommands, confirmed
+    whenever AO_CLI_PATH is configured. send/send_recover additionally require the
+    caller-auth gate (AO_SEND_CALLER_TOKEN) to be configured, since those routes
+    cannot actually be reached by any caller otherwise -- confirmed must reflect
+    whether the route can really be used end to end, not just whether the CLI binary
+    exists. worker_api and realtime chat remain unconfirmed: no public HTTP/
+    worker-registry contract is documented for AO, and this adapter never guesses at
+    one.
     """
     configured = ao_cli_configured()
+    caller_auth_configured = ao_send_caller_auth_configured()
+    send_usable = configured and caller_auth_configured
     return {
         "session_list_confirmed": configured,
         "session_history_confirmed": configured,
-        "send_confirmed": configured,
-        "send_recover_confirmed": configured,
+        "send_confirmed": send_usable,
+        "send_recover_confirmed": send_usable,
+        "caller_auth_configured": caller_auth_configured,
         "worker_api_confirmed": False,
         "chat_realtime_api_confirmed": False,
         "transport": "cli_subprocess" if configured else "cli_disabled",
@@ -178,9 +218,13 @@ def ao_capabilities() -> dict:
             "`--client-message-id`, per send.md the only AO send mode with a "
             "documented idempotent round-trip; a failed/uncertain send preserves that "
             "id so the outcome can be recovered via `--recover-only` instead of "
-            "resent. No other AO HTTP endpoint, worker registry, or internal SQLite "
-            "store is read, and the bridge reports unavailable rather than "
-            "fabricating success when unconfigured or when a call fails."
+            "resent. send/send-recover additionally require AO_SEND_CALLER_TOKEN: "
+            "the caller must present a matching `Authorization: Bearer <token>` "
+            "header, checked with a constant-time comparison before the request "
+            "body is read or AO is invoked, and rejected outright if the token is "
+            "not configured. No other AO HTTP endpoint, worker registry, or "
+            "internal SQLite store is read, and the bridge reports unavailable "
+            "rather than fabricating success when unconfigured or when a call fails."
         ),
     }
 
@@ -832,6 +876,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def drain_request_body(self) -> None:
+        """Discard any pending request body bytes without parsing or using them.
+
+        Called only after a rejection decision (e.g. a failed caller-auth check) has
+        already been made from headers alone -- this never influences that decision.
+        It exists purely so closing the connection with unread bytes still sitting in
+        the socket doesn't reset the connection before the client can read the error
+        response.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length > 0:
+            self.rfile.read(min(length, MAX_BODY))
+
     def do_GET(self):
         path = urlparse(self.path).path
         try:
@@ -878,6 +938,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(result, 202)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:
+                try:
+                    require_ao_send_caller_auth(self.headers)
+                except AdapterError:
+                    self.drain_request_body()
+                    raise
                 session_id = recover_match.group(1)
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > MAX_BODY:
@@ -887,6 +952,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(result, 200)
             send_match = AO_SESSION_SEND_PATH.match(path)
             if send_match:
+                try:
+                    require_ao_send_caller_auth(self.headers)
+                except AdapterError:
+                    self.drain_request_body()
+                    raise
                 session_id = send_match.group(1)
                 length = int(self.headers.get("Content-Length", "0"))
                 if length <= 0 or length > MAX_BODY:

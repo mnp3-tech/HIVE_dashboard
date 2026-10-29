@@ -91,11 +91,29 @@ as a visual reference; this is a separate surface.
     JWT-shaped strings) to all CLI output before it is returned — a defensive filter,
     not a guarantee, since session history is free-form chat text that could contain
     an inline secret in an unanticipated shape.
+
+    **`send` and `send/recover` additionally require caller authentication,
+    independent of `AO_CLI_PATH`.** Set `AO_SEND_CALLER_TOKEN` to a server-held
+    secret; every request to either route must carry a matching
+    `Authorization: Bearer <token>` header, checked with `hmac.compare_digest`
+    (constant-time) via `require_ao_send_caller_auth()` **before** the request body
+    is read, before JSON is parsed, and before `ao_send()`/`ao_recover_send()` is
+    ever called. A missing, malformed, or wrong token is rejected with `401`. If
+    `AO_SEND_CALLER_TOKEN` is unset, both routes reject every request with `503`
+    rather than treating an unconfigured gate as "no auth required" — there would be
+    no server-held value to authenticate a caller against. The expected value is
+    always the server-configured `AO_SEND_CALLER_TOKEN`; a client-supplied header
+    value is only ever the candidate being checked, never accepted as the
+    reference. (session listing and history do not carry this requirement — they
+    are read-only and gated only by `AO_CLI_PATH`.)
+
     `/api/control/capabilities` reports `ao.session_list_confirmed` /
-    `session_history_confirmed` / `send_confirmed` / `send_recover_confirmed` as
-    `true` only when `AO_CLI_PATH` is actually configured; `worker_api_confirmed` and
-    `chat_realtime_api_confirmed` remain `false` always — no such contract is
-    documented for AO.
+    `session_history_confirmed` as `true` whenever `AO_CLI_PATH` is configured.
+    `send_confirmed` / `send_recover_confirmed` additionally require
+    `AO_SEND_CALLER_TOKEN` to be configured — `ao.caller_auth_configured` reports
+    that fact directly — since those routes cannot actually be reached by any
+    caller otherwise. `worker_api_confirmed` and `chat_realtime_api_confirmed`
+    remain `false` always — no such contract is documented for AO.
 
 ## Run
 
@@ -113,16 +131,29 @@ the AO CLI bridge routes (`GET /api/ao/sessions`, `GET /api/ao/sessions/<id>/his
 described in item 11 above.
 
 To enable the AO CLI bridge, set `AO_CLI_PATH` to an absolute path to the `ao` binary
-before starting the adapter:
+before starting the adapter. To additionally enable `send`/`send/recover`, also set
+`AO_SEND_CALLER_TOKEN` to a secret value, and present it as a bearer token on every
+request to those two routes:
 
 ```powershell
 $env:AO_CLI_PATH = 'C:\Users\Martin\AppData\Local\Programs\agent-orchestrator\resources\daemon\ao.exe'
+$env:AO_SEND_CALLER_TOKEN = (New-Guid).Guid
 .\start.ps1
 ```
 
-Leaving `AO_CLI_PATH` unset is the safe default: the three AO routes report
+```powershell
+# Example authenticated call to the send route
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:4173/api/ao/sessions/mer-3/send' `
+    -Headers @{ Authorization = "Bearer $env:AO_SEND_CALLER_TOKEN" } `
+    -ContentType 'application/json' `
+    -Body '{"message": "Focus only on the backend.", "confirm": true}'
+```
+
+Leaving `AO_CLI_PATH` unset is the safe default: `session listing`/`history` report
 `validity: "unavailable"` rather than attempting to locate or guess at the `ao`
-binary's location.
+binary's location. Leaving `AO_SEND_CALLER_TOKEN` unset is likewise the safe default
+for `send`/`send/recover`: both reject every request with `503` even if `AO_CLI_PATH`
+is configured, since there is no way to authenticate a caller without it.
 
 Set the Core URL and token only in the process environment; never put the token in the
 browser, source tree, or command output:
@@ -232,8 +263,9 @@ only ever proves reachability, never authentication.
 - `server.py` — loopback-only static server and narrow HIVE Core adapter. Normalizes
   project/task/adapter-health evidence (including `/health`/`/ready` provenance and
   `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, bridges
-  a fixed, verified slice of the AO CLI contract (session listing, history, controlled
-  send) gated by `AO_CLI_PATH`, and exposes only a proposal-only, fail-closed dispatch
+  a fixed, verified slice of the AO CLI contract (session listing/history gated by
+  `AO_CLI_PATH`; idempotent, caller-authenticated send/recover additionally gated by
+  `AO_SEND_CALLER_TOKEN`), and exposes only a proposal-only, fail-closed dispatch
   route. No arbitrary proxy, shell route, provider credential forwarding,
   apply/deploy/promote/rollback route, or topology/graph computation.
 - `snapshot.example.json` — a real captured snapshot (worker list trimmed for length)
@@ -252,7 +284,11 @@ only ever proves reachability, never authentication.
   id/message/limit/offset validation, session-list normalization, the idempotent
   atomic-steer send contract (auto-generated vs. caller-supplied `client_message_id`,
   delivery-handle preservation on failure/timeout for recovery), `--recover-only`
-  recovery, and secret redaction.
+  recovery, secret redaction, and the `AO_SEND_CALLER_TOKEN` caller-auth gate —
+  including real HTTP-level requests against a loopback `ThreadingHTTPServer`
+  (missing/malformed/wrong/unconfigured-token rejection before the body is ever
+  read or AO ever invoked, plus one positive fixture with the `ao` CLI itself
+  mocked at the `subprocess.run` boundary).
 
 ## CREATOR OPS adapter
 
@@ -271,4 +307,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-119 unit tests pass.
+136 unit tests pass.
