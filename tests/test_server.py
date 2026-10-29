@@ -294,6 +294,31 @@ class LocalInferenceAdapterTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 400)
 
 
+class LocalCliWorkerProbeTests(unittest.TestCase):
+    def test_fixed_version_probes_report_available_without_task_execution(self):
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0, stdout="opencode v2.2.0\n", stderr="")
+
+        with patch.object(server.subprocess, "run", fake_run):
+            items, evidence = server.local_cli_worker_status()
+        self.assertEqual([item["status"] for item in items], ["available", "available"])
+        self.assertEqual(items[0]["version"], "opencode v2.2.0")
+        self.assertEqual(evidence["validity"], "valid")
+        self.assertEqual([call[0][-1] for call in calls], ["--version", "--version"])
+        self.assertTrue(all(call[1]["shell"] is False for call in calls))
+        self.assertTrue(all(call[1]["timeout"] == 4 for call in calls))
+
+    def test_probe_failure_is_unavailable_and_never_fabricated(self):
+        with patch.object(server.subprocess, "run", side_effect=FileNotFoundError("wsl.exe")):
+            items, evidence = server.local_cli_worker_status()
+        self.assertTrue(all(item["status"] == "unavailable" for item in items))
+        self.assertEqual(evidence["validity"], "unavailable")
+        self.assertTrue(all(item["version"] is None for item in items))
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:

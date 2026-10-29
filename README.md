@@ -171,6 +171,11 @@ as a visual reference; this is a separate surface.
     and output, and never writes canonical state or starts a worker. Empty output
     is returned as `status: "degraded"` with evidence, never as a successful answer.
 
+14. **CLI worker availability (`GET /api/local-workers/cli-status`).** OpenCode and
+    Freebuff are checked only with fixed WSL `--version` argv. The adapter never
+    accepts a command, path, prompt or workspace from the request, and never runs a
+    model/task; unavailable or non-zero probes remain unavailable evidence.
+
 ## Run
 
 From this directory:

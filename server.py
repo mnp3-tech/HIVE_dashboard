@@ -1091,6 +1091,10 @@ LOCAL_WORKER_PROBES = (
     ("lmstudio-local", "LM Studio", "http://127.0.0.1:1234/v1/models", "openai-compatible"),
     ("ollama-local", "Ollama", "http://127.0.0.1:11434/api/tags", "ollama"),
 )
+LOCAL_CLI_PROBES = (
+    ("opencode-local", "OpenCode", ("wsl.exe", "-d", "Ubuntu-24.04", "--", "opencode", "--version")),
+    ("freebuff-local", "Freebuff", ("wsl.exe", "-d", "Ubuntu-24.04", "--", "freebuff", "--version")),
+)
 
 
 def local_worker_status():
@@ -1132,6 +1136,33 @@ def local_worker_status():
     statuses = {item["status"] for item in items}
     validity = "valid" if statuses == {"available"} else "degraded" if "available" in statuses else "unknown" if "unknown" in statuses else "unavailable"
     return items, evidence("local:worker-probe", utc_now(), validity, "Only allowlisted loopback endpoints were probed; no worker was started.")
+
+
+def local_cli_worker_status() -> tuple[list, dict]:
+    """Probe installed CLI workers with fixed argv and no task execution."""
+    items = []
+    for worker_id, name, argv in LOCAL_CLI_PROBES:
+        record = {"id": worker_id, "name": name, "protocol": "fixed-argv-version", "status": "unavailable", "version": None, "reason": None}
+        try:
+            result = subprocess.run(
+                list(argv), shell=False, capture_output=True, text=True, timeout=4,
+                encoding="utf-8", errors="replace",
+            )
+            output = redact_secrets((result.stdout or result.stderr or "").strip()).splitlines()
+            if result.returncode == 0 and output:
+                record["status"] = "available"
+                record["version"] = output[0][:160]
+                record["reason"] = "Fixed version probe succeeded; no model or task was launched"
+            else:
+                record["reason"] = f"Fixed version probe exited with status {result.returncode}"
+        except subprocess.TimeoutExpired:
+            record["reason"] = "Fixed version probe timed out"
+        except (FileNotFoundError, OSError) as error:
+            record["reason"] = f"Fixed version probe unavailable: {error}"
+        items.append(record)
+    statuses = {item["status"] for item in items}
+    validity = "valid" if statuses == {"available"} else "degraded" if "available" in statuses else "unavailable"
+    return items, evidence("local:cli-worker-probe", utc_now(), validity, "Only fixed --version argv was executed; no provider, model, task, or workspace action was launched.")
 
 
 def lmstudio_infer(payload: dict) -> dict:
@@ -1543,6 +1574,7 @@ class Handler(BaseHTTPRequestHandler):
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
                     "memory": {"operations": ["status", "search", "get", "build_context", "propose"], "canonical_write": False, "project_scoped": True},
                     "local_inference": {"route": "/api/local-workers/lmstudio/infer", "confirm_required": True, "canonical_write": False, "loopback_only": True},
+                    "cli_worker_probe": {"route": "/api/local-workers/cli-status", "fixed_argv_only": True, "execution": "version-only", "canonical_write": False},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
@@ -1563,6 +1595,9 @@ class Handler(BaseHTTPRequestHandler):
                 project_id = (query.get("project_id") or [""])[0]
                 record_ids = [value for value in (query.get("record_id") or []) if value]
                 return self.json_response(context_build(project_id, record_ids, parse_bounded_int((query.get("max_chars") or [None])[0], "max_chars", 500, CONTEXT_MAX_CHARS, CONTEXT_MAX_CHARS)))
+            if path == "/api/local-workers/cli-status":
+                items, ev = local_cli_worker_status()
+                return self.json_response({"items": items, "evidence": ev})
             if path == "/api/ao/sessions":
                 sessions, ev = ao_sessions()
                 return self.json_response({"items": sessions, "evidence": ev})
