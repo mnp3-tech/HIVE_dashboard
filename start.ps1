@@ -14,7 +14,7 @@ function Get-LaunchConfig {
     }
   }
   if ($aoPath) {
-    if (-not [IO.Path]::IsPathFullyQualified($aoPath) -or -not (Test-Path -LiteralPath $aoPath -PathType Leaf)) {
+    if (-not [IO.Path]::IsPathRooted($aoPath) -or -not (Test-Path -LiteralPath $aoPath -PathType Leaf)) {
       throw "AO_CLI_PATH must be an absolute path to an existing ao binary."
     }
   }
