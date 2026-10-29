@@ -45,6 +45,7 @@ function normalize(raw){
   const localWorkersEvidence = source.local_workers && source.local_workers.evidence ? source.local_workers.evidence : null;
   const adapters = source.adapters || {};
   const topology = source.topology || {status:'deferred', reason:'Topology visualization is deferred for this MVP.'};
+  const readiness = source.readiness || {aggregate:'unknown', items:[], evidence:null};
   return {
     received_at: source.received_at || null,
     environment: source.environment || 'LOCAL / UNVERIFIED',
@@ -57,6 +58,7 @@ function normalize(raw){
     workers, workersEvidence, localWorkers, localWorkersEvidence,
     adapters,
     topology,
+    readiness,
   };
 }
 
@@ -120,7 +122,7 @@ function render(){
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
   evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -163,14 +165,18 @@ function renderCliWorkers(){
   container.innerHTML=items.map(worker=>`<div class="local-worker-card cli-worker-card"><div class="adapter-card-heading"><strong>${esc(worker.name||worker.id)}</strong><span class="source-state ${tone(worker.status)}">${esc(stateLabel(worker.status))}</span></div><div class="adapter-field"><span>Mode</span><strong>VERSION PROBE ONLY</strong></div><div class="adapter-field"><span>Version</span><strong>${esc(worker.version||'UNKNOWN')}</strong></div><div class="adapter-reason">${esc(worker.reason||'No probe result')}</div></div>`).join('');
 }
 
-function renderHandoff(){
+function renderHandoff(snapshot){
   const handoff=state.capabilities&&state.capabilities.handoff;
   const routing=state.capabilities&&state.capabilities.routing;
   const valid=Boolean(handoff&&handoff.route&&handoff.proposal_only===true&&handoff.delivery===false&&handoff.retry===false);
   const badge=$('#handoff-validity'); if(badge){ badge.textContent=valid?'PROPOSAL ONLY':'UNKNOWN'; badge.className=`panel-status ${valid?'warn':'unknown'}`; }
   setText('handoff-evidence', valid ? `source ${handoff.route} · proposal-only · no delivery or retry` : 'Handoff capability evidence unavailable.');
   setText('handoff-summary', valid ? 'Bounded attempt/idempotency metadata supports resume-from-checkpoint. Uncertain or delivered attempts require recovery; no resend is allowed.' : 'No delivery, retry, provider launch, or canonical state change is performed by this route.');
-  setText('provider-readiness', routing && routing.provider_execution === false && routing.attestation_shape_only === true ? 'PROVIDER EXECUTION BLOCKED · attestation is shape-only; verified HIVE/provider identity and protected routes are required.' : 'Provider execution readiness is unknown.');
+  const readiness=snapshot&&snapshot.readiness||{aggregate:'unknown',items:[]};
+  setText('provider-readiness', routing && routing.provider_execution === false && routing.attestation_shape_only === true ? `SYSTEM READINESS ${stateLabel(readiness.aggregate)} · PROVIDER EXECUTION BLOCKED · attestation is shape-only; verified HIVE/provider identity and protected routes are required.` : `SYSTEM READINESS ${stateLabel(readiness.aggregate)}`);
+  const grid=$('#readiness-grid'); if(!grid) return;
+  const items=Array.isArray(readiness.items)?readiness.items:[];
+  grid.innerHTML=items.length ? items.map(item=>`<div class="local-worker-card"><div class="adapter-card-heading"><strong>${esc(item.component||'unknown')}</strong><span class="source-state ${tone(item.status)}">${esc(stateLabel(item.status))}</span></div><div class="adapter-field"><span>Validity</span><strong>${esc(stateLabel(item.validity))}</strong></div><div class="adapter-field"><span>Source</span><strong>${esc(item.source||'unknown')}</strong></div><div class="adapter-reason">${esc(item.reason||'No reason supplied.')}<br><span>${esc(item.next_safe_action||'No next safe action supplied.')}</span></div></div>`).join('') : '<div class="empty-state compact"><span>⌁</span><strong>Readiness evidence unavailable</strong><small>No component availability model was returned.</small></div>';
 }
 
 function openEvidenceDrawer(key, title){

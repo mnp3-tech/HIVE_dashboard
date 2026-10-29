@@ -518,6 +518,24 @@ class SnapshotAdapterHealthTests(unittest.TestCase):
         self.assertIsNotNone(snap["adapters"]["hive"]["last_observed_at"])
         self.assertEqual(snap["core"]["status"], "running")
 
+    def test_readiness_distinguishes_auth_required_and_provider_block(self):
+        routes = {
+            "/health": {"status": "ok"},
+            "/system": {},
+            "/projects": http_error(401),
+            "/tasks": http_error(403),
+            "/workers": http_error(401),
+            "/events": http_error(401),
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)), patch.object(server, "ao_cli_configured", return_value=False):
+            snap = server.snapshot()
+        items = {item["component"]: item for item in snap["readiness"]["items"]}
+        self.assertEqual(items["projects"]["status"], "auth_required")
+        self.assertEqual(items["tasks"]["status"], "auth_required")
+        self.assertEqual(items["provider_execution"]["status"], "blocked")
+        self.assertEqual(snap["readiness"]["aggregate"], "blocked")
+        self.assertNotRegex(json.dumps(snap), r"(?i)(Bearer\s+[A-Za-z0-9._=-]{8,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})")
+
     def test_hive_unreachable_is_distinct_from_stale(self):
         routes = {"/health": URLError("refused")}
         with patch.object(server, "urlopen", fake_urlopen(routes)):

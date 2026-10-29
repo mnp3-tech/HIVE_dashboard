@@ -1705,6 +1705,45 @@ def snapshot():
             "severity": str(event.get("severity", "info")).lower(),
         })
 
+    def readiness_item(component, item_evidence, next_safe_action, forced_status=None):
+        validity = item_evidence.get("validity", "unknown") if isinstance(item_evidence, dict) else "unknown"
+        status = forced_status or ("ready" if validity == "valid" else validity)
+        return {
+            "component": component,
+            "status": status,
+            "validity": validity,
+            "source": item_evidence.get("source", "unknown") if isinstance(item_evidence, dict) else "unknown",
+            "observed_at": item_evidence.get("observed_at") if isinstance(item_evidence, dict) else None,
+            "reason": item_evidence.get("reason") if isinstance(item_evidence, dict) else "No evidence received",
+            "next_safe_action": next_safe_action,
+        }
+
+    ao_info = ao_capabilities()
+    ao_evidence = evidence(
+        "ao:capabilities",
+        utc_now(),
+        "valid" if ao_info["session_list_confirmed"] else "unavailable",
+        "AO session listing is verified only when the configured local CLI exists; native worker/realtime transport remains unconfirmed.",
+    )
+    readiness_items = [
+        readiness_item("hive_core", evidence("hive:/health", health["observed_at"], health["validity"], health["reason"]), "Provide a scoped server-observed HIVE identity before protected reads.", "degraded" if core_status == "degraded" else None),
+        readiness_item("projects", projects_evidence, "Provide HIVE authorization for /projects; keep the state AUTH_REQUIRED until then."),
+        readiness_item("tasks", tasks_evidence, "Provide HIVE authorization for /tasks; do not interpret an empty list as proof of no tasks."),
+        readiness_item("events", events_evidence, "Provide HIVE authorization for /events; retain UNKNOWN/UNAVAILABLE evidence."),
+        readiness_item("obsidian", registry_evidence, "Repair or explicitly register the shared Obsidian source if unavailable."),
+        readiness_item("creator_ops", evidence("creator-ops:local-db", creator_ops.get("last_observed_at"), creator_ops.get("validity", "unknown"), creator_ops.get("reason")), "Keep the local adapter read-only and inspect its evidence before enabling writes."),
+        readiness_item("local_workers", local_workers_evidence, "Use only bounded loopback probes; do not auto-start unavailable workers."),
+        readiness_item("ao_chat", ao_evidence, "Configure the approved native AO transport or keep chat read-only."),
+        readiness_item("provider_execution", evidence("control:capabilities", utc_now(), "blocked", "Provider execution is disabled until server-observed identity and protected routes are verified."), "Obtain verified provider identity; never bypass the attestation gate.", "blocked"),
+    ]
+    readiness_statuses = {item["status"] for item in readiness_items}
+    readiness_aggregate = "blocked" if readiness_statuses & {"blocked", "auth_required"} else "degraded" if readiness_statuses - {"ready"} else "ready"
+    readiness = {
+        "aggregate": readiness_aggregate,
+        "items": readiness_items,
+        "evidence": evidence("orchestrator:readiness", utc_now(), "valid", "Derived read-only availability model; no credentials, sessions, provider state or canonical state were changed."),
+    }
+
     return {
         "received_at": utc_now(),
         "environment": "LOCAL / HIVE CORE",
@@ -1734,6 +1773,7 @@ def snapshot():
         "workers": {"items": workers, "evidence": workers_evidence},
         "local_workers": {"items": local_workers, "evidence": local_workers_evidence},
         "events": {"items": normalized_events[:50], "evidence": events_evidence},
+        "readiness": readiness,
         "topology": {"status": "deferred", "reason": "Topology visualization is deferred for this MVP; no graph or event-derived topology is computed."},
     }
 
