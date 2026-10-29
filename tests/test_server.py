@@ -314,6 +314,135 @@ class TaskTypeAllowlistTests(unittest.TestCase):
         self.assertEqual(result["id"], "task-999")
 
 
+class WorkerPolicyTests(unittest.TestCase):
+    """P-017: worker routing policy read-model. Enforces local-first routing and a
+    fail-closed free/subscription-only cost-mode allowlist; metered/unknown cost
+    modes and unrecognized worker ids are always blocked, never allowed through by
+    default. Pure, in-memory, side-effect-free -- no network I/O, no service start."""
+
+    def test_record_for_known_worker_reports_its_declared_policy(self):
+        record = server.worker_policy_record("deterministic")
+        self.assertEqual(record["worker_id"], "deterministic")
+        self.assertEqual(record["execution_mode"], "local")
+        self.assertEqual(record["cost_mode"], "free")
+        self.assertEqual(record["network_requirement"], "none")
+        self.assertTrue(record["cost_mode_allowed"])
+
+    def test_record_for_unknown_worker_is_all_unknown_not_guessed(self):
+        record = server.worker_policy_record("some-future-worker")
+        self.assertEqual(record["capability"], None)
+        self.assertEqual(record["execution_mode"], "unknown")
+        self.assertEqual(record["cost_mode"], "unknown")
+        self.assertEqual(record["network_requirement"], "unknown")
+        self.assertFalse(record["cost_mode_allowed"])
+
+    def test_catalog_lists_every_declared_worker_with_local_first_metadata(self):
+        catalog = server.worker_policy_catalog()
+        self.assertTrue(catalog["local_first_enforced"])
+        self.assertEqual(catalog["accepted_cost_modes"], ["free", "subscription"])
+        ids = {w["worker_id"] for w in catalog["workers"]}
+        self.assertEqual(ids, set(server.WORKER_POLICY))
+
+    def test_free_cost_mode_is_accepted(self):
+        result = server.evaluate_worker_policy("deterministic", local_only=False)
+        self.assertTrue(result["allowed"])
+        self.assertIsNone(result["blocked_reason"])
+
+    def test_subscription_cost_mode_is_accepted_via_synthetic_fixture(self):
+        # No currently declared worker is "subscription" (none is confidently
+        # documented as such), so this exercises the accept branch directly against
+        # the policy table rather than relying on real worker classification.
+        with patch.dict(server.WORKER_POLICY, {"fixture-subscription-worker": {
+            "capability": "remote_llm_inference", "execution_mode": "remote",
+            "cost_mode": "subscription", "network_requirement": "internet",
+            "fallback_policy": "local_preferred",
+        }}):
+            result = server.evaluate_worker_policy("fixture-subscription-worker", local_only=False)
+        self.assertTrue(result["allowed"])
+
+    def test_metered_cost_mode_is_blocked(self):
+        with patch.dict(server.WORKER_POLICY, {"fixture-metered-worker": {
+            "capability": "remote_llm_inference", "execution_mode": "remote",
+            "cost_mode": "metered", "network_requirement": "internet",
+            "fallback_policy": "local_preferred",
+        }}):
+            result = server.evaluate_worker_policy("fixture-metered-worker", local_only=False)
+        self.assertFalse(result["allowed"])
+        self.assertIn("metered", result["blocked_reason"])
+
+    def test_unknown_declared_cost_mode_is_blocked(self):
+        # antigravity/codex are declared "unknown" (no documented billing basis),
+        # which must be blocked exactly like "metered" -- fail closed by default.
+        for worker_id in ("antigravity", "codex"):
+            result = server.evaluate_worker_policy(worker_id, local_only=False)
+            self.assertFalse(result["allowed"], f"{worker_id} must be blocked while cost_mode is unknown")
+            self.assertIn("unknown", result["blocked_reason"])
+
+    def test_unrecognized_worker_id_is_blocked(self):
+        result = server.evaluate_worker_policy("totally-made-up-worker", local_only=False)
+        self.assertFalse(result["allowed"])
+        self.assertIn("unknown", result["blocked_reason"])
+
+    def test_local_first_routing_blocks_remote_worker_when_local_only(self):
+        # openrouter_free is "free" (would pass the cost gate alone) but is remote,
+        # so local-first routing must still block it when local_only is requested.
+        result = server.evaluate_worker_policy("openrouter_free", local_only=True)
+        self.assertFalse(result["allowed"])
+        self.assertIn("local", result["blocked_reason"])
+
+    def test_local_worker_is_allowed_under_local_only(self):
+        result = server.evaluate_worker_policy("lmstudio", local_only=True)
+        self.assertTrue(result["allowed"])
+
+    def test_remote_worker_allowed_when_local_only_not_requested(self):
+        result = server.evaluate_worker_policy("openrouter_free", local_only=False)
+        self.assertTrue(result["allowed"])
+
+    def test_evaluate_worker_policy_has_no_side_effects(self):
+        # Pure read-model: must never shell out, never open a socket/subprocess.
+        with patch("server.subprocess.run") as mock_run, patch.object(server, "urlopen") as mock_urlopen:
+            server.evaluate_worker_policy("lmstudio", local_only=True)
+            server.worker_policy_catalog()
+        mock_run.assert_not_called()
+        mock_urlopen.assert_not_called()
+
+    def test_dispatch_blocks_unknown_cost_mode_worker_with_policy_reason(self):
+        with patch.object(server, "API_TOKEN", "tok"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.dispatch({"mode": "proposal", "goal": "a valid goal", "confirm": True, "preferred_worker": "codex"}, None)
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertIn("blocked by policy", str(ctx.exception))
+
+    def test_dispatch_blocks_remote_worker_under_local_only(self):
+        with patch.object(server, "API_TOKEN", "tok"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.dispatch(
+                    {"mode": "proposal", "goal": "a valid goal", "confirm": True,
+                     "preferred_worker": "openrouter_free", "local_only": True},
+                    None,
+                )
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_dispatch_blocks_unrecognized_worker_id(self):
+        with patch.object(server, "API_TOKEN", "tok"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.dispatch(
+                    {"mode": "proposal", "goal": "a valid goal", "confirm": True, "preferred_worker": "not-a-real-worker"},
+                    None,
+                )
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_dispatch_allows_free_local_worker(self):
+        routes = {"/health": {"status": "ok"}, "/tasks": {"id": "task-local-1"}}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            result = server.dispatch(
+                {"mode": "proposal", "goal": "draft a safe proposal", "confirm": True,
+                 "preferred_worker": "deterministic", "local_only": True},
+                None,
+            )
+        self.assertEqual(result["id"], "task-local-1")
+
+
 class WorkerRegistryEvidenceTests(unittest.TestCase):
     """Finding 3 (MEDIUM): optional adapter failures must preserve unknown/unavailable provenance."""
 

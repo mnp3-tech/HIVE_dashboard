@@ -49,8 +49,53 @@ ROOT = Path(__file__).resolve().parent
 CORE_URL = os.environ.get("HIVE_CORE_URL", "http://127.0.0.1:8765").rstrip("/")
 CORE_URL_IS_LOOPBACK = _is_loopback_hostname(urlparse(CORE_URL).hostname)
 API_TOKEN = os.environ.get("HIVE_API_TOKEN", "")
-ALLOWED_WORKERS = {"deterministic", "lmstudio", "openrouter_free", "antigravity", "codex"}
-LOCAL_ONLY_INCOMPATIBLE_WORKERS = {"openrouter_free", "antigravity", "codex"}
+# Worker routing policy read-model: capability, execution_mode, cost_mode,
+# network_requirement, and fallback_policy for every worker id this adapter will
+# ever accept as `preferred_worker` in a proposal. This is a static, purely
+# declarative, in-memory table -- it never calls out to any service, probes any
+# port, or starts one (no LM Studio autostart, no network I/O). cost_mode is only
+# ever "free" or "subscription" when there is a documented, non-speculative basis
+# for it; anything genuinely uncertain is "unknown" rather than guessed, and
+# evaluate_worker_policy() blocks "unknown" exactly like "metered" -- fail closed,
+# never fail open, for a worker this adapter cannot vouch for.
+WORKER_POLICY = {
+    "deterministic": {
+        "capability": "deterministic_arithmetic_evaluator",
+        "execution_mode": "local",
+        "cost_mode": "free",
+        "network_requirement": "none",
+        "fallback_policy": "none_required",
+    },
+    "lmstudio": {
+        "capability": "local_llm_inference",
+        "execution_mode": "local",
+        "cost_mode": "free",
+        "network_requirement": "loopback",
+        "fallback_policy": "none_required",
+    },
+    "openrouter_free": {
+        "capability": "remote_llm_inference",
+        "execution_mode": "remote",
+        "cost_mode": "free",
+        "network_requirement": "internet",
+        "fallback_policy": "local_preferred",
+    },
+    "antigravity": {
+        "capability": "remote_llm_inference",
+        "execution_mode": "remote",
+        "cost_mode": "unknown",
+        "network_requirement": "internet",
+        "fallback_policy": "local_preferred",
+    },
+    "codex": {
+        "capability": "remote_llm_inference",
+        "execution_mode": "remote",
+        "cost_mode": "unknown",
+        "network_requirement": "internet",
+        "fallback_policy": "local_preferred",
+    },
+}
+ACCEPTED_COST_MODES = {"free", "subscription"}
 ALLOWED_TASK_TYPES = {"EVOLUTION_TASK", "GENERAL", "ANALYSIS", "PROJECT_TASK", "RESEARCH"}
 MAX_BODY = 12_000
 # A successful /health response does not, by itself, prove the bearer token was
@@ -501,6 +546,73 @@ def unavailability_validity(error: AdapterError) -> str:
     return "unknown" if error.status == 404 else "unavailable"
 
 
+def worker_policy_record(worker_id: str) -> dict:
+    """Read-model lookup for one worker id. Pure table lookup -- no I/O, no
+    process/service start. A worker id outside WORKER_POLICY is reported with
+    every field "unknown" (never guessed), which evaluate_worker_policy() then
+    blocks exactly like a documented "metered"/"unknown" cost_mode."""
+    policy = WORKER_POLICY.get(worker_id)
+    if policy is None:
+        return {
+            "worker_id": worker_id,
+            "capability": None,
+            "execution_mode": "unknown",
+            "cost_mode": "unknown",
+            "network_requirement": "unknown",
+            "fallback_policy": "unknown",
+            "cost_mode_allowed": False,
+        }
+    return {"worker_id": worker_id, **policy, "cost_mode_allowed": policy["cost_mode"] in ACCEPTED_COST_MODES}
+
+
+def worker_policy_catalog() -> dict:
+    """Full, static worker-policy read-model for every known worker id. Purely
+    declarative: never probes a port, never starts a local service (e.g. LM
+    Studio) as a side effect of being read."""
+    return {
+        "local_first_enforced": True,
+        "accepted_cost_modes": sorted(ACCEPTED_COST_MODES),
+        "workers": [worker_policy_record(worker_id) for worker_id in sorted(WORKER_POLICY)],
+    }
+
+
+def evaluate_worker_policy(worker_id, local_only: bool) -> dict:
+    """Request-time admission check for a candidate `preferred_worker`.
+
+    Enforces, in order:
+    1. A fail-closed cost-mode allowlist -- only "free" and "subscription" are
+       accepted; "metered" and "unknown" (including any worker id not present in
+       WORKER_POLICY) are always blocked, never allowed through by default.
+    2. Local-first routing -- when the caller requests `local_only`, only a worker
+       with execution_mode "local" is permitted; a remote worker is blocked
+       regardless of its cost_mode.
+
+    Pure function: no network I/O, no subprocess, no service start. Returns a
+    read-model record describing the decision; never raises -- callers (e.g.
+    dispatch()) decide whether `allowed: false` should fail the request.
+    """
+    record = worker_policy_record(worker_id)
+    if not record["cost_mode_allowed"]:
+        return {
+            **record,
+            "allowed": False,
+            "blocked_reason": (
+                f"cost_mode '{record['cost_mode']}' is not in the accepted allowlist "
+                f"{sorted(ACCEPTED_COST_MODES)}"
+            ),
+        }
+    if local_only and record["execution_mode"] != "local":
+        return {
+            **record,
+            "allowed": False,
+            "blocked_reason": (
+                f"execution_mode '{record['execution_mode']}' is not local; local-first "
+                "routing requires a local worker when local_only is set"
+            ),
+        }
+    return {**record, "allowed": True, "blocked_reason": None}
+
+
 def project_catalog():
     try:
         raw = core_json("/projects")
@@ -821,11 +933,11 @@ def dispatch(payload: dict, idempotency_key: str | None):
         raise AdapterError("Goal must be between 8 and 8000 characters", 400)
     project_id = payload.get("project_id") or None
     worker = payload.get("preferred_worker") or None
-    if worker is not None and worker not in ALLOWED_WORKERS:
-        raise AdapterError("Worker preference is not in the HIVE allowlist", 400)
     local_only = bool(payload.get("local_only"))
-    if local_only and worker in LOCAL_ONLY_INCOMPATIBLE_WORKERS:
-        raise AdapterError("Local-only routing conflicts with the selected external worker", 400)
+    if worker is not None:
+        policy_result = evaluate_worker_policy(worker, local_only)
+        if not policy_result["allowed"]:
+            raise AdapterError(f"Worker preference is blocked by policy: {policy_result['blocked_reason']}", 400)
     task_type = payload.get("task_type") or "EVOLUTION_TASK"
     if task_type not in ALLOWED_TASK_TYPES:
         raise AdapterError("Task type is not in the proposal allowlist", 400)
@@ -905,6 +1017,8 @@ class Handler(BaseHTTPRequestHandler):
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
                 })
+            if path == "/api/control/worker-policy":
+                return self.json_response(worker_policy_catalog())
             if path == "/api/ao/sessions":
                 sessions, ev = ao_sessions()
                 return self.json_response({"items": sessions, "evidence": ev})

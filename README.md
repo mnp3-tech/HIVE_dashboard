@@ -114,6 +114,22 @@ as a visual reference; this is a separate surface.
     that fact directly — since those routes cannot actually be reached by any
     caller otherwise. `worker_api_confirmed` and `chat_realtime_api_confirmed`
     remain `false` always — no such contract is documented for AO.
+12. **Worker routing policy read-model (`GET /api/control/worker-policy`).**
+    `WORKER_POLICY` is a static, in-memory table declaring `capability`,
+    `execution_mode` (`local`/`remote`), `cost_mode` (`free`/`subscription`/
+    `metered`/`unknown`), `network_requirement`, and `fallback_policy` for every
+    worker id this adapter accepts as `preferred_worker`. It is purely
+    declarative — reading it never probes a port, calls a service, or starts one
+    (no LM Studio autostart); any local-service metadata it carries stays a
+    static classification, never a live, dialable address. `evaluate_worker_policy()`
+    is the fail-closed admission check `dispatch()` now runs instead of the old
+    flat allowlist: only `cost_mode` `free`/`subscription` is ever accepted —
+    `metered` and `unknown` (including any worker id not in the table, e.g.
+    `antigravity`/`codex` today) are always blocked, never allowed through by
+    default — and local-first routing means a remote (`execution_mode: "remote"`)
+    worker is blocked whenever the caller sets `local_only`, regardless of its
+    cost_mode. A blocked worker makes `dispatch()` fail closed with `400` and the
+    specific `blocked_reason`; no proposal is ever submitted to HIVE Core for it.
 
 ## Run
 
@@ -125,7 +141,8 @@ From this directory:
 
 Open `http://127.0.0.1:4173/` for live-adapter mode. The local adapter serves the UI and
 requests HIVE Core on loopback only. It exposes `GET /api/dashboard/snapshot`,
-`GET /api/control/capabilities`, the controlled `POST /api/control/dispatch` route, and
+`GET /api/control/capabilities`, `GET /api/control/worker-policy`, the controlled
+`POST /api/control/dispatch` route, and
 the AO CLI bridge routes (`GET /api/ao/sessions`, `GET /api/ao/sessions/<id>/history`,
 `POST /api/ao/sessions/<id>/send`, `POST /api/ao/sessions/<id>/send/recover`)
 described in item 11 above.
@@ -265,8 +282,10 @@ only ever proves reachability, never authentication.
   `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, bridges
   a fixed, verified slice of the AO CLI contract (session listing/history gated by
   `AO_CLI_PATH`; idempotent, caller-authenticated send/recover additionally gated by
-  `AO_SEND_CALLER_TOKEN`), and exposes only a proposal-only, fail-closed dispatch
-  route. No arbitrary proxy, shell route, provider credential forwarding,
+  `AO_SEND_CALLER_TOKEN`), declares a static worker routing policy read-model
+  (`WORKER_POLICY` / `evaluate_worker_policy()`, local-first + free/subscription-only
+  cost-mode admission), and exposes only a proposal-only, fail-closed dispatch route.
+  No arbitrary proxy, shell route, provider credential forwarding,
   apply/deploy/promote/rollback route, or topology/graph computation.
 - `snapshot.example.json` — a real captured snapshot (worker list trimmed for length)
   showing the reachable-but-unauthenticated contract: `core.ready`, `auth_required`
@@ -288,7 +307,14 @@ only ever proves reachability, never authentication.
   including real HTTP-level requests against a loopback `ThreadingHTTPServer`
   (missing/malformed/wrong/unconfigured-token rejection before the body is ever
   read or AO ever invoked, plus one positive fixture with the `ao` CLI itself
-  mocked at the `subprocess.run` boundary).
+  mocked at the `subprocess.run` boundary). Also covers the worker routing policy
+  read-model: known-worker/unknown-worker record shape, free/subscription
+  acceptance (including a synthetic fixture for `subscription`, since no currently
+  declared worker carries that label), metered/unknown-cost-mode and unrecognized-
+  worker-id blocking, local-first routing blocking a remote worker under
+  `local_only`, no-side-effects (`subprocess.run`/`urlopen` never called), and
+  `dispatch()` wiring (blocked worker → `400` with the policy reason; an allowed
+  free local worker still succeeds end to end).
 
 ## CREATOR OPS adapter
 
@@ -307,4 +333,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-136 unit tests pass.
+152 unit tests pass.
