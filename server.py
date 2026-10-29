@@ -75,6 +75,7 @@ WORKER_ID_ALIASES = {
     "opencode": "opencode-local",
     "freebuff": "freebuff-local",
     "openclaw": "openclaw-local",
+    "claude": "claude-subscription",
 }
 
 # Codex can authenticate either via a ChatGPT subscription login or a metered,
@@ -190,6 +191,15 @@ WORKER_POLICY = {
         "capability": "remote_llm_inference",
         "execution_mode": "remote",
         "cost_mode": "subscription" if CODEX_SUBSCRIPTION_CONFIRMED else "unknown",
+        "network_requirement": "internet",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "not_applicable",
+    },
+    "claude-subscription": {
+        "capability": "remote_llm_inference",
+        "execution_mode": "remote",
+        "cost_mode": "unknown",
         "network_requirement": "internet",
         "fallback_policy": "local_preferred",
         "endpoint": None,
@@ -789,6 +799,86 @@ def evaluate_worker_policy(worker_id, local_only: bool) -> dict:
     return {**record, "allowed": True, "blocked_reason": None}
 
 
+def validate_session_attestation(attestation: dict) -> bool:
+    """Validate shape only; this never proves provider identity or billing."""
+    if not isinstance(attestation, dict) or any(key in attestation for key in ("token", "access_token", "cookie", "raw_session", "transcript")):
+        return False
+    required = {"worker_id", "provider", "execution_mode", "cost_mode", "session_ref_hash", "session_identity", "execution_ready", "network", "sandbox", "observed_at"}
+    if not required.issubset(attestation):
+        return False
+    return (
+        bool(str(attestation.get("worker_id") or ""))
+        and bool(str(attestation.get("provider") or ""))
+        and attestation.get("execution_mode") in {"local", "remote"}
+        and attestation.get("cost_mode") in {"free", "subscription", "metered", "unknown"}
+        and bool(ATTESTATION_HASH_PATTERN.fullmatch(str(attestation.get("session_ref_hash") or "")))
+        and attestation.get("session_identity") in {"verified", "unverified"}
+        and isinstance(attestation.get("execution_ready"), bool)
+        and bool(str(attestation.get("network") or ""))
+        and bool(str(attestation.get("sandbox") or ""))
+        and bool(str(attestation.get("observed_at") or ""))
+    )
+
+
+def routing_decision(payload: dict) -> dict:
+    """Return a proposal-only routing decision; never launches or persists a task."""
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise AdapterError("Explicit confirmation is required for a routing proposal", 400)
+    task_id = str(payload.get("task_id") or "")
+    project_id = str(payload.get("project_id") or "")
+    capability = str(payload.get("capability") or "")
+    if not ROUTING_TASK_ID_PATTERN.fullmatch(task_id) or not (1 <= len(project_id) <= 120) or not (1 <= len(capability) <= 120):
+        raise AdapterError("task_id, project_id and capability are required and bounded", 400)
+    context_hash = str(payload.get("context_hash") or "")
+    if context_hash and not ATTESTATION_HASH_PATTERN.fullmatch(context_hash):
+        raise AdapterError("context_hash must use sha256:<64 lowercase hex> when supplied", 400)
+    local_only = bool(payload.get("local_only"))
+    preferred = canonical_worker_id(payload.get("preferred_worker")) if payload.get("preferred_worker") else None
+    raw_attestations = payload.get("attestations") or []
+    if not isinstance(raw_attestations, list) or len(raw_attestations) > 20:
+        raise AdapterError("attestations must be a bounded list", 400)
+    attestations = {}
+    for attestation in raw_attestations:
+        if not validate_session_attestation(attestation):
+            raise AdapterError("Invalid session attestation shape; raw sessions and credentials are not accepted", 400)
+        attestations[canonical_worker_id(attestation["worker_id"])] = attestation
+    order = [preferred] if preferred else []
+    order.extend(worker_id for worker_id in ("deterministic", "lmstudio-local", "opencode-local", "freebuff-local", "codex-subscription", "claude-subscription") if worker_id not in order)
+    candidates = []
+    for worker_id in order:
+        if not worker_id:
+            continue
+        policy = evaluate_worker_policy(worker_id, local_only)
+        if capability not in {"any", "general"} and policy["capability"] != capability:
+            continue
+        attestation = attestations.get(policy["canonical_worker_id"])
+        candidate = {
+            "worker_id": policy["canonical_worker_id"],
+            "capability": policy["capability"],
+            "policy_allowed": policy["allowed"],
+            "attestation_valid": bool(attestation),
+            "execution_ready": False,
+            "blocked_reason": policy["blocked_reason"],
+        }
+        if candidate["policy_allowed"] and not attestation:
+            candidate["blocked_reason"] = "No session attestation was supplied"
+        elif candidate["policy_allowed"] and attestation:
+            candidate["blocked_reason"] = "Attestation shape is valid but provider identity is not independently verified by this adapter"
+        candidates.append(candidate)
+    return {
+        "kind": "routing_decision",
+        "status": "blocked",
+        "task_id": task_id,
+        "project_id": project_id,
+        "capability": capability,
+        "selected_worker": None,
+        "candidates": candidates,
+        "execution": "none",
+        "proposal_only": True,
+        "evidence": evidence("orchestrator:routing-decision", utc_now(), "valid", "Proposal-only decision; no worker, provider session, HIVE task, file or canonical state was changed."),
+    }
+
+
 def project_catalog():
     try:
         raw = core_json("/projects")
@@ -1125,6 +1215,8 @@ LOCAL_CLI_PROBES = (
 OPENCODE_EXECUTION_CONFIRMED = os.environ.get("OPENCODE_EXECUTION_CONFIRMED", "").strip().lower() in {"1", "true", "yes"}
 OPENCODE_WORKSPACE_ROOT = ROOT / "work" / "opencode-disposable"
 OPENCODE_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
+ATTESTATION_HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+ROUTING_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$")
 
 
 def local_worker_status():
@@ -1668,6 +1760,7 @@ class Handler(BaseHTTPRequestHandler):
                     "local_inference": {"route": "/api/local-workers/lmstudio/infer", "confirm_required": True, "canonical_write": False, "loopback_only": True},
                     "cli_worker_probe": {"route": "/api/local-workers/cli-status", "fixed_argv_only": True, "execution": "version-only", "canonical_write": False},
                     "opencode_execution": {"route": "/api/local-workers/opencode/run", "enabled_by_default": False, "disposable_workspace_only": True, "fixed_argv": True},
+                    "routing": {"route": "/api/control/routing-decision", "proposal_only": True, "provider_execution": False, "attestation_shape_only": True},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
@@ -1739,6 +1832,12 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > MAX_BODY:
                     raise AdapterError("Request body is missing or too large", 413)
                 result = opencode_run(json.loads(self.rfile.read(length).decode("utf-8")))
+                return self.json_response(result, 200)
+            if path == "/api/control/routing-decision":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                result = routing_decision(json.loads(self.rfile.read(length).decode("utf-8")))
                 return self.json_response(result, 200)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:

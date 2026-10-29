@@ -377,6 +377,38 @@ class OpenCodeAdapterTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 400)
 
 
+class RoutingDecisionTests(unittest.TestCase):
+    def _attestation(self, worker="codex-subscription"):
+        return {
+            "worker_id": worker, "provider": "codex", "execution_mode": "remote", "cost_mode": "subscription",
+            "session_ref_hash": "sha256:" + "a" * 64, "session_identity": "verified", "execution_ready": True,
+            "network": "provider-managed", "sandbox": "project-scoped", "observed_at": "2026-10-29T19:00:00Z",
+        }
+
+    def test_attestation_shape_is_valid_but_does_not_prove_identity(self):
+        self.assertTrue(server.validate_session_attestation(self._attestation()))
+        self.assertFalse(server.validate_session_attestation({**self._attestation(), "raw_session": "never"}))
+
+    def test_routing_is_proposal_only_and_blocks_unverified_provider(self):
+        result = server.routing_decision({"confirm": True, "task_id": "P-022-a1", "project_id": "orchestrator-inc", "capability": "remote_llm_inference", "preferred_worker": "codex", "attestations": [self._attestation()]})
+        self.assertEqual(result["status"], "blocked")
+        self.assertIsNone(result["selected_worker"])
+        self.assertTrue(result["proposal_only"])
+        self.assertFalse(result["candidates"][0]["execution_ready"])
+        self.assertIn("cost_mode 'unknown'", result["candidates"][0]["blocked_reason"])
+
+    def test_preferred_worker_cannot_bypass_policy_or_missing_attestation(self):
+        result = server.routing_decision({"confirm": True, "task_id": "P-022-a2", "project_id": "orchestrator-inc", "capability": "remote_llm_inference", "preferred_worker": "claude", "attestations": []})
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["candidates"][0]["worker_id"], "claude-subscription")
+        self.assertFalse(result["candidates"][0]["policy_allowed"])
+
+    def test_routing_requires_explicit_confirmation(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.routing_decision({"task_id": "P-022-a3", "project_id": "orchestrator-inc", "capability": "remote_llm_inference"})
+        self.assertEqual(ctx.exception.status, 400)
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:
