@@ -163,6 +163,14 @@ as a visual reference; this is a separate surface.
     `HIVE_HEALTH_REQUIRES_AUTH`'s existing pattern of never fabricating a
     safety-relevant claim from ambiguous evidence.
 
+13. **Explicit LM Studio inference (`POST /api/local-workers/lmstudio/infer`).**
+    This route is a local-only execution surface, not a remote proxy: it requires
+    `confirm: true`, a project-scoped Obsidian context pack and a model present in
+    the live loopback `/v1/models` listing. The request sends no credentials,
+    disables thinking where supported, bounds instruction/tokens, redacts context
+    and output, and never writes canonical state or starts a worker. Empty output
+    is returned as `status: "degraded"` with evidence, never as a successful answer.
+
 ## Run
 
 From this directory:
