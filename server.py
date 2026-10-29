@@ -50,14 +50,43 @@ CORE_URL = os.environ.get("HIVE_CORE_URL", "http://127.0.0.1:8765").rstrip("/")
 CORE_URL_IS_LOOPBACK = _is_loopback_hostname(urlparse(CORE_URL).hostname)
 API_TOKEN = os.environ.get("HIVE_API_TOKEN", "")
 # Worker routing policy read-model: capability, execution_mode, cost_mode,
-# network_requirement, and fallback_policy for every worker id this adapter will
-# ever accept as `preferred_worker` in a proposal. This is a static, purely
-# declarative, in-memory table -- it never calls out to any service, probes any
-# port, or starts one (no LM Studio autostart, no network I/O). cost_mode is only
-# ever "free" or "subscription" when there is a documented, non-speculative basis
-# for it; anything genuinely uncertain is "unknown" rather than guessed, and
+# network_requirement, fallback_policy, and endpoint for every worker id this
+# adapter will ever accept as `preferred_worker` in a proposal. This is a static,
+# purely declarative, in-memory table -- it never calls out to any service, probes
+# any port, or starts one (no LM Studio autostart, no network I/O). cost_mode is
+# only ever "free" or "subscription" when there is a documented, non-speculative
+# basis for it; anything genuinely uncertain is "unknown" rather than guessed, and
 # evaluate_worker_policy() blocks "unknown" exactly like "metered" -- fail closed,
 # never fail open, for a worker this adapter cannot vouch for.
+#
+# Canonical ids ("lmstudio-local", "codex-subscription") align with the names
+# evidenced from the Orchestrator registry; the previously used bare ids
+# ("lmstudio", "codex") are preserved as aliases below so existing callers and
+# stored proposals keep working. Any id that resolves to neither a canonical key
+# nor an alias is unknown and fails closed exactly like a metered worker -- it is
+# never guessed into an existing entry.
+WORKER_ID_ALIASES = {
+    "lmstudio": "lmstudio-local",
+    "codex": "codex-subscription",
+}
+
+# Codex can authenticate either via a ChatGPT subscription login or a metered,
+# pay-per-token API key; `ao agent ls` reporting it "authorized" on this machine
+# does not by itself distinguish the two. cost_mode therefore stays "unknown"
+# (blocked) unless the operator explicitly confirms the credential in use is a
+# subscription plan -- mirroring HIVE_HEALTH_REQUIRES_AUTH's pattern of never
+# fabricating a safety-relevant claim from ambiguous evidence.
+CODEX_SUBSCRIPTION_CONFIRMED = os.environ.get("CODEX_SUBSCRIPTION_CONFIRMED", "").strip().lower() in {"1", "true", "yes"}
+
+# LM Studio's own documentation states its local server listens on this loopback
+# address by default when started; this is a static, documented default -- never
+# probed, dialed, or auto-started by this adapter. An operator whose install uses a
+# different port may override it via LMSTUDIO_ENDPOINT, but the override is only
+# ever accepted when it is itself a loopback address (see _lmstudio_endpoint());
+# remote workers never get an endpoint here at all, invented or otherwise.
+LMSTUDIO_DEFAULT_ENDPOINT = "http://127.0.0.1:1234"
+LMSTUDIO_ENDPOINT_ENV = os.environ.get("LMSTUDIO_ENDPOINT", "").strip()
+
 WORKER_POLICY = {
     "deterministic": {
         "capability": "deterministic_arithmetic_evaluator",
@@ -65,13 +94,17 @@ WORKER_POLICY = {
         "cost_mode": "free",
         "network_requirement": "none",
         "fallback_policy": "none_required",
+        "endpoint": None,
+        "endpoint_basis": "not_applicable",  # runs in-process inside HIVE Core; not a separately dialable service
     },
-    "lmstudio": {
+    "lmstudio-local": {
         "capability": "local_llm_inference",
         "execution_mode": "local",
         "cost_mode": "free",
         "network_requirement": "loopback",
         "fallback_policy": "none_required",
+        "endpoint": None,  # resolved dynamically in worker_policy_record() via _lmstudio_endpoint()
+        "endpoint_basis": None,
     },
     "openrouter_free": {
         "capability": "remote_llm_inference",
@@ -79,6 +112,8 @@ WORKER_POLICY = {
         "cost_mode": "free",
         "network_requirement": "internet",
         "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "not_applicable",  # remote/cloud-routed; this adapter never declares a remote worker's endpoint
     },
     "antigravity": {
         "capability": "remote_llm_inference",
@@ -86,16 +121,37 @@ WORKER_POLICY = {
         "cost_mode": "unknown",
         "network_requirement": "internet",
         "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "not_applicable",
     },
-    "codex": {
+    "codex-subscription": {
         "capability": "remote_llm_inference",
         "execution_mode": "remote",
-        "cost_mode": "unknown",
+        "cost_mode": "subscription" if CODEX_SUBSCRIPTION_CONFIRMED else "unknown",
         "network_requirement": "internet",
         "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "not_applicable",
     },
 }
 ACCEPTED_COST_MODES = {"free", "subscription"}
+
+
+def canonical_worker_id(worker_id):
+    return WORKER_ID_ALIASES.get(worker_id, worker_id)
+
+
+def _lmstudio_endpoint() -> tuple[str | None, str]:
+    """Static endpoint metadata for lmstudio-local. Never probes or dials the
+    address -- only validates that whatever value would be declared (the
+    documented default, or an operator override) is itself a loopback address. A
+    non-loopback override is rejected outright (endpoint reported as None) rather
+    than exposed, surfacing the rejection in endpoint_basis."""
+    candidate = LMSTUDIO_ENDPOINT_ENV or LMSTUDIO_DEFAULT_ENDPOINT
+    if not _is_loopback_hostname(urlparse(candidate).hostname):
+        return None, "invalid_non_loopback_override_rejected"
+    basis = "operator_override" if LMSTUDIO_ENDPOINT_ENV else "documented_default"
+    return candidate, basis
 ALLOWED_TASK_TYPES = {"EVOLUTION_TASK", "GENERAL", "ANALYSIS", "PROJECT_TASK", "RESEARCH"}
 MAX_BODY = 12_000
 # A successful /health response does not, by itself, prove the bearer token was
@@ -548,21 +604,40 @@ def unavailability_validity(error: AdapterError) -> str:
 
 def worker_policy_record(worker_id: str) -> dict:
     """Read-model lookup for one worker id. Pure table lookup -- no I/O, no
-    process/service start. A worker id outside WORKER_POLICY is reported with
-    every field "unknown" (never guessed), which evaluate_worker_policy() then
-    blocks exactly like a documented "metered"/"unknown" cost_mode."""
-    policy = WORKER_POLICY.get(worker_id)
+    process/service start. worker_id is resolved through WORKER_ID_ALIASES first
+    (e.g. the old bare "lmstudio"/"codex" ids still resolve to their canonical
+    "lmstudio-local"/"codex-subscription" entries). A worker id that resolves to
+    neither a canonical key nor an alias is reported with every field "unknown"
+    (never guessed), which evaluate_worker_policy() then blocks exactly like a
+    documented "metered"/"unknown" cost_mode."""
+    canonical = canonical_worker_id(worker_id)
+    policy = WORKER_POLICY.get(canonical)
     if policy is None:
         return {
             "worker_id": worker_id,
+            "canonical_worker_id": canonical,
             "capability": None,
             "execution_mode": "unknown",
             "cost_mode": "unknown",
             "network_requirement": "unknown",
             "fallback_policy": "unknown",
+            "endpoint": None,
+            "endpoint_basis": "unknown",
             "cost_mode_allowed": False,
         }
-    return {"worker_id": worker_id, **policy, "cost_mode_allowed": policy["cost_mode"] in ACCEPTED_COST_MODES}
+    record = {"worker_id": worker_id, "canonical_worker_id": canonical, **policy}
+    if canonical == "lmstudio-local":
+        record["endpoint"], record["endpoint_basis"] = _lmstudio_endpoint()
+    record["cost_mode_allowed"] = policy["cost_mode"] in ACCEPTED_COST_MODES
+    # Defense in depth: never expose a non-loopback endpoint for any worker, even if
+    # a future edit to WORKER_POLICY or an operator override introduced one, and
+    # never expose one at all for a remote worker -- this is purely a read-model
+    # assertion, not a probe, and never influences cost_mode/execution_mode.
+    endpoint = record.get("endpoint")
+    if endpoint is not None and (record["execution_mode"] != "local" or not _is_loopback_hostname(urlparse(endpoint).hostname)):
+        record["endpoint"] = None
+        record["endpoint_basis"] = "invalid_rejected"
+    return record
 
 
 def worker_policy_catalog() -> dict:

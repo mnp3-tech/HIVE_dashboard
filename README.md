@@ -117,19 +117,51 @@ as a visual reference; this is a separate surface.
 12. **Worker routing policy read-model (`GET /api/control/worker-policy`).**
     `WORKER_POLICY` is a static, in-memory table declaring `capability`,
     `execution_mode` (`local`/`remote`), `cost_mode` (`free`/`subscription`/
-    `metered`/`unknown`), `network_requirement`, and `fallback_policy` for every
-    worker id this adapter accepts as `preferred_worker`. It is purely
-    declarative — reading it never probes a port, calls a service, or starts one
-    (no LM Studio autostart); any local-service metadata it carries stays a
-    static classification, never a live, dialable address. `evaluate_worker_policy()`
-    is the fail-closed admission check `dispatch()` now runs instead of the old
-    flat allowlist: only `cost_mode` `free`/`subscription` is ever accepted —
-    `metered` and `unknown` (including any worker id not in the table, e.g.
-    `antigravity`/`codex` today) are always blocked, never allowed through by
-    default — and local-first routing means a remote (`execution_mode: "remote"`)
-    worker is blocked whenever the caller sets `local_only`, regardless of its
-    cost_mode. A blocked worker makes `dispatch()` fail closed with `400` and the
-    specific `blocked_reason`; no proposal is ever submitted to HIVE Core for it.
+    `metered`/`unknown`), `network_requirement`, `fallback_policy`, and `endpoint`
+    for every canonical worker id this adapter accepts as `preferred_worker`:
+    `deterministic`, `lmstudio-local`, `openrouter_free`, `antigravity`,
+    `codex-subscription`. It is purely declarative — reading it never probes a
+    port, calls a service, or starts one (no LM Studio autostart).
+    `evaluate_worker_policy()` is the fail-closed admission check `dispatch()`
+    runs instead of a flat allowlist: only `cost_mode` `free`/`subscription` is
+    ever accepted — `metered` and `unknown` (including any worker id outside the
+    table/alias map) are always blocked, never allowed through by default — and
+    local-first routing means a remote (`execution_mode: "remote"`) worker is
+    blocked whenever the caller sets `local_only`, regardless of its cost_mode. A
+    blocked worker makes `dispatch()` fail closed with `400` and the specific
+    `blocked_reason`; no proposal is ever submitted to HIVE Core for it.
+
+    **`endpoint` is loopback-only for local workers and always `None` for remote
+    ones — never invented.** `deterministic` runs in-process inside HIVE Core (not
+    a separately dialable service), so its `endpoint` is `None`
+    (`endpoint_basis: "not_applicable"`). `lmstudio-local`'s `endpoint` defaults to
+    LM Studio's own documented local-server address (`http://127.0.0.1:1234`,
+    `endpoint_basis: "documented_default"`) — a static declaration, never probed
+    or dialed by this adapter — overridable via `LMSTUDIO_ENDPOINT` only when the
+    override itself resolves to a loopback host (`endpoint_basis:
+    "operator_override"`); a non-loopback override is rejected outright
+    (`endpoint: None`, `endpoint_basis:
+    "invalid_non_loopback_override_rejected"`), never exposed. `openrouter_free`,
+    `antigravity`, and `codex-subscription` are remote/cloud-routed and always get
+    `endpoint: None` (`endpoint_basis: "not_applicable"`) — this adapter never
+    declares a remote worker's endpoint. `worker_policy_record()` also enforces
+    this as defense in depth: it rejects (clears to `None`) any endpoint that is
+    non-loopback or attached to a non-`local` worker, regardless of source.
+
+    **Canonical worker ids are aligned with the evidenced Orchestrator registry
+    naming, with old ids preserved as an explicit alias map.** `lmstudio` and
+    `codex` now resolve via `WORKER_ID_ALIASES` to the canonical
+    `lmstudio-local`/`codex-subscription` entries (`canonical_worker_id` on every
+    record shows the resolution); any id that resolves to neither a canonical key
+    nor an alias is unknown and fails closed exactly like a metered worker, never
+    guessed into an existing entry. `codex-subscription`'s `cost_mode` stays
+    `"unknown"` (blocked) by default — `ao agent ls` reporting Codex "authorized"
+    on this machine does not by itself distinguish a ChatGPT-subscription login
+    from a metered, pay-per-token API key — and only becomes `"subscription"`
+    (accepted) when the operator sets `CODEX_SUBSCRIPTION_CONFIRMED=true`, an
+    explicit confirmation of the actual billing plan in use, mirroring
+    `HIVE_HEALTH_REQUIRES_AUTH`'s existing pattern of never fabricating a
+    safety-relevant claim from ambiguous evidence.
 
 ## Run
 
@@ -310,11 +342,18 @@ only ever proves reachability, never authentication.
   mocked at the `subprocess.run` boundary). Also covers the worker routing policy
   read-model: known-worker/unknown-worker record shape, free/subscription
   acceptance (including a synthetic fixture for `subscription`, since no currently
-  declared worker carries that label), metered/unknown-cost-mode and unrecognized-
-  worker-id blocking, local-first routing blocking a remote worker under
-  `local_only`, no-side-effects (`subprocess.run`/`urlopen` never called), and
-  `dispatch()` wiring (blocked worker → `400` with the policy reason; an allowed
-  free local worker still succeeds end to end).
+  declared worker carries that label by default), metered/unknown-cost-mode and
+  unrecognized-worker-id blocking, local-first routing blocking a remote worker
+  under `local_only`, no-side-effects (`subprocess.run`/`urlopen` never called),
+  and `dispatch()` wiring (blocked worker → `400` with the policy reason; an
+  allowed free local worker still succeeds end to end). Additionally covers the
+  endpoint field (loopback-only default and override for `lmstudio-local`,
+  rejection of a non-loopback override, `None` for in-process/remote/unrecognized
+  workers, defense-in-depth rejection of a malformed or misattached endpoint) and
+  worker-id alignment (`lmstudio`/`codex` aliases resolving to
+  `lmstudio-local`/`codex-subscription`, `codex-subscription` defaulting to
+  blocked until `CODEX_SUBSCRIPTION_CONFIRMED` is set, an unaliased unknown id
+  still failing closed, and `dispatch()` still accepting the old bare ids).
 
 ## CREATOR OPS adapter
 
@@ -333,4 +372,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-152 unit tests pass.
+170 unit tests pass.

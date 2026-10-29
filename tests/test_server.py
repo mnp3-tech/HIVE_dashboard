@@ -18,6 +18,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -441,6 +442,150 @@ class WorkerPolicyTests(unittest.TestCase):
                 None,
             )
         self.assertEqual(result["id"], "task-local-1")
+
+
+class WorkerPolicyEndpointTests(unittest.TestCase):
+    """P-017 review follow-up, gap 1: an explicit, loopback-only endpoint field for
+    local workers; remote workers never get an invented endpoint; reading the
+    policy never probes a port or starts a service."""
+
+    def test_local_in_process_worker_has_no_endpoint(self):
+        # deterministic runs in-process inside HIVE Core -- it is not a separately
+        # dialable service, so endpoint must stay None, not a fabricated address.
+        record = server.worker_policy_record("deterministic")
+        self.assertIsNone(record["endpoint"])
+        self.assertEqual(record["endpoint_basis"], "not_applicable")
+
+    def test_lmstudio_local_endpoint_defaults_to_documented_loopback_address(self):
+        with patch.object(server, "LMSTUDIO_ENDPOINT_ENV", ""):
+            record = server.worker_policy_record("lmstudio-local")
+        self.assertEqual(record["endpoint"], server.LMSTUDIO_DEFAULT_ENDPOINT)
+        self.assertEqual(record["endpoint_basis"], "documented_default")
+        self.assertTrue(server._is_loopback_hostname(urlparse(record["endpoint"]).hostname))
+
+    def test_lmstudio_local_endpoint_honors_loopback_override(self):
+        with patch.object(server, "LMSTUDIO_ENDPOINT_ENV", "http://127.0.0.1:4321"):
+            record = server.worker_policy_record("lmstudio-local")
+        self.assertEqual(record["endpoint"], "http://127.0.0.1:4321")
+        self.assertEqual(record["endpoint_basis"], "operator_override")
+
+    def test_lmstudio_local_rejects_non_loopback_override(self):
+        with patch.object(server, "LMSTUDIO_ENDPOINT_ENV", "http://evil.example.com:4321"):
+            record = server.worker_policy_record("lmstudio-local")
+        self.assertIsNone(record["endpoint"])
+        self.assertEqual(record["endpoint_basis"], "invalid_non_loopback_override_rejected")
+
+    def test_remote_workers_never_get_an_endpoint(self):
+        for worker_id in ("openrouter_free", "antigravity", "codex-subscription"):
+            record = server.worker_policy_record(worker_id)
+            self.assertIsNone(record["endpoint"], f"{worker_id} must never have an invented endpoint")
+            self.assertEqual(record["endpoint_basis"], "not_applicable")
+
+    def test_unrecognized_worker_has_no_endpoint(self):
+        record = server.worker_policy_record("totally-made-up-worker")
+        self.assertIsNone(record["endpoint"])
+        self.assertEqual(record["endpoint_basis"], "unknown")
+
+    def test_endpoint_defense_in_depth_rejects_non_loopback_even_if_declared_local(self):
+        # Even if a future table edit accidentally declared a non-loopback endpoint
+        # for a local worker, worker_policy_record() must still reject it rather
+        # than expose it -- a static assertion, never a live probe of the address.
+        with patch.dict(server.WORKER_POLICY, {"fixture-bad-local-worker": {
+            "capability": "local_llm_inference", "execution_mode": "local", "cost_mode": "free",
+            "network_requirement": "loopback", "fallback_policy": "none_required",
+            "endpoint": "http://0.0.0.0:9999", "endpoint_basis": "documented_default",
+        }}):
+            record = server.worker_policy_record("fixture-bad-local-worker")
+        self.assertIsNone(record["endpoint"])
+        self.assertEqual(record["endpoint_basis"], "invalid_rejected")
+
+    def test_endpoint_defense_in_depth_rejects_endpoint_on_a_remote_worker(self):
+        with patch.dict(server.WORKER_POLICY, {"fixture-bad-remote-worker": {
+            "capability": "remote_llm_inference", "execution_mode": "remote", "cost_mode": "free",
+            "network_requirement": "internet", "fallback_policy": "local_preferred",
+            "endpoint": "http://127.0.0.1:9999", "endpoint_basis": "documented_default",
+        }}):
+            record = server.worker_policy_record("fixture-bad-remote-worker")
+        self.assertIsNone(record["endpoint"])
+        self.assertEqual(record["endpoint_basis"], "invalid_rejected")
+
+    def test_reading_policy_never_probes_or_starts_a_service(self):
+        with patch("server.subprocess.run") as mock_run, patch.object(server, "urlopen") as mock_urlopen:
+            server.worker_policy_record("lmstudio-local")
+            server.worker_policy_catalog()
+            server.evaluate_worker_policy("lmstudio-local", local_only=True)
+        mock_run.assert_not_called()
+        mock_urlopen.assert_not_called()
+
+
+class WorkerIdAlignmentTests(unittest.TestCase):
+    """P-017 review follow-up, gap 2: canonical worker ids are aligned with the
+    evidenced Orchestrator registry names (lmstudio-local, codex-subscription); old
+    bare ids are preserved as an explicit, evidenced alias mapping; any id outside
+    both the canonical table and the alias map fails closed."""
+
+    def test_canonical_worker_id_resolves_known_aliases(self):
+        self.assertEqual(server.canonical_worker_id("lmstudio"), "lmstudio-local")
+        self.assertEqual(server.canonical_worker_id("codex"), "codex-subscription")
+
+    def test_canonical_worker_id_passes_through_unaliased_ids(self):
+        self.assertEqual(server.canonical_worker_id("openrouter_free"), "openrouter_free")
+        self.assertEqual(server.canonical_worker_id("totally-unknown"), "totally-unknown")
+
+    def test_old_bare_lmstudio_alias_resolves_to_canonical_record(self):
+        record = server.worker_policy_record("lmstudio")
+        self.assertEqual(record["worker_id"], "lmstudio")
+        self.assertEqual(record["canonical_worker_id"], "lmstudio-local")
+        self.assertEqual(record["execution_mode"], "local")
+        self.assertTrue(record["cost_mode_allowed"])
+
+    def test_old_bare_codex_alias_resolves_to_canonical_record(self):
+        record = server.worker_policy_record("codex")
+        self.assertEqual(record["canonical_worker_id"], "codex-subscription")
+
+    def test_codex_subscription_defaults_to_unknown_and_blocked(self):
+        # Confirms the fail-closed default: "authorized" in `ao agent ls` does not
+        # by itself prove a subscription (vs. metered API key) billing plan.
+        with patch.object(server, "CODEX_SUBSCRIPTION_CONFIRMED", False):
+            record = server.worker_policy_record("codex-subscription")
+            result = server.evaluate_worker_policy("codex-subscription", local_only=False)
+        self.assertEqual(record["cost_mode"], "unknown")
+        self.assertFalse(result["allowed"])
+
+    def test_codex_subscription_confirmed_flag_is_read_at_import_not_mutable_live(self):
+        # CODEX_SUBSCRIPTION_CONFIRMED (like HIVE_HEALTH_REQUIRES_AUTH) is read once
+        # from the environment; WORKER_POLICY's cost_mode for codex-subscription is
+        # computed from it at that time. Patching the resulting cost_mode value
+        # directly is how a test (or an operator restarting the process after
+        # setting the env var) actually flips this, which this test pins.
+        with patch.dict(server.WORKER_POLICY, {"codex-subscription": {
+            **server.WORKER_POLICY["codex-subscription"], "cost_mode": "subscription",
+        }}):
+            result = server.evaluate_worker_policy("codex-subscription", local_only=False)
+        self.assertTrue(result["allowed"])
+
+    def test_unaliased_unknown_id_still_fails_closed(self):
+        result = server.evaluate_worker_policy("some-other-vendor-worker", local_only=False)
+        self.assertFalse(result["allowed"])
+        self.assertIn("unknown", result["blocked_reason"])
+
+    def test_catalog_exposes_canonical_ids_not_old_bare_ids(self):
+        catalog = server.worker_policy_catalog()
+        ids = {w["worker_id"] for w in catalog["workers"]}
+        self.assertIn("lmstudio-local", ids)
+        self.assertIn("codex-subscription", ids)
+        self.assertNotIn("lmstudio", ids)
+        self.assertNotIn("codex", ids)
+
+    def test_dispatch_still_accepts_old_bare_worker_ids_via_alias(self):
+        routes = {"/health": {"status": "ok"}, "/tasks": {"id": "task-alias-1"}}
+        with patch.object(server, "API_TOKEN", "tok"), patch.object(server, "urlopen", fake_urlopen(routes)):
+            result = server.dispatch(
+                {"mode": "proposal", "goal": "draft a safe proposal", "confirm": True,
+                 "preferred_worker": "lmstudio", "local_only": True},
+                None,
+            )
+        self.assertEqual(result["id"], "task-alias-1")
 
 
 class WorkerRegistryEvidenceTests(unittest.TestCase):
