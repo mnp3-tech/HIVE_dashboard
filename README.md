@@ -208,8 +208,10 @@ state is `ready`, `degraded`, or `blocked`; each component carries `status`,
 HIVE resources remain `auth_required`, missing AO transport is `unavailable`, and
 provider execution remains `blocked` until server-observed identity is verified.
 
-To enable the AO CLI bridge, set `AO_CLI_PATH` to an absolute path to the `ao` binary
-before starting the adapter. To additionally enable `send`/`send/recover`, also set
+The launcher automatically uses the existing per-user AO binary at
+`%LOCALAPPDATA%\Programs\agent-orchestrator\resources\daemon\ao.exe` when present;
+otherwise set `AO_CLI_PATH` to an absolute path to the `ao` binary before starting
+the adapter. This enables read-only session listing/history only. To additionally enable `send`/`send/recover`, also set
 `AO_SEND_CALLER_TOKEN` to a secret value, and present it as a bearer token on every
 request to those two routes:
 

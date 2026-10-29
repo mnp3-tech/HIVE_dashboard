@@ -6,6 +6,13 @@ $launchFile = Join-Path $root '.dashboard.launch.json'
 
 function Get-LaunchConfig {
   $aoPath = [string]$env:AO_CLI_PATH
+  if (-not $aoPath) {
+    $defaultAoPath = Join-Path $env:LOCALAPPDATA 'Programs\agent-orchestrator\resources\daemon\ao.exe'
+    if (Test-Path -LiteralPath $defaultAoPath -PathType Leaf) {
+      $aoPath = $defaultAoPath
+      $env:AO_CLI_PATH = $aoPath
+    }
+  }
   if ($aoPath) {
     if (-not [IO.Path]::IsPathFullyQualified($aoPath) -or -not (Test-Path -LiteralPath $aoPath -PathType Leaf)) {
       throw "AO_CLI_PATH must be an absolute path to an existing ao binary."
