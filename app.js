@@ -12,7 +12,7 @@ function loadPrefs(){
 }
 const DENSITY_CYCLE = ['full', 'reduced', 'minimal'];
 const prefs = loadPrefs();
-const state = {snapshot:null, workerPolicy:null, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
+const state = {snapshot:null, workerPolicy:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
 function savePrefs(){ localStorage.setItem(PREFS_KEY, JSON.stringify({density:state.density, mode:state.mode})); }
 
 const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
@@ -69,6 +69,8 @@ async function load(){
     catch(error){ state.error = error; state.snapshot = normalize(null); }
     try { const response = await fetch('/api/control/worker-policy', {headers:{Accept:'application/json'}, cache:'no-store'}); state.workerPolicy = response.ok ? await response.json() : null; }
     catch(_error){ state.workerPolicy = null; }
+    try { const response = await fetch('/api/local-workers/cli-status', {headers:{Accept:'application/json'}, cache:'no-store'}); state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; }
+    catch(error){ state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }
     await loadChat();
   }
   render(); $('#refresh-button').disabled = false;
@@ -115,8 +117,8 @@ function render(){
   setText('freshness-tag', state.error ? 'ADAPTER OFFLINE' : `DATA AGE ${age(snapshot.received_at)}`);
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
-  evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+  evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -148,6 +150,15 @@ function renderLocalWorkers(snapshot){
   const workers=snapshot.localWorkers||[];
   if(!workers.length){ container.innerHTML='<div class="empty-state compact"><span>⌁</span><strong>No local worker probe evidence</strong><small>Only allowlisted loopback endpoints are probed; workers are never auto-started.</small></div>'; return; }
   container.innerHTML=workers.map(worker=>`<div class="local-worker-card"><div class="adapter-card-heading"><strong>${esc(worker.name)}</strong><span class="source-state ${tone(worker.status)}">${esc(stateLabel(worker.status))}</span></div><div class="adapter-field"><span>Endpoint</span><strong>${esc(worker.endpoint)}</strong></div><div class="adapter-field"><span>Models</span><strong>${esc((worker.models||[]).length)}</strong></div><div class="adapter-reason">${esc(worker.reason||'No probe result')}</div></div>`).join('');
+}
+
+function renderCliWorkers(){
+  const payload=state.cliWorkers||{}, items=Array.isArray(payload.items)?payload.items:[], evidence=payload.evidence;
+  const badge=$('#cli-worker-validity'); if(badge){ const validity=evidence&&evidence.validity?evidence.validity:'unknown'; badge.textContent=stateLabel(validity); badge.className=`panel-status ${tone(validity)}`; }
+  setText('cli-worker-evidence', evidence ? evidenceLine(evidence) : 'Version probe evidence unavailable.');
+  const container=$('#cli-worker-cards'); if(!container) return;
+  if(!items.length){ container.innerHTML='<div class="empty-state compact"><span>⌁</span><strong>No CLI worker probe evidence</strong><small>OpenCode and Freebuff are not treated as execution-ready.</small></div>'; return; }
+  container.innerHTML=items.map(worker=>`<div class="local-worker-card cli-worker-card"><div class="adapter-card-heading"><strong>${esc(worker.name||worker.id)}</strong><span class="source-state ${tone(worker.status)}">${esc(stateLabel(worker.status))}</span></div><div class="adapter-field"><span>Mode</span><strong>VERSION PROBE ONLY</strong></div><div class="adapter-field"><span>Version</span><strong>${esc(worker.version||'UNKNOWN')}</strong></div><div class="adapter-reason">${esc(worker.reason||'No probe result')}</div></div>`).join('');
 }
 
 function openEvidenceDrawer(key, title){

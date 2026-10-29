@@ -27,7 +27,7 @@ test('required ids exist in index.html', () => {
     'workers-panel', 'worker-policy-cards', 'worker-policy-evidence', 'worker-policy-validity',
     'hive-orbit-panel', 'hive-orbit', 'orbit-validity', 'orbit-evidence', 'orbit-empty',
     'chat-panel', 'chat-transcript', 'chat-session-label', 'chat-draft-form', 'chat-draft-input',
-    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary', 'local-worker-cards',
+    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary', 'local-worker-cards', 'cli-worker-status-panel', 'cli-worker-validity', 'cli-worker-evidence', 'cli-worker-cards', 'local-inference-status',
     'evidence-drawer', 'evidence-drawer-title', 'evidence-drawer-source', 'evidence-drawer-validity',
     'evidence-drawer-observed', 'evidence-drawer-reason', 'evidence-drawer-close',
   ]) assert.match(html, new RegExp(`id="${id}"`), `missing #${id} in index.html`);
@@ -71,6 +71,20 @@ test('local worker panel uses bounded probes and never auto-starts providers', (
   assert.match(js, /local_worker_status|localWorkers/);
   assert.match(js, /workers are never auto-started/);
   assert.match(css, /local-worker-grid/);
+});
+
+test('CLI worker evidence stays separate from execution readiness', () => {
+  assert.match(js, /api\/local-workers\/cli-status/);
+  assert.match(js, /VERSION PROBE ONLY/);
+  assert.match(html, /inference is not invoked during dashboard load/);
+  assert.match(html, /Installation evidence, not execution readiness/);
+  assert.match(html, /Model-list availability does not imply inference readiness/);
+});
+
+test('degraded local inference cannot be rendered as available', () => {
+  assert.doesNotMatch(js, /local-workers\/lmstudio\/infer/);
+  assert.match(html, /completed or degraded evidence/);
+  assert.match(html, /does not imply inference readiness/);
 });
 
 test('self-evolution panel exposes HIVE auth uncertainty instead of claiming valid lifecycle state', () => {

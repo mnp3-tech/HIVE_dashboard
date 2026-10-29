@@ -113,6 +113,12 @@
           <div class="evidence-line" id="worker-policy-evidence" data-evidence-key="workerPolicy" role="button" tabindex="0" title="Open evidence drawer">Waiting for first snapshot…</div>
           <div class="worker-grid" id="worker-policy-cards"></div>
           <div class="local-worker-grid" id="local-worker-cards"></div>
+          <div class="worker-subpanel" id="cli-worker-status-panel">
+            <div class="panel-heading compact-heading"><div><p class="eyebrow">LOCAL CLI WORKERS</p><h3>Installation evidence, not execution readiness</h3></div><span class="panel-status" id="cli-worker-validity">UNKNOWN</span></div>
+            <div class="evidence-line" id="cli-worker-evidence" data-evidence-key="cliWorkers" role="button" tabindex="0" title="Open evidence drawer">Version probe has not run.</div>
+            <div class="local-worker-grid" id="cli-worker-cards"></div>
+          </div>
+          <div class="inference-note" id="local-inference-status">LM Studio inference is not invoked during dashboard load. Model-list availability does not imply inference readiness; run the explicit adapter to obtain completed or degraded evidence.</div>
         </section>
 
         <section class="panel activity-panel" id="events-panel" data-views="overview">
