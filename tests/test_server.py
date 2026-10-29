@@ -236,6 +236,64 @@ class SharedContextAdapterTests(unittest.TestCase):
             root.cleanup()
 
 
+class LocalInferenceAdapterTests(unittest.TestCase):
+    def _fixture(self):
+        root = tempfile.TemporaryDirectory()
+        base = Path(root.name)
+        registry = base / "projects.json"
+        source = base / "P-DEMO.md"
+        registry.write_text(json.dumps({"projects": [{"id": "demo", "name": "Demo"}]}), encoding="utf-8")
+        source.write_text("---\nstate: in-progress\n---\n# Demo\n\nBounded local context. token: secret-value\n", encoding="utf-8")
+        return root, registry, source
+
+    def _run(self, completion, payload=None):
+        root, registry, source = self._fixture()
+        base = Path(root.name)
+        calls = []
+
+        def fake(request, timeout=2):
+            calls.append((request.full_url, request.method, request.data))
+            path = urlparse(request.full_url).path
+            if path == "/v1/models":
+                return FakeResponse({"data": [{"id": "qwen3.5-4b"}]})
+            if path == "/v1/chat/completions":
+                return FakeResponse(completion)
+            raise URLError("unexpected local path")
+
+        body = {"confirm": True, "project_id": "demo", "record_ids": ["P-DEMO"], "model": "qwen3.5-4b", "instruction": "Summarize the context", "max_tokens": 32}
+        body.update(payload or {})
+        try:
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", base), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"demo": (source,)}), patch.object(server, "urlopen", fake):
+                result = server.lmstudio_infer(body)
+            return result, calls
+        finally:
+            root.cleanup()
+
+    def test_success_uses_model_allowlist_and_redacted_context(self):
+        result, calls = self._run({"choices": [{"message": {"content": "bounded answer"}, "finish_reason": "stop"}], "usage": {"total_tokens": 4}})
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["response"], "bounded answer")
+        self.assertEqual([urlparse(item[0]).path for item in calls], ["/v1/models", "/v1/chat/completions"])
+        self.assertNotIn(b"secret-value", calls[1][2])
+        self.assertIn(b"[REDACTED]", calls[1][2])
+
+    def test_empty_content_is_degraded_evidence(self):
+        result, _ = self._run({"choices": [{"message": {"content": ""}, "finish_reason": "length"}]})
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["evidence"]["validity"], "degraded")
+        self.assertIn("length", result["evidence"]["reason"])
+
+    def test_unknown_model_is_rejected_before_completion_request(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            self._run({"choices": []}, {"model": "not-listed"})
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_confirmation_is_required_before_any_local_request(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            self._run({"choices": []}, {"confirm": False})
+        self.assertEqual(ctx.exception.status, 400)
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:

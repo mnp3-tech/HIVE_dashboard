@@ -287,6 +287,8 @@ ORCHESTRATOR_CONTEXT_SOURCES = {
 CONTEXT_MAX_QUERY = 160
 CONTEXT_MAX_RECORDS = 20
 CONTEXT_MAX_CHARS = 6_000
+LOCAL_INFERENCE_MAX_INSTRUCTION = 2_000
+LOCAL_INFERENCE_MAX_TOKENS = 256
 
 # AO (Agent Orchestrator) CLI bridge. AO's own documented interface is a local CLI
 # (`ao`) over its daemon -- it does not publish an HTTP API contract for session,
@@ -1132,6 +1134,96 @@ def local_worker_status():
     return items, evidence("local:worker-probe", utc_now(), validity, "Only allowlisted loopback endpoints were probed; no worker was started.")
 
 
+def lmstudio_infer(payload: dict) -> dict:
+    """Run one explicit, bounded inference against the loopback LM Studio adapter.
+
+    The adapter validates the requested model against the live local model listing,
+    sends only a redacted project-scoped context pack, and never starts a process,
+    sends credentials, falls back to a remote worker, or writes canonical state.
+    Empty content is degraded evidence rather than fabricated success.
+    """
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise AdapterError("Explicit confirmation is required for local inference", 400)
+    worker_id = canonical_worker_id(payload.get("worker_id") or "lmstudio-local")
+    if worker_id != "lmstudio-local":
+        raise AdapterError("Only lmstudio-local is supported by this adapter", 400)
+    policy = evaluate_worker_policy(worker_id, local_only=True)
+    if not policy["allowed"]:
+        raise AdapterError(f"Worker preference is blocked by policy: {policy['blocked_reason']}", 400)
+    project_id = str(payload.get("project_id") or "")
+    model = str(payload.get("model") or "").strip()
+    instruction = redact_secrets(str(payload.get("instruction") or "").strip())
+    if not project_id or not model:
+        raise AdapterError("project_id and model are required", 400)
+    if not (1 <= len(instruction) <= LOCAL_INFERENCE_MAX_INSTRUCTION):
+        raise AdapterError(f"instruction must be between 1 and {LOCAL_INFERENCE_MAX_INSTRUCTION} characters", 400)
+    record_ids = payload.get("record_ids")
+    context = context_build(project_id, record_ids, parse_bounded_int(payload.get("max_chars"), "max_chars", 500, CONTEXT_MAX_CHARS, 4_000))
+    endpoint, endpoint_basis = _lmstudio_endpoint()
+    if not endpoint:
+        raise AdapterError("LM Studio endpoint is not a valid loopback address", 503)
+    endpoint = endpoint.rstrip("/")
+    try:
+        models_request = Request(f"{endpoint}/v1/models", headers={"Accept": "application/json"}, method="GET")
+        with urlopen(models_request, timeout=2) as response:
+            models_payload = json.loads(response.read(128_000).decode("utf-8"))
+        raw_models = models_payload.get("data", []) if isinstance(models_payload, dict) else None
+        available_models = [str(item.get("id")) for item in raw_models if isinstance(item, dict) and item.get("id")] if isinstance(raw_models, list) else []
+        if model not in available_models:
+            raise AdapterError("Requested LM Studio model is not in the live model listing", 400)
+        prompt_context = "\n\n".join(
+            f"[{record['record_id']}]\n{record.get('content', '')}" for record in context["records"]
+        )
+        request_body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "Use only the bounded context below. Do not claim actions or facts absent from it. Return a concise answer."},
+                {"role": "user", "content": f"Instruction:\n{instruction}\n\nBounded context:\n{prompt_context}"},
+            ],
+            "temperature": 0,
+            "max_tokens": parse_bounded_int(payload.get("max_tokens"), "max_tokens", 1, LOCAL_INFERENCE_MAX_TOKENS, 96),
+            "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        completion_request = Request(
+            f"{endpoint}/v1/chat/completions",
+            data=json.dumps(request_body).encode("utf-8"),
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(completion_request, timeout=30) as response:
+            completion_payload = json.loads(response.read(128_000).decode("utf-8"))
+    except HTTPError as error:
+        raise AdapterError(f"LM Studio returned HTTP {error.code}", 502) from None
+    except (URLError, TimeoutError, OSError) as error:
+        raise AdapterError(f"LM Studio inference unavailable: {getattr(error, 'reason', error)}", 503) from None
+    except (ValueError, UnicodeError) as error:
+        raise AdapterError(f"LM Studio returned invalid JSON: {error}", 502) from None
+    choices = completion_payload.get("choices") if isinstance(completion_payload, dict) else None
+    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    content = message.get("content") if isinstance(message.get("content"), str) else ""
+    content = redact_secrets(content).strip()[:8_000]
+    finish_reason = choice.get("finish_reason")
+    valid = bool(content)
+    return {
+        "worker_id": worker_id,
+        "model": model,
+        "status": "completed" if valid else "degraded",
+        "response": content,
+        "finish_reason": finish_reason,
+        "usage": completion_payload.get("usage") if isinstance(completion_payload, dict) and isinstance(completion_payload.get("usage"), dict) else None,
+        "context_hash": context["content_hash"],
+        "evidence": evidence(
+            f"lmstudio:{endpoint}/v1/chat/completions",
+            utc_now(),
+            "valid" if valid else "degraded",
+            "Bounded local inference completed" if valid else f"LM Studio returned no message content (finish_reason={finish_reason})",
+        ),
+        "endpoint_basis": endpoint_basis,
+    }
+
+
 def _call_probe(path: str):
     try:
         raw = core_json(path)
@@ -1450,6 +1542,7 @@ class Handler(BaseHTTPRequestHandler):
                     "delegation": {"proposal": True, "task": False, "mission": False, "self_upgrade_apply": False},
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
                     "memory": {"operations": ["status", "search", "get", "build_context", "propose"], "canonical_write": False, "project_scoped": True},
+                    "local_inference": {"route": "/api/local-workers/lmstudio/infer", "confirm_required": True, "canonical_write": False, "loopback_only": True},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
@@ -1507,6 +1600,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise AdapterError("Request body is missing or too large", 413)
                 result = context_propose(json.loads(self.rfile.read(length).decode("utf-8")))
                 return self.json_response(result, 202)
+            if path == "/api/local-workers/lmstudio/infer":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                result = lmstudio_infer(json.loads(self.rfile.read(length).decode("utf-8")))
+                return self.json_response(result, 200)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:
                 try:
