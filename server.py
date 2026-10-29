@@ -831,7 +831,7 @@ def orchestrator_project_registry():
 
 def _context_project_ids() -> set[str]:
     projects, _ = orchestrator_project_registry()
-    return {str(item["id"]) for item in projects}
+    return {str(item["id"]) for item in projects} | set(ORCHESTRATOR_CONTEXT_SOURCES)
 
 
 def _context_source_paths(project_id: str) -> tuple[Path, ...]:
@@ -876,13 +876,14 @@ def _context_record(project_id: str, path: Path, include_content: bool = False) 
 
 def context_status() -> dict:
     projects, registry_evidence = orchestrator_project_registry()
+    by_id = {project["id"]: project for project in projects}
     items = []
-    for project in projects:
-        project_id = project["id"]
+    for project_id in sorted(set(by_id) | set(ORCHESTRATOR_CONTEXT_SOURCES)):
         paths = ORCHESTRATOR_CONTEXT_SOURCES.get(project_id, ())
         records = [_context_record(project_id, path) for path in paths]
         items.append({
             "project_id": project_id,
+            "name": by_id.get(project_id, {}).get("name", project_id),
             "status": "available" if any(records) else "prepared" if paths else "no_approved_sources",
             "record_count": sum(1 for record in records if record),
             "scope": "project-scoped, read-only, proposal-only writes",

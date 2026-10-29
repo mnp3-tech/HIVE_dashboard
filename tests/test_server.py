@@ -226,6 +226,15 @@ class SharedContextAdapterTests(unittest.TestCase):
         finally:
             root.cleanup()
 
+    def test_explicit_context_source_scope_is_allowed_without_registry_project_row(self):
+        root, registry, source = self._fixture()
+        try:
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", Path(root.name)), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"orchestrator-inc": (source,)}):
+                result = server.context_search("orchestrator-inc", "bounded")
+            self.assertEqual(result["items"][0]["project_id"], "orchestrator-inc")
+        finally:
+            root.cleanup()
+
 
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
