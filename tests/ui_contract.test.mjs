@@ -27,7 +27,7 @@ test('required ids exist in index.html', () => {
     'workers-panel', 'worker-policy-cards', 'worker-policy-evidence', 'worker-policy-validity',
     'hive-orbit-panel', 'hive-orbit', 'orbit-validity', 'orbit-evidence', 'orbit-empty',
     'chat-panel', 'chat-transcript', 'chat-session-label', 'chat-draft-form', 'chat-draft-input',
-    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary',
+    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary', 'local-worker-cards',
     'evidence-drawer', 'evidence-drawer-title', 'evidence-drawer-source', 'evidence-drawer-validity',
     'evidence-drawer-observed', 'evidence-drawer-reason', 'evidence-drawer-close',
   ]) assert.match(html, new RegExp(`id="${id}"`), `missing #${id} in index.html`);
@@ -64,6 +64,13 @@ test('project registry and self-evolution checkpoint stay evidence-backed', () =
   assert.match(js, /selfEvolution/);
   assert.match(js, /obsidian:Registry\/projects\.json/);
   assert.match(js, /proposal-only/);
+});
+
+test('local worker panel uses bounded probes and never auto-starts providers', () => {
+  assert.match(html, /id="local-worker-cards"/);
+  assert.match(js, /local_worker_status|localWorkers/);
+  assert.match(js, /workers are never auto-started/);
+  assert.match(css, /local-worker-grid/);
 });
 
 test('narrow layout explicitly prevents horizontal overflow', () => {

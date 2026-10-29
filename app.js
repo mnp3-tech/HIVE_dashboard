@@ -41,6 +41,8 @@ function normalize(raw){
   const tasksEvidence = source.tasks && source.tasks.evidence ? source.tasks.evidence : null;
   const workers = source.workers && Array.isArray(source.workers.items) ? source.workers.items : [];
   const workersEvidence = source.workers && source.workers.evidence ? source.workers.evidence : null;
+  const localWorkers = source.local_workers && Array.isArray(source.local_workers.items) ? source.local_workers.items : [];
+  const localWorkersEvidence = source.local_workers && source.local_workers.evidence ? source.local_workers.evidence : null;
   const adapters = source.adapters || {};
   const topology = source.topology || {status:'deferred', reason:'Topology visualization is deferred for this MVP.'};
   return {
@@ -52,7 +54,7 @@ function normalize(raw){
     projects, projectsEvidence,
     projectRegistry, projectRegistryEvidence, selfEvolution,
     tasks, tasksEvidence,
-    workers, workersEvidence,
+    workers, workersEvidence, localWorkers, localWorkersEvidence,
     adapters,
     topology,
   };
@@ -113,8 +115,8 @@ function render(){
   setText('freshness-tag', state.error ? 'ADAPTER OFFLINE' : `DATA AGE ${age(snapshot.received_at)}`);
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
-  evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+  evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence;
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -139,6 +141,13 @@ function renderWorkerPolicy(){
       ${!worker.cost_mode_allowed ? `<div class="worker-reason">BLOCKED: cost_mode '${esc(worker.cost_mode)}' is outside the free/subscription allowlist.</div>` : ''}
     </div>`;
   }).join('');
+}
+
+function renderLocalWorkers(snapshot){
+  const container=$('#local-worker-cards'); if(!container) return;
+  const workers=snapshot.localWorkers||[];
+  if(!workers.length){ container.innerHTML='<div class="empty-state compact"><span>⌁</span><strong>No local worker probe evidence</strong><small>Only allowlisted loopback endpoints are probed; workers are never auto-started.</small></div>'; return; }
+  container.innerHTML=workers.map(worker=>`<div class="local-worker-card"><div class="adapter-card-heading"><strong>${esc(worker.name)}</strong><span class="source-state ${tone(worker.status)}">${esc(stateLabel(worker.status))}</span></div><div class="adapter-field"><span>Endpoint</span><strong>${esc(worker.endpoint)}</strong></div><div class="adapter-field"><span>Models</span><strong>${esc((worker.models||[]).length)}</strong></div><div class="adapter-reason">${esc(worker.reason||'No probe result')}</div></div>`).join('');
 }
 
 function openEvidenceDrawer(key, title){
@@ -227,7 +236,8 @@ function renderEvolution(snapshot){
   setText('evolution-evidence', evidenceLine(evidence));
   const summary = $('#evolution-summary'); if(!summary) return;
   if(!item){ summary.innerHTML = '<div class="empty-state compact"><span>✎</span><strong>Self-evolution checkpoint unavailable</strong><small>No proposal-only lifecycle evidence received.</small></div>'; return; }
-  summary.innerHTML = `<div class="evolution-card"><div class="evolution-card-heading"><strong>${esc(item.id)} · ${esc(item.name)}</strong><span class="component-badge">${esc(stateLabel(item.status))}</span></div><small>${esc(item.completed_steps)} completed · ${esc(item.open_steps)} open · proposal-only ${item.proposal_only ? 'YES' : 'UNKNOWN'}</small>${item.next_action ? `<p>${esc(item.next_action)}</p>` : ''}${item.blocker ? `<div class="adapter-reason">${esc(item.blocker)}</div>` : ''}</div>`;
+  const hive=evolution.hive||{}; const hiveStatuses=hive.statuses&&typeof hive.statuses==='object' ? Object.entries(hive.statuses).map(([status,count])=>`${status}: ${count}`).join(' · ') : '';
+  summary.innerHTML = `<div class="evolution-card"><div class="evolution-card-heading"><strong>${esc(item.id)} · ${esc(item.name)}</strong><span class="component-badge">${esc(stateLabel(item.status))}</span></div><small>${esc(item.completed_steps)} completed · ${esc(item.open_steps)} open · proposal-only ${item.proposal_only ? 'YES' : 'UNKNOWN'}</small>${item.next_action ? `<p>${esc(item.next_action)}</p>` : ''}${item.blocker ? `<div class="adapter-reason">${esc(item.blocker)}</div>` : ''}${hiveStatuses ? `<div class="evolution-hive-status"><span>HIVE /evolution</span><strong>${esc(hiveStatuses)}</strong></div>` : ''}</div>`;
 }
 
 function renderTasks(snapshot){
@@ -330,6 +340,7 @@ function demoSnapshot(){
     projects: {items:[{id:'seed',name:'SEED',status:'active',description:'Build / test pipeline',protected:false},{id:'creator-ops',name:'CREATOR OPS',status:'waiting',description:'Media pipeline',protected:true}], evidence:{source:'hive:/projects',observed_at:agoSeconds(4),validity:'valid',reason:null}},
     project_registry: {items:[{id:'hive-core-seed',name:'HIVE / seed core',status:'active',registration:'registered',workspace_present:true},{id:'creator-ops',name:'CREATOR OPS',status:'waiting',registration:'planned',workspace_present:true},{id:'self-evolution',name:'Self-evolution module',status:'waiting',registration:'historical-implementation-found',workspace_present:false},{id:'jarvis',name:'JARVIS voice layer',status:'waiting',registration:'planned',workspace_present:false}], evidence:{source:'obsidian:Registry/projects.json',observed_at:agoSeconds(4),validity:'valid',reason:'Fixture registry only'}},
     self_evolution: {item:{id:'P-013',name:'Self-evolution control plane',status:'in-progress',completed_steps:1,open_steps:1,next_action:'Map dashboard evidence to HIVE proposal lifecycle',blocker:'Independent review required',proposal_only:true}, evidence:{source:'obsidian:Tasks/self-evolution/P-013-proposal-only-control-plane.ukol.md',observed_at:agoSeconds(4),validity:'valid',reason:'Fixture checkpoint only'}},
+    local_workers: {items:[{id:'lmstudio-local',name:'LM Studio',endpoint:'http://127.0.0.1:1234/v1/models',protocol:'openai-compatible',status:'available',models:['qwen3.5-4b'],reason:'Fixture probe only'},{id:'ollama-local',name:'Ollama',endpoint:'http://127.0.0.1:11434/api/tags',protocol:'ollama',status:'unavailable',models:[],reason:'Fixture probe only'}],evidence:{source:'local:worker-probe',observed_at:agoSeconds(4),validity:'valid',reason:'Fixture probe only'}},
     tasks: {items:[{id:'t-1',title:'Review PR #42',status:'active',raw_status:'running',project_id:'seed',worker:'codex',created_at:agoSeconds(300)},{id:'t-2',title:'Draft proposal: cache layer',status:'queued',raw_status:'pending',project_id:'creator-ops',worker:null,created_at:agoSeconds(900)},{id:'t-3',title:'Build fixture data',status:'completed',raw_status:'done',project_id:'seed',worker:'deterministic',created_at:agoSeconds(1800)}], evidence:{source:'hive:/tasks',observed_at:agoSeconds(4),validity:'valid',reason:null}},
     workers: {items:[{id:'deterministic',name:'Deterministic worker',provider:'local',model:'n/a',status:'idle'}], evidence:{source:'hive:/workers',observed_at:agoSeconds(4),validity:'valid',reason:null}},
     events: {items:[{timestamp:agoSeconds(5),timestamp_validity:'valid',kind:'TASK_ROUTED',title:'Task routed to SEED',source:'HIVE event bus',component_id:'seed',severity:'info'},{timestamp:agoSeconds(42),timestamp_validity:'valid',kind:'REVIEW_BLOCKED',title:'Review waiting for approval',source:'Governor audit',component_id:'core',severity:'warning'}], evidence:{source:'hive:/events',observed_at:agoSeconds(4),validity:'valid',reason:null}},

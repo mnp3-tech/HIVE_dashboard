@@ -143,12 +143,29 @@ class OrchestratorRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "P-013.ukol.md"
             path.write_text("""---\nstate: in-progress\n---\n\n## Plan\n1. [x] inspect\n2. [ ] map\n\n## Checkpoint\n- next_action: map evidence\n- blocker: review required\n""", encoding="utf-8")
-            with patch.object(server, "ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH", path):
+            evolution_fixture = ({}, {"source": "hive:/evolution", "observed_at": None, "validity": "auth_required", "reason": "fixture auth boundary"})
+            with patch.object(server, "ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH", path), patch.object(server, "fetch_with_evidence", return_value=evolution_fixture):
                 result = server.self_evolution_status()
         self.assertEqual(result["item"]["completed_steps"], 1)
         self.assertEqual(result["item"]["open_steps"], 1)
         self.assertEqual(result["item"]["next_action"], "map evidence")
         self.assertEqual(result["evidence"]["validity"], "valid")
+
+
+class LocalWorkerStatusTests(unittest.TestCase):
+    def test_allowlisted_loopback_probes_report_models_and_unavailability(self):
+        def fake(request, timeout=2):
+            if request.full_url.endswith("/v1/models"):
+                return FakeResponse({"data": [{"id": "qwen3.5-4b"}]})
+            raise URLError("connection refused")
+
+        with patch.object(server, "urlopen", fake):
+            items, evidence = server.local_worker_status()
+        self.assertEqual(items[0]["status"], "available")
+        self.assertEqual(items[0]["models"], ["qwen3.5-4b"])
+        self.assertEqual(items[1]["status"], "unavailable")
+        self.assertIn("unavailable", items[1]["reason"])
+        self.assertEqual(evidence["validity"], "valid")
 
 
 class TaskQueueTests(unittest.TestCase):

@@ -545,7 +545,7 @@ def ao_recover_send(session_id, client_message_id, confirm) -> dict:
 def core_json(path: str, method: str = "GET", body: dict | None = None, idempotency_key: str | None = None):
     if not CORE_URL_IS_LOOPBACK:
         raise AdapterError("HIVE_CORE_URL does not resolve to a loopback address; refusing to contact a non-loopback Core", 503)
-    if not path.startswith(("/health", "/ready", "/projects", "/workers", "/system", "/events", "/engineering/architecture", "/tasks", "/missions")):
+    if not path.startswith(("/health", "/ready", "/projects", "/workers", "/system", "/events", "/evolution", "/engineering/architecture", "/tasks", "/missions")):
         raise AdapterError("Adapter path is not allowlisted", 403)
     headers = {"Accept": "application/json"}
     if body is not None:
@@ -758,6 +758,12 @@ def self_evolution_status():
     blocker_match = re.search(r"^- blocker:\s*(.+)$", text, re.MULTILINE)
     checked = len(re.findall(r"^(?:- |\d+\. )\[x\]", text, re.MULTILINE))
     open_items = len(re.findall(r"^(?:- |\d+\. )\[ \]", text, re.MULTILINE))
+    hive_raw, hive_evidence = fetch_with_evidence("/evolution")
+    statuses = {}
+    for proposal in unwrap_items(hive_raw):
+        if isinstance(proposal, dict):
+            status = str(proposal.get("status", "UNKNOWN"))
+            statuses[status] = statuses.get(status, 0) + 1
     return {
         "item": {
             "id": "P-013",
@@ -768,6 +774,11 @@ def self_evolution_status():
             "next_action": next_match.group(1).strip() if next_match else None,
             "blocker": blocker_match.group(1).strip() if blocker_match else None,
             "proposal_only": True,
+        },
+        "hive": {
+            "proposal_count": sum(statuses.values()),
+            "statuses": statuses,
+            "evidence": hive_evidence,
         },
         "evidence": evidence(source, utc_now(), "valid", "P-013 checkpoint loaded read-only; no evolution action was executed."),
     }
@@ -840,6 +851,48 @@ def worker_registry(ready: dict | None = None):
         )
         return fallback_workers, fallback_evidence
     return [], workers_evidence
+
+
+LOCAL_WORKER_PROBES = (
+    ("lmstudio-local", "LM Studio", "http://127.0.0.1:1234/v1/models", "openai-compatible"),
+    ("ollama-local", "Ollama", "http://127.0.0.1:11434/api/tags", "ollama"),
+)
+
+
+def local_worker_status():
+    """Probe only the configured loopback worker endpoints; never auto-starts them."""
+    items = []
+    for worker_id, name, url, protocol in LOCAL_WORKER_PROBES:
+        record = {
+            "id": worker_id,
+            "name": name,
+            "endpoint": url,
+            "protocol": protocol,
+            "status": "unavailable",
+            "models": [],
+            "reason": None,
+        }
+        try:
+            request = Request(url, headers={"Accept": "application/json"}, method="GET")
+            with urlopen(request, timeout=2) as response:
+                payload = json.loads(response.read(128_000).decode("utf-8"))
+            raw_models = payload.get("data", []) if protocol == "openai-compatible" else payload.get("models", [])
+            if isinstance(raw_models, list):
+                record["models"] = [
+                    str(item.get("id") or item.get("name"))[:160]
+                    for item in raw_models if isinstance(item, dict) and (item.get("id") or item.get("name"))
+                ][:20]
+            record["status"] = "available"
+            record["reason"] = "Loopback endpoint responded with a valid model listing"
+        except HTTPError as error:
+            record["reason"] = f"Loopback endpoint returned HTTP {error.code}"
+        except (URLError, TimeoutError, OSError) as error:
+            record["reason"] = f"Loopback endpoint unavailable: {getattr(error, 'reason', error)}"
+        except (ValueError, UnicodeError) as error:
+            record["status"] = "unknown"
+            record["reason"] = f"Loopback endpoint returned invalid JSON: {error}"
+        items.append(record)
+    return items, evidence("local:worker-probe", utc_now(), "valid", "Only allowlisted loopback endpoints were probed; no worker was started.")
 
 
 def _call_probe(path: str):
@@ -1015,6 +1068,7 @@ def snapshot():
     evolution = self_evolution_status()
     tasks, tasks_evidence = task_queue()
     workers, workers_evidence = worker_registry(ready)
+    local_workers, local_workers_evidence = local_worker_status()
     creator_ops = creator_ops_status()
     events_raw, events_evidence = fetch_with_evidence("/events?limit=50")
     normalized_events = []
@@ -1059,6 +1113,7 @@ def snapshot():
         "self_evolution": evolution,
         "tasks": {"items": tasks, "evidence": tasks_evidence},
         "workers": {"items": workers, "evidence": workers_evidence},
+        "local_workers": {"items": local_workers, "evidence": local_workers_evidence},
         "events": {"items": normalized_events[:50], "evidence": events_evidence},
         "topology": {"status": "deferred", "reason": "Topology visualization is deferred for this MVP; no graph or event-derived topology is computed."},
     }
