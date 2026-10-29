@@ -20,11 +20,13 @@
         <button class="nav-item" data-view="projects"><span>▦</span>Projects</button>
         <button class="nav-item" data-view="tasks"><span>☰</span>Tasks</button>
         <button class="nav-item" data-view="adapters"><span>⌁</span>Adapters</button>
+        <button class="nav-item" data-view="workers"><span>⚙</span>Workers</button>
         <button class="nav-item" data-view="proposals"><span>✎</span>Proposals</button>
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-foot">
         <div class="connection-line"><i id="connection-dot"></i><span id="connection-label">Adapter offline</span></div>
+        <div class="mode-readout"><span id="rail-mode">OBSERVE</span><span>·</span><span id="rail-density">FULL</span></div>
         <small>READ-ONLY MONITORING PLANE</small>
         <small>PROPOSAL-ONLY · NO APPLY / DEPLOY / PROMOTE</small>
       </div>
@@ -36,7 +38,12 @@
         <div class="topbar-actions">
           <span class="top-tag" id="environment-tag">LOCAL / UNVERIFIED</span>
           <span class="top-tag" id="freshness-tag">DATA AGE —</span>
-          <button class="icon-button" id="reduced-motion" title="Toggle reduced motion" aria-pressed="false">◌</button>
+          <div class="mode-group" id="mode-group" role="group" aria-label="Operator mode">
+            <button class="mode-button" data-mode="command" title="COMMAND — full control surface">CMD</button>
+            <button class="mode-button active" data-mode="observe" title="OBSERVE — read-only monitoring (default)">OBS</button>
+            <button class="mode-button" data-mode="focus" title="FOCUS — single-panel attention">FOC</button>
+          </div>
+          <button class="icon-button" id="density-toggle" title="Cycle render density: FULL / REDUCED / MINIMAL" aria-pressed="false">◌</button>
           <button class="button delegate-trigger" id="delegate-button">Draft proposal <span>↗</span></button>
           <button class="button quiet" id="refresh-button">Refresh <span>↻</span></button>
         </div>
@@ -44,7 +51,7 @@
 
       <main>
         <div class="demo-banner" id="demo-banner" hidden><span>VISUAL QA MODE</span> Synthetic fixture data is shown. Disable <code>?demo=1</code> for live adapter mode.</div>
-        <section class="page-heading" data-views="overview projects tasks adapters">
+        <section class="page-heading" data-views="overview projects tasks adapters workers">
           <div>
             <p class="eyebrow">HIVE / UNIFIED DASHBOARD</p>
             <h1>One machine. <span>Bounded evidence.</span></h1>
@@ -60,24 +67,34 @@
           <article class="metric-card"><div class="metric-label">DISK <span class="source-pill">HIVE</span></div><strong id="metric-disk">—</strong><small id="metric-disk-detail">unavailable</small></article>
         </section>
 
-        <section class="panel deferred-panel" id="topology-deferred" data-views="overview">
-          <div class="panel-heading"><div><p class="eyebrow">TOPOLOGY VISUALIZATION</p><h2>Deferred for this MVP</h2></div><span class="panel-status deferred">DEFERRED</span></div>
-          <div class="deferred-copy">
-            <p id="topology-deferred-reason">Topology visualization is deferred for this MVP; no graph or event-derived topology is computed.</p>
-            <p>Use <strong>Projects</strong>, <strong>Tasks</strong>, and <strong>Adapters</strong> for the current bounded operating picture.</p>
-          </div>
+        <div class="hive-cockpit-grid" data-views="overview">
+          <section class="panel orbit-panel" id="hive-orbit-panel">
+            <div class="panel-heading"><div><p class="eyebrow">HIVE OPERATIONS CORE</p><h2>Verified system state</h2></div><span class="panel-status" id="orbit-validity">UNKNOWN</span></div>
+            <div class="orbit-stage" id="orbit-stage">
+              <svg id="hive-orbit" viewBox="0 0 760 420" role="img" aria-label="Evidence-backed HIVE Core and worker state"></svg>
+              <div class="orbit-empty" id="orbit-empty"><strong>No verified topology yet</strong><small>Workers and edges appear only from timestamped HIVE evidence.</small></div>
+            </div>
+            <div class="orbit-legend"><span><i class="legend-core"></i>HIVE Core</span><span><i class="legend-agent"></i>registered worker</span><span><i class="legend-event"></i>observed event</span><span class="orbit-note" id="orbit-evidence">Waiting for snapshot…</span></div>
+          </section>
+
+          <section class="panel chat-panel" id="chat-panel">
+            <div class="panel-heading"><div><p class="eyebrow">CHAT BRIDGE</p><h2>Ask HIVE / coordinate</h2></div><span class="panel-status" id="chat-validity">UNKNOWN</span></div>
+            <div class="chat-session-bar"><span class="status-dot unknown" id="chat-dot"></span><span id="chat-session-label">No provider session selected</span><button class="text-button" id="chat-refresh" type="button">Refresh</button></div>
+            <div class="chat-transcript" id="chat-transcript"><div class="empty-state compact"><span>◌</span><strong>Chat evidence unavailable</strong><small>AO session history is read through the documented local adapter.</small></div></div>
+            <form class="chat-draft" id="chat-draft-form"><label for="chat-draft-input">Draft a bounded request</label><div><input id="chat-draft-input" maxlength="500" placeholder="Ask HIVE to explain a task or prepare a proposal…"><button class="button" type="submit">Queue</button></div><small id="chat-draft-status">Draft only · no provider message is sent from this panel.</small></form>
+          </section>
+        </div>
+
+        <section class="panel queue-panel priority-panel" id="tasks-panel" data-views="overview tasks">
+          <div class="panel-heading"><div><p class="eyebrow">MISSION QUEUE</p><h2>Queued, active, completed, and blocked tasks</h2></div><span class="panel-status" id="tasks-validity">UNKNOWN</span></div>
+          <div class="evidence-line" id="tasks-evidence" data-evidence-key="tasks" role="button" tabindex="0" title="Open evidence drawer">Waiting for first snapshot…</div>
+          <div class="bucket-grid" id="task-buckets"></div>
         </section>
 
         <section class="panel catalog-panel" id="projects-panel" data-views="overview projects">
           <div class="panel-heading"><div><p class="eyebrow">PROJECT CATALOG</p><h2>Projects known to HIVE Core</h2></div><span class="panel-status" id="projects-validity">UNKNOWN</span></div>
-          <div class="evidence-line" id="projects-evidence">Waiting for first snapshot…</div>
+          <div class="evidence-line" id="projects-evidence" data-evidence-key="projects" role="button" tabindex="0" title="Open evidence drawer">Waiting for first snapshot…</div>
           <div class="catalog-list" id="project-list"><div class="empty-state compact"><span>▱</span><strong>No projects received</strong><small>The project catalog will appear here once the adapter returns evidence.</small></div></div>
-        </section>
-
-        <section class="panel queue-panel" id="tasks-panel" data-views="overview tasks">
-          <div class="panel-heading"><div><p class="eyebrow">TASK QUEUE</p><h2>Queued, active, completed, and blocked tasks</h2></div><span class="panel-status" id="tasks-validity">UNKNOWN</span></div>
-          <div class="evidence-line" id="tasks-evidence">Waiting for first snapshot…</div>
-          <div class="bucket-grid" id="task-buckets"></div>
         </section>
 
         <section class="panel adapters-panel" id="adapters-panel" data-views="overview adapters">
@@ -85,9 +102,15 @@
           <div class="adapter-grid" id="adapter-cards"></div>
         </section>
 
+        <section class="panel worker-panel" id="workers-panel" data-views="overview workers">
+          <div class="panel-heading"><div><p class="eyebrow">WORKER INTELLIGENCE</p><h2>Capability, trust boundary, and cost-mode policy</h2></div><span class="panel-status" id="worker-policy-validity">UNKNOWN</span></div>
+          <div class="evidence-line" id="worker-policy-evidence" data-evidence-key="workerPolicy" role="button" tabindex="0" title="Open evidence drawer">Waiting for first snapshot…</div>
+          <div class="worker-grid" id="worker-policy-cards"></div>
+        </section>
+
         <section class="panel activity-panel" id="events-panel" data-views="overview">
           <div class="panel-heading"><div><p class="eyebrow">EVIDENCE STREAM</p><h2>Recent events</h2></div><span class="source-pill">TTL / DEDUPED</span></div>
-          <div class="evidence-line" id="events-evidence">Waiting for first snapshot…</div>
+          <div class="evidence-line" id="events-evidence" data-evidence-key="events" role="button" tabindex="0" title="Open evidence drawer">Waiting for first snapshot…</div>
           <div class="event-list" id="event-list"><div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div></div>
         </section>
 
@@ -110,6 +133,18 @@
       <footer><span>HIVE / UNIFIED DASHBOARD MVP</span><span>LOCAL BY DEFAULT · NO TELEMETRY UPLOAD</span><span id="footer-version">ADAPTER CONTRACT v0.2</span></footer>
     </div>
   </div>
+  <dialog id="evidence-drawer" aria-label="Evidence drawer">
+    <div class="dialog-heading"><div><p class="eyebrow">EVIDENCE DRAWER</p><h2 id="evidence-drawer-title">Source</h2></div><button class="icon-button" id="evidence-drawer-close" aria-label="Close">×</button></div>
+    <div class="dialog-body">
+      <div class="detail-grid">
+        <div class="detail-cell"><span>Source</span><strong id="evidence-drawer-source">—</strong></div>
+        <div class="detail-cell"><span>Validity</span><strong id="evidence-drawer-validity">—</strong></div>
+        <div class="detail-cell"><span>Observed</span><strong id="evidence-drawer-observed">—</strong></div>
+        <div class="detail-cell"><span>Reason</span><strong id="evidence-drawer-reason">—</strong></div>
+      </div>
+    </div>
+    <p class="dialog-copy">This drawer only ever shows the evidence envelope (source, timestamp, validity, reason) already rendered on this page. It never shows prompts, tokens, credentials, or raw provider session content.</p>
+  </dialog>
   <script src="app.js" defer></script>
 </body>
 </html>

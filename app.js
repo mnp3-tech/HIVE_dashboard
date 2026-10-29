@@ -2,7 +2,18 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const demoMode = new URLSearchParams(location.search).get('demo') === '1';
-const state = {snapshot:null, view:'overview', reduced:localStorage.getItem('hive.dashboard.preferences.v1') === 'reduced', error:null};
+const PREFS_KEY = 'hive.dashboard.preferences.v1';
+function loadPrefs(){
+  const raw = localStorage.getItem(PREFS_KEY);
+  if(raw === 'reduced') return {density:'reduced', mode:'observe'};
+  if(raw === 'full' || !raw) return {density:'full', mode:'observe'};
+  try { const parsed = JSON.parse(raw); return {density: parsed.density || 'full', mode: parsed.mode || 'observe'}; }
+  catch(_error) { return {density:'full', mode:'observe'}; }
+}
+const DENSITY_CYCLE = ['full', 'reduced', 'minimal'];
+const prefs = loadPrefs();
+const state = {snapshot:null, workerPolicy:null, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
+function savePrefs(){ localStorage.setItem(PREFS_KEY, JSON.stringify({density:state.density, mode:state.mode})); }
 
 const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
 const BUCKET_LABELS = {queued:'Queued', active:'Active', completed:'Completed', blocked:'Blocked', unknown:'Unknown status'};
@@ -46,24 +57,95 @@ function normalize(raw){
 async function load(){
   $('#refresh-button').disabled = true;
   state.error = null;
-  if(demoMode){ state.snapshot = normalize(demoSnapshot()); $('#demo-banner').hidden = false; }
+  if(demoMode){ state.snapshot = normalize(demoSnapshot()); state.workerPolicy = demoWorkerPolicy(); state.chat = demoChat(); $('#demo-banner').hidden = false; }
   else {
     try { const response = await fetch('/api/dashboard/snapshot', {headers:{Accept:'application/json'}, cache:'no-store'}); if(!response.ok) throw new Error(`adapter returned HTTP ${response.status}`); state.snapshot = normalize(await response.json()); }
     catch(error){ state.error = error; state.snapshot = normalize(null); }
+    try { const response = await fetch('/api/control/worker-policy', {headers:{Accept:'application/json'}, cache:'no-store'}); state.workerPolicy = response.ok ? await response.json() : null; }
+    catch(_error){ state.workerPolicy = null; }
+    await loadChat();
   }
   render(); $('#refresh-button').disabled = false;
 }
 
+function safeChatText(value){
+  const text=String(value||'').replace(/Bearer\s+[A-Za-z0-9._=-]+/gi,'[redacted]').replace(/(?:sk|gho|AKIA)[A-Za-z0-9._=-]{8,}/gi,'[redacted]').replace(/\s+/g,' ').trim();
+  return text.length>240 ? `${text.slice(0,237)}…` : text;
+}
+
+async function loadChat(){
+  state.chat={sessions:[],history:[],selected:null,evidence:null,error:null};
+  try{
+    const response=await fetch('/api/ao/sessions',{headers:{Accept:'application/json'},cache:'no-store'});
+    if(!response.ok) throw new Error(`AO sessions HTTP ${response.status}`);
+    const data=await response.json();
+    const raw=Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : [];
+    state.chat.sessions=raw.map(item=>({id:item.id||'',name:item.displayName||item.name||item.id||'Unnamed session',status:item.status||item.activity||'unknown',harness:item.harness||'unknown'})).filter(item=>item.id);
+    state.chat.evidence=data.evidence||null;
+    const selected=state.chat.sessions.find(item=>item.id===state.chat.selected)||state.chat.sessions[0];
+    if(!selected) return;
+    state.chat.selected=selected.id;
+    const history=await fetch(`/api/ao/sessions/${encodeURIComponent(selected.id)}/history`,{headers:{Accept:'application/json'},cache:'no-store'});
+    if(!history.ok) throw new Error(`AO history HTTP ${history.status}`);
+    const payload=await history.json();
+    const items=Array.isArray(payload.items) ? payload.items : Array.isArray(payload) ? payload : [];
+    state.chat.history=items.slice(-8).map(item=>({role:item.role||item.author||'event',text:safeChatText(item.text||item.content||item.message||''),timestamp:item.timestamp||item.created_at||null})).filter(item=>item.text);
+    state.chat.evidence=payload.evidence||state.chat.evidence;
+  }catch(error){ state.chat.error=error; }
+}
+
+const evidenceByKey = {};
 function setText(id, text){ const element = $(`#${id}`); if(element) element.textContent = text; }
 function render(){
   const snapshot = state.snapshot || normalize(null);
-  document.body.classList.toggle('reduced-motion', state.reduced);
+  document.body.classList.toggle('reduced-motion', state.density !== 'full');
+  document.body.classList.toggle('density-minimal', state.density === 'minimal');
+  document.body.classList.remove('mode-command','mode-observe','mode-focus'); document.body.classList.add(`mode-${state.mode}`);
+  $$('.mode-button').forEach(button=>button.classList.toggle('active', button.dataset.mode === state.mode));
+  const densityButton = $('#density-toggle'); if(densityButton){ densityButton.setAttribute('aria-pressed', String(state.density !== 'full')); densityButton.textContent = state.density === 'full' ? '◌' : state.density === 'reduced' ? '◍' : '●'; }
+  setText('rail-mode', state.mode.toUpperCase()); setText('rail-density', state.density.toUpperCase());
   setText('view-name', state.view[0].toUpperCase()+state.view.slice(1));
   setText('environment-tag', snapshot.environment);
   setText('freshness-tag', state.error ? 'ADAPTER OFFLINE' : `DATA AGE ${age(snapshot.received_at)}`);
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
-  renderSummary(snapshot); renderTopologyDeferred(snapshot); renderProjects(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderEvents(snapshot); renderTargets(snapshot); renderView();
+  evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null;
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+}
+
+function renderWorkerPolicy(){
+  const policy = state.workerPolicy;
+  const workers = policy && Array.isArray(policy.workers) ? policy.workers : [];
+  const validity = workers.length ? 'valid' : (demoMode ? 'valid' : 'unavailable');
+  const badge = $('#worker-policy-validity'); if(badge){ badge.textContent = stateLabel(validity); badge.className = `panel-status ${tone(validity)}`; }
+  setText('worker-policy-evidence', policy && policy.evidence ? evidenceLine(policy.evidence) : (policy ? `local-first routing enforced · accepted cost modes: ${(policy.accepted_cost_modes||[]).join(', ')}` : 'Worker policy adapter unavailable.'));
+  const container = $('#worker-policy-cards'); if(!container) return;
+  if(!workers.length){ container.innerHTML = '<div class="empty-state compact"><span>⚙</span><strong>No worker policy received</strong><small>GET /api/control/worker-policy has not returned evidence yet.</small></div>'; return; }
+  container.innerHTML = workers.map(worker => {
+    const local = worker.execution_mode === 'local';
+    const trustClass = worker.execution_mode === 'unknown' ? 'unknown' : local ? 'local' : 'remote';
+    const costClass = worker.cost_mode_allowed ? 'ok' : 'fail';
+    return `<div class="worker-card">
+      <div class="worker-card-heading"><strong>${esc(worker.canonical_worker_id || worker.worker_id)}</strong><span class="trust-badge ${trustClass}">${esc(local ? 'LOCAL' : worker.execution_mode === 'unknown' ? 'UNKNOWN' : 'EXTERNAL / SUBSCRIPTION')}</span></div>
+      <div class="worker-field"><span>Capability</span><strong>${esc(worker.capability || 'UNKNOWN')}</strong></div>
+      <div class="worker-field"><span>Cost mode</span><strong><span class="cost-badge ${costClass}">${esc(stateLabel(worker.cost_mode))}</span></strong></div>
+      <div class="worker-field"><span>Network</span><strong>${esc(stateLabel(worker.network_requirement))}</strong></div>
+      <div class="worker-field"><span>Endpoint</span><strong>${esc(worker.endpoint || (local ? 'No local endpoint declared' : 'Remote — no endpoint declared'))}</strong></div>
+      <div class="worker-field"><span>Fallback policy</span><strong>${esc(stateLabel(worker.fallback_policy))}</strong></div>
+      ${!worker.cost_mode_allowed ? `<div class="worker-reason">BLOCKED: cost_mode '${esc(worker.cost_mode)}' is outside the free/subscription allowlist.</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function openEvidenceDrawer(key, title){
+  const evidence = evidenceByKey[key];
+  const dialog = $('#evidence-drawer'); if(!dialog) return;
+  setText('evidence-drawer-title', title || key);
+  setText('evidence-drawer-source', evidence && evidence.source ? evidence.source : 'UNKNOWN');
+  setText('evidence-drawer-validity', evidence && evidence.validity ? stateLabel(evidence.validity) : 'UNKNOWN');
+  setText('evidence-drawer-observed', evidence && evidence.observed_at ? `${age(evidence.observed_at)} ago` : 'STALE / UNOBSERVED');
+  setText('evidence-drawer-reason', evidence && evidence.reason ? evidence.reason : 'No reason supplied.');
+  if(typeof dialog.showModal === 'function') dialog.showModal();
 }
 
 function renderSummary(snapshot){
@@ -71,7 +153,40 @@ function renderSummary(snapshot){
   setText('metric-core', stateLabel(snapshot.core.status)); setText('metric-core-detail', snapshot.core.reason || `health evidence · ${age(snapshot.core.observed_at)} ago`); setText('metric-cpu', valueWithUnit(cpu)); setText('metric-cpu-detail', metricDetail(cpu)); setText('metric-memory', valueWithUnit(memory)); setText('metric-memory-detail', metricDetail(memory)); setText('metric-disk', valueWithUnit(disk)); setText('metric-disk-detail', metricDetail(disk)); setText('core-state', stateLabel(snapshot.core.status)); setText('core-state-detail', snapshot.core.reason || 'Application health evidence received'); const dot=$('#core-dot'); dot.className=`status-dot ${tone(snapshot.core.status)}`;
 }
 
-function renderTopologyDeferred(snapshot){ setText('topology-deferred-reason', snapshot.topology.reason || 'Topology visualization is deferred for this MVP; no graph or event-derived topology is computed.'); }
+function renderHiveOrbit(snapshot){
+  const svg=$('#hive-orbit'), empty=$('#orbit-empty'); if(!svg) return;
+  const workers=(snapshot.workers||[]).filter(item=>item && item.id).slice(0,8);
+  const tasks=(snapshot.tasks||[]).filter(item=>item && item.id && item.worker).slice(0,8);
+  const events=(snapshot.events||[]).filter(item=>item && item.timestamp).slice(0,6);
+  const verified=Boolean(snapshot.core && snapshot.core.observed_at);
+  const badge=$('#orbit-validity'); if(badge){ const validity=verified?'valid':'unknown'; badge.textContent=stateLabel(validity); badge.className=`panel-status ${tone(validity)}`; }
+  setText('orbit-evidence', snapshot.workersEvidence ? evidenceLine(snapshot.workersEvidence) : (verified ? `Core observed ${age(snapshot.core.observed_at)} ago · ${workers.length} worker records` : 'No timestamped HIVE topology evidence'));
+  if(empty) empty.hidden=Boolean(workers.length||tasks.length||events.length);
+  const cx=380, cy=210, radius=132;
+  const escText=value=>esc(String(value||'').slice(0,28));
+  const workerPoint=(index,total)=>{ const angle=(-Math.PI/2)+(index/Math.max(total,1))*Math.PI*2; return {x:cx+Math.cos(angle)*radius,y:cy+Math.sin(angle)*radius}; };
+  const nodes=[];
+  workers.forEach((worker,index)=>{ const point=workerPoint(index,workers.length); nodes.push({id:worker.id,x:point.x,y:point.y,label:worker.name||worker.provider||worker.id,status:worker.status||'unknown',kind:'worker'}); });
+  const workerById=new Map(nodes.map(node=>[node.id,node]));
+  const taskNodes=tasks.slice(0,Math.max(0,6-workers.length)).map((task,index)=>{ const angle=(index+workers.length)*Math.PI/Math.max(workers.length+tasks.length,1)*2; return {id:task.id,x:cx+Math.cos(angle)*(radius+45),y:cy+Math.sin(angle)*(radius+45),label:task.title||task.id,status:task.status||'unknown',kind:'task',worker:task.worker}; });
+  nodes.push(...taskNodes);
+  const lines=nodes.map(node=>`<line class="orbit-edge ${node.kind}" x1="${cx}" y1="${cy}" x2="${node.x.toFixed(1)}" y2="${node.y.toFixed(1)}"></line>`).join('');
+  const taskLinks=taskNodes.map(node=>{ const target=workerById.get(node.worker); return target?`<line class="orbit-edge task-link" x1="${node.x.toFixed(1)}" y1="${node.y.toFixed(1)}" x2="${target.x.toFixed(1)}" y2="${target.y.toFixed(1)}"></line>`:''; }).join('');
+  const nodeMarkup=nodes.map(node=>`<g class="orbit-node ${node.kind} ${tone(node.status)}" transform="translate(${node.x.toFixed(1)} ${node.y.toFixed(1)})"><circle r="${node.kind==='task'?14:23}"></circle><text class="orbit-node-label" y="${node.kind==='task'?31:38}" text-anchor="middle">${escText(node.label)}</text><text class="orbit-node-state" y="${node.kind==='task'?43:51}" text-anchor="middle">${escText(stateLabel(node.status))}</text></g>`).join('');
+  const eventMarks=events.map((event,index)=>{ const angle=(index/events.length)*Math.PI*2; return `<circle class="orbit-event ${tone(event.severity)}" cx="${(cx+Math.cos(angle)*190).toFixed(1)}" cy="${(cy+Math.sin(angle)*190).toFixed(1)}" r="4"><title>${escText(event.title||event.kind||'Observed event')}</title></circle>`; }).join('');
+  svg.innerHTML=`<circle class="orbit-ring outer" cx="${cx}" cy="${cy}" r="190"></circle><circle class="orbit-ring inner" cx="${cx}" cy="${cy}" r="90"></circle>${lines}${taskLinks}<g class="orbit-core ${tone(snapshot.core.status)}" transform="translate(${cx} ${cy})"><circle r="48"></circle><circle class="orbit-core-glow" r="62"></circle><text y="-3" text-anchor="middle">HIVE</text><text y="14" text-anchor="middle">CORE</text><text class="orbit-node-state" y="78" text-anchor="middle">${escText(stateLabel(snapshot.core.status))}</text></g>${nodeMarkup}${eventMarks}`;
+}
+
+function renderChat(){
+  const chat=state.chat||{}; const label=$('#chat-session-label'); const badge=$('#chat-validity'); const dot=$('#chat-dot');
+  const selected=(chat.sessions||[]).find(item=>item.id===chat.selected); const validity=selected?'valid':chat.error?'unavailable':'unknown';
+  if(label) label.textContent=selected ? `${selected.name} · ${selected.harness} · ${selected.status}` : chat.error ? 'AO chat adapter unavailable' : 'No provider session selected';
+  if(badge){ badge.textContent=stateLabel(validity); badge.className=`panel-status ${tone(validity)}`; }
+  if(dot) dot.className=`status-dot ${tone(validity)}`;
+  const transcript=$('#chat-transcript'); if(!transcript) return;
+  const history=chat.history||[];
+  transcript.innerHTML=history.length ? history.map(item=>`<div class="chat-message ${item.role==='assistant'?'agent':'user'}"><span>${esc(item.role==='assistant'?'HIVE':'YOU')}</span><p>${esc(item.text)}</p>${item.timestamp?`<small>${esc(age(item.timestamp))} ago</small>`:''}</div>`).join('') : `<div class="empty-state compact"><span>◌</span><strong>${chat.error?'AO chat adapter unavailable':'No chat evidence received'}</strong><small>${chat.error?esc(chat.error.message):'Session history will appear here when the documented local adapter returns it.'}</small></div>`;
+}
 
 function renderProjects(snapshot){
   const evidence = snapshot.projectsEvidence;
@@ -195,10 +310,36 @@ function demoSnapshot(){
   };
 }
 
+function demoWorkerPolicy(){
+  const observed=new Date(Date.now()-4000).toISOString();
+  return {
+    local_first_enforced:true, accepted_cost_modes:['free','subscription'],
+    evidence:{source:'worker-policy:fixture', observed_at:observed, validity:'valid', reason:'Fixture only.'},
+    workers:[
+      {worker_id:'deterministic', canonical_worker_id:'deterministic', capability:'deterministic_arithmetic_evaluator', execution_mode:'local', cost_mode:'free', network_requirement:'none', fallback_policy:'none_required', endpoint:null, endpoint_basis:'not_applicable', cost_mode_allowed:true},
+      {worker_id:'lmstudio-local', canonical_worker_id:'lmstudio-local', capability:'local_llm_inference', execution_mode:'local', cost_mode:'free', network_requirement:'loopback', fallback_policy:'none_required', endpoint:'http://127.0.0.1:1234', endpoint_basis:'documented_default', cost_mode_allowed:true},
+      {worker_id:'openrouter_free', canonical_worker_id:'openrouter_free', capability:'remote_llm_inference', execution_mode:'remote', cost_mode:'free', network_requirement:'internet', fallback_policy:'local_preferred', endpoint:null, endpoint_basis:'not_applicable', cost_mode_allowed:true},
+      {worker_id:'codex-subscription', canonical_worker_id:'codex-subscription', capability:'remote_llm_inference', execution_mode:'remote', cost_mode:'unknown', network_requirement:'internet', fallback_policy:'local_preferred', endpoint:null, endpoint_basis:'not_applicable', cost_mode_allowed:false},
+    ],
+  };
+}
+
+function demoChat(){
+  return {sessions:[{id:'hive-demo',name:'HIVE / demo fixture',status:'working',harness:'local'}],selected:'hive-demo',evidence:{source:'ao:fixture',validity:'valid'},history:[
+    {role:'assistant',text:'Evidence-backed HIVE cockpit fixture loaded. No provider message was sent.',timestamp:new Date(Date.now()-42000).toISOString()},
+    {role:'user',text:'Show queue and active workers.',timestamp:new Date(Date.now()-36000).toISOString()},
+  ],error:null};
+}
+
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.view=item.dataset.view; render();}));
 $('#delegate-button').addEventListener('click',()=>{state.view='proposals'; render();});
 $('#delegate-form').addEventListener('submit',submitDelegation);
 $('#refresh-button').addEventListener('click',load);
-$('#reduced-motion').addEventListener('click',()=>{state.reduced=!state.reduced; localStorage.setItem('hive.dashboard.preferences.v1',state.reduced?'reduced':'full'); $('#reduced-motion').setAttribute('aria-pressed',String(state.reduced)); render();});
-$('#reduced-motion').setAttribute('aria-pressed',String(state.reduced));
+$('#density-toggle').addEventListener('click',()=>{const next=DENSITY_CYCLE[(DENSITY_CYCLE.indexOf(state.density)+1)%DENSITY_CYCLE.length]; state.density=next; savePrefs(); render();});
+$$('.mode-button').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode; savePrefs(); render();}));
+$('#chat-refresh')?.addEventListener('click',load);
+$('#chat-draft-form')?.addEventListener('submit',event=>{event.preventDefault(); const input=$('#chat-draft-input'), status=$('#chat-draft-status'); const prompt=input?.value.trim(); if(!prompt){if(status)status.textContent='Enter a bounded request first.';return;} const target=$('#delegate-prompt'); if(target)target.value=prompt; state.view='proposals'; render(); if(status)status.textContent='Draft copied to proposal form · no provider message sent.';});
+$('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
+document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
+document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);
