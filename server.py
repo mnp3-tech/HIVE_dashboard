@@ -879,6 +879,78 @@ def routing_decision(payload: dict) -> dict:
     }
 
 
+def handoff_proposal(payload: dict) -> dict:
+    """Return bounded resume/handoff evidence without delivering or persisting it."""
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise AdapterError("Explicit confirmation is required for a handoff proposal", 400)
+    task_id = str(payload.get("task_id") or "")
+    project_id = str(payload.get("project_id") or "")
+    attempt_id = str(payload.get("attempt_id") or "")
+    idempotency_key = str(payload.get("idempotency_key") or "")
+    if not ROUTING_TASK_ID_PATTERN.fullmatch(task_id) or not (1 <= len(project_id) <= 120):
+        raise AdapterError("task_id and project_id are required and bounded", 400)
+    if not HANDOFF_REFERENCE_PATTERN.fullmatch(attempt_id):
+        raise AdapterError("attempt_id must be a bounded reference", 400)
+    if not HANDOFF_REFERENCE_PATTERN.fullmatch(idempotency_key):
+        raise AdapterError("idempotency_key must be a bounded reference", 400)
+    attempt_number = payload.get("attempt_number", 1)
+    if not isinstance(attempt_number, int) or isinstance(attempt_number, bool) or not 1 <= attempt_number <= 1000:
+        raise AdapterError("attempt_number must be between 1 and 1000", 400)
+    reason = str(payload.get("reason") or "")
+    if reason not in HANDOFF_REASONS:
+        raise AdapterError("reason is not in the handoff allowlist", 400)
+    delivery_state = str(payload.get("delivery_state") or "not_sent")
+    if delivery_state not in HANDOFF_DELIVERY_STATES:
+        raise AdapterError("delivery_state is not in the handoff allowlist", 400)
+    context_hash = str(payload.get("context_hash") or "")
+    if context_hash and not ATTESTATION_HASH_PATTERN.fullmatch(context_hash):
+        raise AdapterError("context_hash must use sha256:<64 lowercase hex> when supplied", 400)
+    sender = str(payload.get("sender_worker") or "")
+    recipient = str(payload.get("recipient_worker") or "")
+    if sender and not HANDOFF_REFERENCE_PATTERN.fullmatch(sender):
+        raise AdapterError("sender_worker must be a bounded reference", 400)
+    if recipient and not HANDOFF_REFERENCE_PATTERN.fullmatch(recipient):
+        raise AdapterError("recipient_worker must be a bounded reference", 400)
+
+    if delivery_state == "delivered":
+        status = "blocked"
+        resume_action = "recover_delivery_outcome"
+        blocked_reason = "delivery_already_confirmed; resend is forbidden"
+        retry_allowed = False
+    elif delivery_state == "uncertain":
+        status = "blocked"
+        resume_action = "recover_delivery_outcome"
+        blocked_reason = "delivery_outcome_uncertain; recover the existing idempotency key before retry"
+        retry_allowed = False
+    else:
+        status = "handoff_required"
+        resume_action = "resume_from_checkpoint"
+        blocked_reason = None
+        retry_allowed = False if reason == "limit_reached" else True
+    return {
+        "kind": "handoff_proposal",
+        "status": status,
+        "task_id": task_id,
+        "project_id": project_id,
+        "attempt": {"attempt_id": attempt_id, "attempt_number": attempt_number},
+        "idempotency_key": idempotency_key,
+        "sender_worker": sender or None,
+        "recipient_worker": recipient or None,
+        "reason": reason,
+        "delivery_state": delivery_state,
+        "resume": {
+            "required": True,
+            "action": resume_action,
+            "retry_allowed": retry_allowed,
+            "checkpoint_hash": context_hash or None,
+        },
+        "blocked_reason": blocked_reason,
+        "execution": "none",
+        "proposal_only": True,
+        "evidence": evidence("orchestrator:handoff-proposal", utc_now(), "valid", "Bounded handoff evidence only; no delivery, worker launch, retry or canonical state was changed."),
+    }
+
+
 def project_catalog():
     try:
         raw = core_json("/projects")
@@ -1217,6 +1289,9 @@ OPENCODE_WORKSPACE_ROOT = ROOT / "work" / "opencode-disposable"
 OPENCODE_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 ATTESTATION_HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 ROUTING_TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$")
+HANDOFF_REFERENCE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$")
+HANDOFF_REASONS = {"limit_reached", "worker_unavailable", "failed", "blocked", "manual"}
+HANDOFF_DELIVERY_STATES = {"not_sent", "uncertain", "delivered"}
 
 
 def local_worker_status():
@@ -1761,6 +1836,7 @@ class Handler(BaseHTTPRequestHandler):
                     "cli_worker_probe": {"route": "/api/local-workers/cli-status", "fixed_argv_only": True, "execution": "version-only", "canonical_write": False},
                     "opencode_execution": {"route": "/api/local-workers/opencode/run", "enabled_by_default": False, "disposable_workspace_only": True, "fixed_argv": True},
                     "routing": {"route": "/api/control/routing-decision", "proposal_only": True, "provider_execution": False, "attestation_shape_only": True},
+                    "handoff": {"route": "/api/control/handoff-proposal", "proposal_only": True, "delivery": False, "retry": False},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
@@ -1838,6 +1914,12 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > MAX_BODY:
                     raise AdapterError("Request body is missing or too large", 413)
                 result = routing_decision(json.loads(self.rfile.read(length).decode("utf-8")))
+                return self.json_response(result, 200)
+            if path == "/api/control/handoff-proposal":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                result = handoff_proposal(json.loads(self.rfile.read(length).decode("utf-8")))
                 return self.json_response(result, 200)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:

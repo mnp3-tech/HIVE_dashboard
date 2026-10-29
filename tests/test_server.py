@@ -409,6 +409,51 @@ class RoutingDecisionTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status, 400)
 
 
+class HandoffProposalTests(unittest.TestCase):
+    def _payload(self, **overrides):
+        payload = {
+            "confirm": True, "task_id": "P-022-handoff", "project_id": "orchestrator-inc",
+            "attempt_id": "attempt-2", "attempt_number": 2, "idempotency_key": "handoff-2",
+            "reason": "limit_reached", "sender_worker": "codex-subscription",
+            "recipient_worker": "claude-subscription", "delivery_state": "not_sent",
+            "context_hash": "sha256:" + "b" * 64,
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_limit_reached_requires_handoff_without_retry(self):
+        result = server.handoff_proposal(self._payload())
+        self.assertEqual(result["status"], "handoff_required")
+        self.assertEqual(result["resume"]["action"], "resume_from_checkpoint")
+        self.assertFalse(result["resume"]["retry_allowed"])
+        self.assertTrue(result["proposal_only"])
+        self.assertEqual(result["execution"], "none")
+
+    def test_delivered_attempt_blocks_duplicate_delivery(self):
+        result = server.handoff_proposal(self._payload(delivery_state="delivered", reason="failed"))
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["resume"]["action"], "recover_delivery_outcome")
+        self.assertFalse(result["resume"]["retry_allowed"])
+        self.assertIn("resend is forbidden", result["blocked_reason"])
+
+    def test_uncertain_attempt_requires_recovery_not_retry(self):
+        result = server.handoff_proposal(self._payload(delivery_state="uncertain", reason="worker_unavailable"))
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["resume"]["action"], "recover_delivery_outcome")
+        self.assertFalse(result["resume"]["retry_allowed"])
+
+    def test_handoff_requires_bounded_attempt_and_idempotency_references(self):
+        for field in ("attempt_id", "idempotency_key"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.handoff_proposal(self._payload(**{field: "bad value"}))
+            self.assertEqual(ctx.exception.status, 400)
+
+    def test_handoff_requires_confirmation(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.handoff_proposal(self._payload(confirm=False))
+        self.assertEqual(ctx.exception.status, 400)
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:

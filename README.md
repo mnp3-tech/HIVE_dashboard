@@ -195,6 +195,9 @@ Open `http://127.0.0.1:4173/` for live-adapter mode. The local adapter serves th
 requests HIVE Core on loopback only. It exposes `GET /api/dashboard/snapshot`,
 `GET /api/control/capabilities`, `GET /api/control/worker-policy`, the controlled
 `POST /api/control/dispatch` route, and
+the proposal-only `POST /api/control/routing-decision` and
+`POST /api/control/handoff-proposal` routes (attestation, attempt and idempotency
+evidence only; no provider execution, delivery or retry),
 the AO CLI bridge routes (`GET /api/ao/sessions`, `GET /api/ao/sessions/<id>/history`,
 `POST /api/ao/sessions/<id>/send`, `POST /api/ao/sessions/<id>/send/recover`)
 described in item 11 above.
