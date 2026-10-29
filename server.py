@@ -1719,11 +1719,12 @@ def snapshot():
         }
 
     ao_info = ao_capabilities()
+    ao_read_only = ao_info["session_list_confirmed"] and ao_info["session_history_confirmed"]
     ao_evidence = evidence(
         "ao:capabilities",
         utc_now(),
-        "valid" if ao_info["session_list_confirmed"] else "unavailable",
-        "AO session listing is verified only when the configured local CLI exists; native worker/realtime transport remains unconfirmed.",
+        "valid" if ao_read_only else "unavailable",
+        "AO session listing/history are read-only and verified; native worker/realtime transport and controlled send remain unconfirmed.",
     )
     readiness_items = [
         readiness_item("hive_core", evidence("hive:/health", health["observed_at"], health["validity"], health["reason"]), "Provide a scoped server-observed HIVE identity before protected reads.", "degraded" if core_status == "degraded" else None),
@@ -1733,7 +1734,7 @@ def snapshot():
         readiness_item("obsidian", registry_evidence, "Repair or explicitly register the shared Obsidian source if unavailable."),
         readiness_item("creator_ops", evidence("creator-ops:local-db", creator_ops.get("last_observed_at"), creator_ops.get("validity", "unknown"), creator_ops.get("reason")), "Keep the local adapter read-only and inspect its evidence before enabling writes."),
         readiness_item("local_workers", local_workers_evidence, "Use only bounded loopback probes; do not auto-start unavailable workers."),
-        readiness_item("ao_chat", ao_evidence, "Configure the approved native AO transport or keep chat read-only."),
+        readiness_item("ao_chat", ao_evidence, "Configure the approved native AO transport and caller authorization; keep chat read-only until then.", "degraded" if ao_read_only else None),
         readiness_item("provider_execution", evidence("control:capabilities", utc_now(), "blocked", "Provider execution is disabled until server-observed identity and protected routes are verified."), "Obtain verified provider identity; never bypass the attestation gate.", "blocked"),
     ]
     readiness_statuses = {item["status"] for item in readiness_items}

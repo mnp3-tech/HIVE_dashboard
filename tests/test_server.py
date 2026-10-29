@@ -536,6 +536,18 @@ class SnapshotAdapterHealthTests(unittest.TestCase):
         self.assertEqual(snap["readiness"]["aggregate"], "blocked")
         self.assertNotRegex(json.dumps(snap), r"(?i)(Bearer\s+[A-Za-z0-9._=-]{8,}|sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})")
 
+    def test_read_only_ao_sessions_are_degraded_until_realtime_send_is_confirmed(self):
+        routes = {"/health": {"status": "ok"}}
+        ao_info = {
+            "session_list_confirmed": True, "session_history_confirmed": True,
+            "send_confirmed": False, "chat_realtime_api_confirmed": False,
+        }
+        with patch.object(server, "urlopen", fake_urlopen(routes)), patch.object(server, "ao_capabilities", return_value=ao_info):
+            snap = server.snapshot()
+        ao_readiness = next(item for item in snap["readiness"]["items"] if item["component"] == "ao_chat")
+        self.assertEqual(ao_readiness["status"], "degraded")
+        self.assertIn("read-only", ao_readiness["reason"])
+
     def test_hive_unreachable_is_distinct_from_stale(self):
         routes = {"/health": URLError("refused")}
         with patch.object(server, "urlopen", fake_urlopen(routes)):
