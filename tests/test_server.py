@@ -124,6 +124,33 @@ class ProjectCatalogTests(unittest.TestCase):
         self.assertIsNone(evidence["observed_at"])
 
 
+class OrchestratorRegistryTests(unittest.TestCase):
+    def test_project_registry_is_read_only_and_preserves_registration_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "projects.json"
+            path.write_text(json.dumps({"projects": [
+                {"id": "hive-core-seed", "name": "HIVE / seed core", "registration": "registered", "workspace": root},
+                {"id": "self-evolution", "name": "Self-evolution", "registration": "historical-implementation-found", "workspace": None},
+            ]}), encoding="utf-8")
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", path):
+                items, evidence = server.orchestrator_project_registry()
+        self.assertEqual([item["id"] for item in items], ["hive-core-seed", "self-evolution"])
+        self.assertTrue(items[0]["workspace_present"])
+        self.assertFalse(items[1]["workspace_present"])
+        self.assertEqual(evidence["validity"], "valid")
+
+    def test_self_evolution_checkpoint_supports_numbered_checklists(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "P-013.ukol.md"
+            path.write_text("""---\nstate: in-progress\n---\n\n## Plan\n1. [x] inspect\n2. [ ] map\n\n## Checkpoint\n- next_action: map evidence\n- blocker: review required\n""", encoding="utf-8")
+            with patch.object(server, "ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH", path):
+                result = server.self_evolution_status()
+        self.assertEqual(result["item"]["completed_steps"], 1)
+        self.assertEqual(result["item"]["open_steps"], 1)
+        self.assertEqual(result["item"]["next_action"], "map evidence")
+        self.assertEqual(result["evidence"]["validity"], "valid")
+
+
 class TaskQueueTests(unittest.TestCase):
     def test_tasks_are_bucketed_from_evidence_only(self):
         routes = {

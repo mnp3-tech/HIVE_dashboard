@@ -195,6 +195,15 @@ CREATOR_OPS_TABLES = (
     "creative_tools",
 )
 
+# Shared Orchestrator.inc read-model sources. These are local, curated registry
+# artifacts only; they never become a second task database or an execution authority.
+ORCHESTRATOR_PROJECT_REGISTRY_PATH = Path(
+    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
+)
+ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH = Path(
+    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Tasks\self-evolution\P-013-proposal-only-control-plane.ukol.md"
+)
+
 # AO (Agent Orchestrator) CLI bridge. AO's own documented interface is a local CLI
 # (`ao`) over its daemon -- it does not publish an HTTP API contract for session,
 # worker, or chat data, and this adapter never guesses at or probes the daemon's
@@ -708,6 +717,62 @@ def project_catalog():
     return projects, evidence("hive:/projects", observed, "valid")
 
 
+def orchestrator_project_registry():
+    """Read the curated Obsidian project registry without exposing raw payloads."""
+    source = "obsidian:Registry/projects.json"
+    try:
+        raw = json.loads(ORCHESTRATOR_PROJECT_REGISTRY_PATH.read_text(encoding="utf-8"))
+        records = raw.get("projects", []) if isinstance(raw, dict) else []
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return [], evidence(source, None, "unavailable", f"Project registry unavailable: {error}")
+    items = []
+    for item in records:
+        if not isinstance(item, dict) or not item.get("id") or not item.get("name"):
+            continue
+        registration = str(item.get("registration", "unknown"))
+        workspace = item.get("workspace")
+        items.append({
+            "id": item["id"],
+            "name": item["name"],
+            "status": "active" if registration == "registered" else "waiting" if registration in {"planned", "historical-implementation-found"} else "unknown",
+            "registration": registration,
+            "workspace": workspace,
+            "workspace_present": bool(workspace and Path(workspace).is_dir()),
+            "dashboard_role": item.get("dashboardRole", "scoped read-model"),
+            "authority": item.get("authority", []),
+        })
+    return items, evidence(source, utc_now(), "valid", "Curated project registry loaded read-only; HIVE Core catalog remains separate.")
+
+
+def self_evolution_status():
+    """Project-scoped P-013 checkpoint projection; proposal-only and read-only."""
+    source = "obsidian:Tasks/self-evolution/P-013-proposal-only-control-plane.ukol.md"
+    try:
+        text = ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        return {"item": None, "evidence": evidence(source, None, "unavailable", f"Self-evolution checkpoint unavailable: {error}")}
+    if len(text) > 128_000:
+        return {"item": None, "evidence": evidence(source, None, "unknown", "Self-evolution checkpoint exceeds bounded read size")}
+    state_match = re.search(r"^state:\s*(\S+)", text, re.MULTILINE)
+    next_match = re.search(r"^- next_action:\s*(.+)$", text, re.MULTILINE)
+    blocker_match = re.search(r"^- blocker:\s*(.+)$", text, re.MULTILINE)
+    checked = len(re.findall(r"^(?:- |\d+\. )\[x\]", text, re.MULTILINE))
+    open_items = len(re.findall(r"^(?:- |\d+\. )\[ \]", text, re.MULTILINE))
+    return {
+        "item": {
+            "id": "P-013",
+            "name": "Self-evolution control plane",
+            "status": state_match.group(1) if state_match else "unknown",
+            "completed_steps": checked,
+            "open_steps": open_items,
+            "next_action": next_match.group(1).strip() if next_match else None,
+            "blocker": blocker_match.group(1).strip() if blocker_match else None,
+            "proposal_only": True,
+        },
+        "evidence": evidence(source, utc_now(), "valid", "P-013 checkpoint loaded read-only; no evolution action was executed."),
+    }
+
+
 def task_queue():
     try:
         raw = core_json("/tasks?limit=100")
@@ -946,6 +1011,8 @@ def snapshot():
     metrics_reason = None if system_evidence["validity"] == "valid" else system_evidence["reason"]
 
     projects, projects_evidence = project_catalog()
+    registry_projects, registry_evidence = orchestrator_project_registry()
+    evolution = self_evolution_status()
     tasks, tasks_evidence = task_queue()
     workers, workers_evidence = worker_registry(ready)
     creator_ops = creator_ops_status()
@@ -988,6 +1055,8 @@ def snapshot():
         },
         "adapters": {**adapters, "creator_ops": creator_ops},
         "projects": {"items": projects, "evidence": projects_evidence},
+        "project_registry": {"items": registry_projects, "evidence": registry_evidence},
+        "self_evolution": evolution,
         "tasks": {"items": tasks, "evidence": tasks_evidence},
         "workers": {"items": workers, "evidence": workers_evidence},
         "events": {"items": normalized_events[:50], "evidence": events_evidence},

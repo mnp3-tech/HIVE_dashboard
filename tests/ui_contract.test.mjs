@@ -27,6 +27,7 @@ test('required ids exist in index.html', () => {
     'workers-panel', 'worker-policy-cards', 'worker-policy-evidence', 'worker-policy-validity',
     'hive-orbit-panel', 'hive-orbit', 'orbit-validity', 'orbit-evidence', 'orbit-empty',
     'chat-panel', 'chat-transcript', 'chat-session-label', 'chat-draft-form', 'chat-draft-input',
+    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary',
     'evidence-drawer', 'evidence-drawer-title', 'evidence-drawer-source', 'evidence-drawer-validity',
     'evidence-drawer-observed', 'evidence-drawer-reason', 'evidence-drawer-close',
   ]) assert.match(html, new RegExp(`id="${id}"`), `missing #${id} in index.html`);
@@ -56,6 +57,13 @@ test('chat panel is read-only and drafts into the proposal flow', () => {
   assert.match(js, /safeChatText/);
   assert.match(js, /no provider message sent/);
   assert.doesNotMatch(js, /fetch\(['"]\/api\/ao\/sessions\/.*send/);
+});
+
+test('project registry and self-evolution checkpoint stay evidence-backed', () => {
+  assert.match(js, /projectRegistry/);
+  assert.match(js, /selfEvolution/);
+  assert.match(js, /obsidian:Registry\/projects\.json/);
+  assert.match(js, /proposal-only/);
 });
 
 test('narrow layout explicitly prevents horizontal overflow', () => {
