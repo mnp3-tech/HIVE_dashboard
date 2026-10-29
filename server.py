@@ -545,7 +545,8 @@ def ao_recover_send(session_id, client_message_id, confirm) -> dict:
 def core_json(path: str, method: str = "GET", body: dict | None = None, idempotency_key: str | None = None):
     if not CORE_URL_IS_LOOPBACK:
         raise AdapterError("HIVE_CORE_URL does not resolve to a loopback address; refusing to contact a non-loopback Core", 503)
-    if not path.startswith(("/health", "/ready", "/projects", "/workers", "/system", "/events", "/evolution", "/engineering/architecture", "/tasks", "/missions")):
+    allowed_routes = {"/health", "/ready", "/projects", "/workers", "/system", "/events", "/evolution", "/engineering/architecture", "/tasks", "/missions"}
+    if urlparse(path).path not in allowed_routes:
         raise AdapterError("Adapter path is not allowlisted", 403)
     headers = {"Accept": "application/json"}
     if body is not None:
@@ -759,6 +760,9 @@ def self_evolution_status():
     checked = len(re.findall(r"^(?:- |\d+\. )\[x\]", text, re.MULTILINE))
     open_items = len(re.findall(r"^(?:- |\d+\. )\[ \]", text, re.MULTILINE))
     hive_raw, hive_evidence = fetch_with_evidence("/evolution")
+    checkpoint_evidence = evidence(source, utc_now(), "valid", "P-013 checkpoint loaded read-only; no evolution action was executed.")
+    if hive_evidence["validity"] == "valid" and not isinstance(hive_raw, list) and not (isinstance(hive_raw, dict) and isinstance(hive_raw.get("items"), list)):
+        hive_evidence = evidence("hive:/evolution", hive_evidence.get("observed_at"), "unknown", "HIVE /evolution returned an unsupported response shape")
     statuses = {}
     for proposal in unwrap_items(hive_raw):
         if isinstance(proposal, dict):
@@ -780,7 +784,13 @@ def self_evolution_status():
             "statuses": statuses,
             "evidence": hive_evidence,
         },
-        "evidence": evidence(source, utc_now(), "valid", "P-013 checkpoint loaded read-only; no evolution action was executed."),
+        "checkpoint_evidence": checkpoint_evidence,
+        "evidence": checkpoint_evidence if hive_evidence["validity"] == "valid" else evidence(
+            f"{source} + hive:/evolution",
+            hive_evidence.get("observed_at") or checkpoint_evidence["observed_at"],
+            hive_evidence["validity"],
+            f"P-013 checkpoint is valid, but HIVE /evolution is {hive_evidence['validity']}: {hive_evidence['reason']}",
+        ),
     }
 
 
@@ -876,12 +886,15 @@ def local_worker_status():
             request = Request(url, headers={"Accept": "application/json"}, method="GET")
             with urlopen(request, timeout=2) as response:
                 payload = json.loads(response.read(128_000).decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("response must be a JSON object")
             raw_models = payload.get("data", []) if protocol == "openai-compatible" else payload.get("models", [])
-            if isinstance(raw_models, list):
-                record["models"] = [
-                    str(item.get("id") or item.get("name"))[:160]
-                    for item in raw_models if isinstance(item, dict) and (item.get("id") or item.get("name"))
-                ][:20]
+            if not isinstance(raw_models, list):
+                raise ValueError("model listing field is not a JSON array")
+            record["models"] = [
+                str(item.get("id") or item.get("name"))[:160]
+                for item in raw_models if isinstance(item, dict) and (item.get("id") or item.get("name"))
+            ][:20]
             record["status"] = "available"
             record["reason"] = "Loopback endpoint responded with a valid model listing"
         except HTTPError as error:
@@ -892,7 +905,9 @@ def local_worker_status():
             record["status"] = "unknown"
             record["reason"] = f"Loopback endpoint returned invalid JSON: {error}"
         items.append(record)
-    return items, evidence("local:worker-probe", utc_now(), "valid", "Only allowlisted loopback endpoints were probed; no worker was started.")
+    statuses = {item["status"] for item in items}
+    validity = "valid" if statuses == {"available"} else "degraded" if "available" in statuses else "unknown" if "unknown" in statuses else "unavailable"
+    return items, evidence("local:worker-probe", utc_now(), validity, "Only allowlisted loopback endpoints were probed; no worker was started.")
 
 
 def _call_probe(path: str):

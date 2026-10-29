@@ -73,6 +73,12 @@ test('local worker panel uses bounded probes and never auto-starts providers', (
   assert.match(css, /local-worker-grid/);
 });
 
+test('self-evolution panel exposes HIVE auth uncertainty instead of claiming valid lifecycle state', () => {
+  assert.match(js, /selfEvolution/);
+  assert.match(js, /HIVE \/evolution/);
+  assert.match(js, /AUTH_REQUIRED|auth_required/);
+});
+
 test('narrow layout explicitly prevents horizontal overflow', () => {
   assert.match(css, /overflow-x:hidden/);
   assert.match(css, /main-shell\{width:calc\(100% - 70px\)/);

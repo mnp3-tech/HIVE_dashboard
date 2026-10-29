@@ -149,7 +149,8 @@ class OrchestratorRegistryTests(unittest.TestCase):
         self.assertEqual(result["item"]["completed_steps"], 1)
         self.assertEqual(result["item"]["open_steps"], 1)
         self.assertEqual(result["item"]["next_action"], "map evidence")
-        self.assertEqual(result["evidence"]["validity"], "valid")
+        self.assertEqual(result["checkpoint_evidence"]["validity"], "valid")
+        self.assertEqual(result["evidence"]["validity"], "auth_required")
 
 
 class LocalWorkerStatusTests(unittest.TestCase):
@@ -165,7 +166,20 @@ class LocalWorkerStatusTests(unittest.TestCase):
         self.assertEqual(items[0]["models"], ["qwen3.5-4b"])
         self.assertEqual(items[1]["status"], "unavailable")
         self.assertIn("unavailable", items[1]["reason"])
-        self.assertEqual(evidence["validity"], "valid")
+        self.assertEqual(evidence["validity"], "degraded")
+
+    def test_malformed_json_shape_is_unknown_and_does_not_break_snapshot(self):
+        with patch.object(server, "urlopen", lambda request, timeout=2: FakeResponse(["not", "an", "object"])):
+            items, evidence = server.local_worker_status()
+        self.assertTrue(all(item["status"] == "unknown" for item in items))
+        self.assertEqual(evidence["validity"], "unknown")
+
+
+class CoreAllowlistTests(unittest.TestCase):
+    def test_route_allowlist_rejects_prefix_bypass(self):
+        with self.assertRaises(server.AdapterError) as raised:
+            server.core_json("/evolutionevil")
+        self.assertEqual(raised.exception.status, 403)
 
 
 class TaskQueueTests(unittest.TestCase):
