@@ -235,6 +235,24 @@ class SharedContextAdapterTests(unittest.TestCase):
         finally:
             root.cleanup()
 
+    def test_context_records_expose_a_valid_redacted_memory_envelope(self):
+        root, registry, source = self._fixture()
+        try:
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", Path(root.name)), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"demo": (source,)}):
+                item = server.context_get("demo", "P-DEMO")["item"]
+            envelope = item["memory_envelope"]
+            self.assertTrue(item["memory_envelope_valid"])
+            self.assertEqual(envelope["schema_version"], "1.0")
+            self.assertEqual(envelope["entity_type"], "memory_note")
+            self.assertEqual(len(envelope["source_hash"]), 64)
+            self.assertEqual(envelope["redaction"], "secrets_removed")
+        finally:
+            root.cleanup()
+
+    def test_memory_envelope_validator_rejects_missing_or_wrong_schema(self):
+        self.assertFalse(server.validate_memory_envelope({}))
+        self.assertFalse(server.validate_memory_envelope({"schema_version": "9.9"}))
+
 
 class LocalInferenceAdapterTests(unittest.TestCase):
     def _fixture(self):
@@ -390,6 +408,13 @@ class TaskQueueTests(unittest.TestCase):
         with patch.object(server, "urlopen", fake_urlopen(routes)):
             tasks, _ = server.task_queue()
         self.assertEqual(tasks, [])
+
+    def test_task_title_never_falls_back_to_raw_prompt(self):
+        routes = {"/tasks": {"items": [{"id": "t-private", "prompt": "Bearer secret do not display", "status": "queued"}]}}
+        with patch.object(server, "urlopen", fake_urlopen(routes)):
+            tasks, _ = server.task_queue()
+        self.assertEqual(tasks[0]["title"], "Task t-private")
+        self.assertNotIn("secret", json.dumps(tasks))
 
     def test_unavailable_when_core_unreachable(self):
         routes = {"/tasks": URLError("refused")}

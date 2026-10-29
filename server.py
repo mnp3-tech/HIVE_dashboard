@@ -273,6 +273,8 @@ ORCHESTRATOR_CONTEXT_SOURCES = {
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-020-disposable-cli-worker-adapters.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-021-obsidian-memory-contract.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Operations/Memory-flow.md",
     ),
     "unified-dashboard": (
         ORCHESTRATOR_VAULT_ROOT / "Tasks/unified-dashboard/P-018-hive-operations-cockpit.ukol.md",
@@ -288,6 +290,7 @@ ORCHESTRATOR_CONTEXT_SOURCES = {
 CONTEXT_MAX_QUERY = 160
 CONTEXT_MAX_RECORDS = 20
 CONTEXT_MAX_CHARS = 6_000
+MEMORY_SCHEMA_VERSION = "1.0"
 LOCAL_INFERENCE_MAX_INSTRUCTION = 2_000
 LOCAL_INFERENCE_MAX_TOKENS = 256
 
@@ -843,6 +846,11 @@ def _context_source_paths(project_id: str) -> tuple[Path, ...]:
     return ORCHESTRATOR_CONTEXT_SOURCES.get(project_id, ())
 
 
+def validate_memory_envelope(envelope: dict) -> bool:
+    required = {"schema_version", "entity_type", "project_id", "state", "privacy", "retention", "canonical", "source_ref", "observed_at", "source_hash", "content_hash", "redaction"}
+    return isinstance(envelope, dict) and required.issubset(envelope) and envelope.get("schema_version") == MEMORY_SCHEMA_VERSION and isinstance(envelope.get("canonical"), bool) and all(isinstance(envelope.get(key), str) and envelope.get(key) for key in required - {"canonical"})
+
+
 def _context_record(project_id: str, path: Path, include_content: bool = False) -> dict | None:
     try:
         resolved = path.resolve()
@@ -872,6 +880,23 @@ def _context_record(project_id: str, path: Path, include_content: bool = False) 
         "freshness": "observed",
         "snippet": compact[:600],
     }
+    relative_source = str(path.relative_to(ORCHESTRATOR_VAULT_ROOT)).replace("\\", "/")
+    envelope = {
+        "schema_version": MEMORY_SCHEMA_VERSION,
+        "entity_type": "task_checkpoint" if ".ukol." in path.name else "memory_note",
+        "project_id": project_id,
+        "state": record["state"],
+        "privacy": "internal",
+        "retention": "durable",
+        "canonical": True,
+        "source_ref": relative_source,
+        "observed_at": utc_now(),
+        "source_hash": record["source_revision"],
+        "content_hash": record["content_hash"],
+        "redaction": "secrets_removed",
+    }
+    record["memory_envelope"] = envelope
+    record["memory_envelope_valid"] = validate_memory_envelope(envelope)
     if include_content:
         record["content"] = content[:CONTEXT_MAX_CHARS]
     return record
@@ -1033,7 +1058,7 @@ def task_queue():
         if not task_id:
             continue
         raw_status = item.get("status", "unknown")
-        title = item.get("title") or (str(item.get("prompt", ""))[:140]) or "Untitled task"
+        title = item.get("title") or f"Task {item.get('id', 'unknown')}"
         tasks.append({
             "id": task_id,
             "title": title,
