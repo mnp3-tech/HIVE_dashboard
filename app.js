@@ -12,7 +12,7 @@ function loadPrefs(){
 }
 const DENSITY_CYCLE = ['full', 'reduced', 'minimal'];
 const prefs = loadPrefs();
-const state = {snapshot:null, workerPolicy:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
+const state = {snapshot:null, workerPolicy:null, capabilities:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
 function savePrefs(){ localStorage.setItem(PREFS_KEY, JSON.stringify({density:state.density, mode:state.mode})); }
 
 const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
@@ -63,12 +63,14 @@ function normalize(raw){
 async function load(){
   $('#refresh-button').disabled = true;
   state.error = null;
-  if(demoMode){ state.snapshot = normalize(demoSnapshot()); state.workerPolicy = demoWorkerPolicy(); state.chat = demoChat(); $('#demo-banner').hidden = false; }
+  if(demoMode){ state.snapshot = normalize(demoSnapshot()); state.workerPolicy = demoWorkerPolicy(); state.capabilities = demoCapabilities(); state.chat = demoChat(); $('#demo-banner').hidden = false; }
   else {
     try { const response = await fetch('/api/dashboard/snapshot', {headers:{Accept:'application/json'}, cache:'no-store'}); if(!response.ok) throw new Error(`adapter returned HTTP ${response.status}`); state.snapshot = normalize(await response.json()); }
     catch(error){ state.error = error; state.snapshot = normalize(null); }
     try { const response = await fetch('/api/control/worker-policy', {headers:{Accept:'application/json'}, cache:'no-store'}); state.workerPolicy = response.ok ? await response.json() : null; }
     catch(_error){ state.workerPolicy = null; }
+    try { const response = await fetch('/api/control/capabilities', {headers:{Accept:'application/json'}, cache:'no-store'}); state.capabilities = response.ok ? await response.json() : null; }
+    catch(_error){ state.capabilities = null; }
     try { const response = await fetch('/api/local-workers/cli-status', {headers:{Accept:'application/json'}, cache:'no-store'}); state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; }
     catch(error){ state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }
     await loadChat();
@@ -118,7 +120,7 @@ function render(){
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
   evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -159,6 +161,14 @@ function renderCliWorkers(){
   const container=$('#cli-worker-cards'); if(!container) return;
   if(!items.length){ container.innerHTML='<div class="empty-state compact"><span>⌁</span><strong>No CLI worker probe evidence</strong><small>OpenCode and Freebuff are not treated as execution-ready.</small></div>'; return; }
   container.innerHTML=items.map(worker=>`<div class="local-worker-card cli-worker-card"><div class="adapter-card-heading"><strong>${esc(worker.name||worker.id)}</strong><span class="source-state ${tone(worker.status)}">${esc(stateLabel(worker.status))}</span></div><div class="adapter-field"><span>Mode</span><strong>VERSION PROBE ONLY</strong></div><div class="adapter-field"><span>Version</span><strong>${esc(worker.version||'UNKNOWN')}</strong></div><div class="adapter-reason">${esc(worker.reason||'No probe result')}</div></div>`).join('');
+}
+
+function renderHandoff(){
+  const handoff=state.capabilities&&state.capabilities.handoff;
+  const valid=Boolean(handoff&&handoff.route&&handoff.proposal_only===true&&handoff.delivery===false&&handoff.retry===false);
+  const badge=$('#handoff-validity'); if(badge){ badge.textContent=valid?'PROPOSAL ONLY':'UNKNOWN'; badge.className=`panel-status ${valid?'warn':'unknown'}`; }
+  setText('handoff-evidence', valid ? `source ${handoff.route} · proposal-only · no delivery or retry` : 'Handoff capability evidence unavailable.');
+  setText('handoff-summary', valid ? 'Bounded attempt/idempotency metadata supports resume-from-checkpoint. Uncertain or delivered attempts require recovery; no resend is allowed.' : 'No delivery, retry, provider launch, or canonical state change is performed by this route.');
 }
 
 function openEvidenceDrawer(key, title){
@@ -378,6 +388,8 @@ function demoWorkerPolicy(){
     ],
   };
 }
+
+function demoCapabilities(){ return {handoff:{route:'/api/control/handoff-proposal', proposal_only:true, delivery:false, retry:false}}; }
 
 function demoChat(){
   return {sessions:[{id:'hive-demo',name:'HIVE / demo fixture',status:'working',harness:'local'}],selected:'hive-demo',evidence:{source:'ao:fixture',validity:'valid'},history:[

@@ -119,6 +119,11 @@
             <div class="local-worker-grid" id="cli-worker-cards"></div>
           </div>
           <div class="inference-note" id="local-inference-status">LM Studio inference is not invoked during dashboard load. Model-list availability does not imply inference readiness; run the explicit adapter to obtain completed or degraded evidence.</div>
+          <div class="worker-subpanel" id="handoff-panel">
+            <div class="panel-heading compact-heading"><div><p class="eyebrow">HANDOFF / RESUME</p><h3>Checkpoint-safe worker transfer</h3></div><span class="panel-status" id="handoff-validity">UNKNOWN</span></div>
+            <div class="evidence-line" id="handoff-evidence">Capability evidence has not loaded.</div>
+            <div class="inference-note" id="handoff-summary">No delivery, retry, provider launch, or canonical state change is performed by this route.</div>
+          </div>
         </section>
 
         <section class="panel activity-panel" id="events-panel" data-views="overview">

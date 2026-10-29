@@ -27,7 +27,7 @@ test('required ids exist in index.html', () => {
     'workers-panel', 'worker-policy-cards', 'worker-policy-evidence', 'worker-policy-validity',
     'hive-orbit-panel', 'hive-orbit', 'orbit-validity', 'orbit-evidence', 'orbit-empty',
     'chat-panel', 'chat-transcript', 'chat-session-label', 'chat-draft-form', 'chat-draft-input',
-    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary', 'local-worker-cards', 'cli-worker-status-panel', 'cli-worker-validity', 'cli-worker-evidence', 'cli-worker-cards', 'local-inference-status',
+    'evolution-panel', 'evolution-validity', 'evolution-evidence', 'evolution-summary', 'local-worker-cards', 'cli-worker-status-panel', 'cli-worker-validity', 'cli-worker-evidence', 'cli-worker-cards', 'local-inference-status', 'handoff-panel', 'handoff-validity', 'handoff-evidence', 'handoff-summary',
     'evidence-drawer', 'evidence-drawer-title', 'evidence-drawer-source', 'evidence-drawer-validity',
     'evidence-drawer-observed', 'evidence-drawer-reason', 'evidence-drawer-close',
   ]) assert.match(html, new RegExp(`id="${id}"`), `missing #${id} in index.html`);
@@ -38,7 +38,7 @@ test('COMMAND/OBSERVE/FOCUS mode buttons are present with distinct data-mode val
 });
 
 test('app.js is wired to every new index.html id/class it needs', () => {
-  for (const id of ['density-toggle', 'worker-policy-cards', 'worker-policy-evidence', 'hive-orbit', 'chat-transcript', 'chat-draft-form', 'evidence-drawer', 'evidence-drawer-close', 'rail-mode', 'rail-density']) {
+  for (const id of ['density-toggle', 'worker-policy-cards', 'worker-policy-evidence', 'hive-orbit', 'chat-transcript', 'chat-draft-form', 'evidence-drawer', 'evidence-drawer-close', 'rail-mode', 'rail-density', 'handoff-evidence']) {
     assert.match(js, new RegExp(id), `app.js never references #${id}`);
   }
   assert.match(js, /mode-button/, 'app.js never references .mode-button');
@@ -79,6 +79,13 @@ test('CLI worker evidence stays separate from execution readiness', () => {
   assert.match(html, /inference is not invoked during dashboard load/);
   assert.match(html, /Installation evidence, not execution readiness/);
   assert.match(html, /Model-list availability does not imply inference readiness/);
+});
+
+test('handoff panel exposes proposal-only capability without delivery', () => {
+  assert.match(html, /HANDOFF \/ RESUME/);
+  assert.match(js, /api\/control\/capabilities/);
+  assert.match(js, /handoff-proposal/);
+  assert.match(js, /no delivery or retry/);
 });
 
 test('degraded local inference cannot be rendered as available', () => {
