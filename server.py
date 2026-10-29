@@ -272,6 +272,7 @@ ORCHESTRATOR_CONTEXT_SOURCES = {
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-015-local-model-and-jarvis-discovery.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-020-disposable-cli-worker-adapters.ukol.md",
     ),
     "unified-dashboard": (
         ORCHESTRATOR_VAULT_ROOT / "Tasks/unified-dashboard/P-018-hive-operations-cockpit.ukol.md",
