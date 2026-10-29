@@ -175,6 +175,58 @@ class LocalWorkerStatusTests(unittest.TestCase):
         self.assertEqual(evidence["validity"], "unknown")
 
 
+class SharedContextAdapterTests(unittest.TestCase):
+    def _fixture(self):
+        root = tempfile.TemporaryDirectory()
+        base = Path(root.name)
+        registry = base / "projects.json"
+        source = base / "P-DEMO.md"
+        registry.write_text(json.dumps({"projects": [{"id": "demo", "name": "Demo"}]}), encoding="utf-8")
+        source.write_text("""---\nid: P-DEMO\nstate: in-progress\nupdated_at: 2026-10-29T17:00:00Z\n---\n# Demo context\n\nUse this bounded context pack. token: secret-value\n""", encoding="utf-8")
+        return root, registry, source
+
+    def test_status_search_get_and_build_context_are_scoped_and_hashed(self):
+        root, registry, source = self._fixture()
+        try:
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", Path(root.name)), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"demo": (source,)}):
+                status = server.context_status()
+                search = server.context_search("demo", "bounded")
+                item = server.context_get("demo", "P-DEMO")
+                pack = server.context_build("demo", ["P-DEMO"], 700)
+            self.assertEqual(status["items"][0]["status"], "available")
+            self.assertEqual(search["items"][0]["record_id"], "P-DEMO")
+            self.assertIn("[REDACTED]", item["item"]["content"])
+            self.assertNotIn("secret-value", item["item"]["content"])
+            self.assertEqual(len(pack["content_hash"]), 64)
+            self.assertEqual(pack["provenance"], "DERIVED_LOCAL_CONTEXT")
+        finally:
+            root.cleanup()
+
+    def test_unknown_scope_and_out_of_scope_record_fail_closed(self):
+        root, registry, source = self._fixture()
+        try:
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", Path(root.name)), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"demo": (source,)}):
+                with self.assertRaises(server.AdapterError):
+                    server.context_search("unknown", "x")
+                with self.assertRaises(server.AdapterError):
+                    server.context_get("demo", "not-allowlisted")
+        finally:
+            root.cleanup()
+
+    def test_propose_is_explicit_and_does_not_write_memory(self):
+        root, registry, source = self._fixture()
+        try:
+            before = source.read_bytes()
+            with patch.object(server, "ORCHESTRATOR_PROJECT_REGISTRY_PATH", registry), patch.object(server, "ORCHESTRATOR_VAULT_ROOT", Path(root.name)), patch.object(server, "ORCHESTRATOR_CONTEXT_SOURCES", {"demo": (source,)}):
+                result = server.context_propose({"project_id": "demo", "record_ids": ["P-DEMO"], "summary": "Propose a bounded context update", "confirm": True})
+            self.assertEqual(result["status"], "proposed")
+            self.assertEqual(before, source.read_bytes())
+            with self.assertRaises(server.AdapterError):
+                server.context_propose({"project_id": "demo", "record_ids": ["P-DEMO"], "summary": "Propose a bounded context update"})
+        finally:
+            root.cleanup()
+
+
 class CoreAllowlistTests(unittest.TestCase):
     def test_route_allowlist_rejects_prefix_bypass(self):
         with self.assertRaises(server.AdapterError) as raised:

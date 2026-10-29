@@ -17,6 +17,7 @@ at AO's internal HTTP/IPC transport, and never reads AO's own SQLite store.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -261,9 +262,31 @@ CREATOR_OPS_TABLES = (
 ORCHESTRATOR_PROJECT_REGISTRY_PATH = Path(
     r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
 )
+ORCHESTRATOR_VAULT_ROOT = ORCHESTRATOR_PROJECT_REGISTRY_PATH.parents[1]
 ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH = Path(
     r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Tasks\self-evolution\P-013-proposal-only-control-plane.ukol.md"
 )
+ORCHESTRATOR_CONTEXT_SOURCES = {
+    "orchestrator-inc": (
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-008-worker-adapters.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-015-local-model-and-jarvis-discovery.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
+    ),
+    "unified-dashboard": (
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/unified-dashboard/P-018-hive-operations-cockpit.ukol.md",
+    ),
+    "self-evolution": (ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH,),
+    "creator-ops": (
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-011-creator-ops-instagram-story-skill.ukol.md",
+    ),
+    "jarvis": (
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
+    ),
+}
+CONTEXT_MAX_QUERY = 160
+CONTEXT_MAX_RECORDS = 20
+CONTEXT_MAX_CHARS = 6_000
 
 # AO (Agent Orchestrator) CLI bridge. AO's own documented interface is a local CLI
 # (`ao`) over its daemon -- it does not publish an HTTP API contract for session,
@@ -806,6 +829,143 @@ def orchestrator_project_registry():
     return items, evidence(source, utc_now(), "valid", "Curated project registry loaded read-only; HIVE Core catalog remains separate.")
 
 
+def _context_project_ids() -> set[str]:
+    projects, _ = orchestrator_project_registry()
+    return {str(item["id"]) for item in projects}
+
+
+def _context_source_paths(project_id: str) -> tuple[Path, ...]:
+    if project_id not in _context_project_ids():
+        raise AdapterError(f"Unknown memory project scope: {project_id}", 404)
+    return ORCHESTRATOR_CONTEXT_SOURCES.get(project_id, ())
+
+
+def _context_record(project_id: str, path: Path, include_content: bool = False) -> dict | None:
+    try:
+        resolved = path.resolve()
+        root = ORCHESTRATOR_VAULT_ROOT.resolve()
+        if root not in resolved.parents or resolved.suffix.lower() != ".md":
+            return None
+        raw = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    if len(raw) > 128_000:
+        return None
+    content = redact_secrets(raw)
+    title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
+    state_match = re.search(r"^state:\s*(\S+)", content, re.MULTILINE)
+    updated_match = re.search(r"^updated_at:\s*(\S+)", content, re.MULTILINE)
+    compact = re.sub(r"\s+", " ", content).strip()
+    record = {
+        "record_id": path.stem,
+        "project_id": project_id,
+        "title": title_match.group(1).strip() if title_match else path.stem,
+        "state": state_match.group(1) if state_match else "unknown",
+        "source": str(path.relative_to(ORCHESTRATOR_VAULT_ROOT)).replace("\\", "/"),
+        "source_revision": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "content_hash": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+        "updated_at": updated_match.group(1) if updated_match else None,
+        "provenance": "LIVE_LOCAL_FILE",
+        "freshness": "observed",
+        "snippet": compact[:600],
+    }
+    if include_content:
+        record["content"] = content[:CONTEXT_MAX_CHARS]
+    return record
+
+
+def context_status() -> dict:
+    projects, registry_evidence = orchestrator_project_registry()
+    items = []
+    for project in projects:
+        project_id = project["id"]
+        paths = ORCHESTRATOR_CONTEXT_SOURCES.get(project_id, ())
+        records = [_context_record(project_id, path) for path in paths]
+        items.append({
+            "project_id": project_id,
+            "status": "available" if any(records) else "prepared" if paths else "no_approved_sources",
+            "record_count": sum(1 for record in records if record),
+            "scope": "project-scoped, read-only, proposal-only writes",
+        })
+    return {
+        "operations": ["status", "search", "get", "build_context", "propose"],
+        "items": items,
+        "evidence": evidence("obsidian:Registry/projects.json", utc_now(), registry_evidence["validity"], "Shared context adapter uses only explicit project-scoped allowlisted files; no canonical write was performed."),
+    }
+
+
+def context_search(project_id: str, query: str, limit: int = 20) -> dict:
+    query = str(query or "").strip()
+    if len(query) > CONTEXT_MAX_QUERY:
+        raise AdapterError(f"Memory query exceeds {CONTEXT_MAX_QUERY} characters", 400)
+    limit = max(1, min(int(limit), CONTEXT_MAX_RECORDS))
+    records = [_context_record(project_id, path) for path in _context_source_paths(project_id)]
+    records = [record for record in records if record]
+    terms = [term.lower() for term in re.findall(r"[\w-]+", query)]
+    if terms:
+        records = [record for record in records if all(term in (record["title"] + " " + record["snippet"]).lower() for term in terms)]
+    return {"items": records[:limit], "evidence": evidence(f"obsidian:context/{project_id}", utc_now(), "valid", "Bounded project-scoped search; source content and provider sessions remain local." )}
+
+
+def context_get(project_id: str, record_id: str) -> dict:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}", str(record_id or "")):
+        raise AdapterError("Invalid memory record id", 400)
+    for path in _context_source_paths(project_id):
+        if path.stem == record_id:
+            record = _context_record(project_id, path, include_content=True)
+            if record:
+                return {"item": record, "evidence": evidence(record["source"], utc_now(), "valid", "Read-only bounded context record." )}
+            raise AdapterError("Memory record is unavailable", 503)
+    raise AdapterError("Memory record is not in the project scope", 404)
+
+
+def context_build(project_id: str, record_ids: list[str], max_chars: int = CONTEXT_MAX_CHARS) -> dict:
+    if not isinstance(record_ids, list) or not record_ids or len(record_ids) > 8:
+        raise AdapterError("build_context requires 1 to 8 record_ids", 400)
+    max_chars = max(500, min(int(max_chars), CONTEXT_MAX_CHARS))
+    records = [context_get(project_id, record_id)["item"] for record_id in record_ids]
+    used = 0
+    bounded = []
+    for record in records:
+        content = record.get("content", "")
+        remaining = max_chars - used
+        if remaining <= 0:
+            break
+        record = {**record, "content": content[:remaining]}
+        bounded.append(record)
+        used += len(record["content"])
+    pack_hash = hashlib.sha256(json.dumps(bounded, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    return {
+        "project_id": project_id,
+        "records": bounded,
+        "content_hash": pack_hash,
+        "provenance": "DERIVED_LOCAL_CONTEXT",
+        "evidence": evidence(f"obsidian:context/{project_id}", utc_now(), "valid", "Bounded context pack; no memory or canonical file was changed."),
+    }
+
+
+def context_propose(payload: dict) -> dict:
+    if not isinstance(payload, dict) or payload.get("confirm") is not True:
+        raise AdapterError("Explicit confirmation is required for a context proposal", 400)
+    project_id = str(payload.get("project_id") or "")
+    summary = str(payload.get("summary") or "").strip()
+    record_ids = payload.get("record_ids")
+    if len(summary) < 8 or len(summary) > 1200:
+        raise AdapterError("Proposal summary must be between 8 and 1200 characters", 400)
+    context = context_build(project_id, record_ids)
+    proposal_id = hashlib.sha256(f"{project_id}|{summary}|{context['content_hash']}".encode("utf-8")).hexdigest()[:20]
+    return {
+        "kind": "context_proposal",
+        "id": f"ctx-{proposal_id}",
+        "status": "proposed",
+        "project_id": project_id,
+        "summary": redact_secrets(summary),
+        "record_ids": record_ids,
+        "content_hash": context["content_hash"],
+        "evidence": evidence("orchestrator:context-proposal", utc_now(), "valid", "Proposal-only; no file, memory, HIVE, WONG or provider state was changed."),
+    }
+
+
 def self_evolution_status():
     """Project-scoped P-013 checkpoint projection; proposal-only and read-only."""
     source = "obsidian:Tasks/self-evolution/P-013-proposal-only-control-plane.ukol.md"
@@ -1288,12 +1448,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response({
                     "delegation": {"proposal": True, "task": False, "mission": False, "self_upgrade_apply": False},
                     "provider": {"route": "HIVE Core worker registry", "direct_browser_provider_calls": False},
+                    "memory": {"operations": ["status", "search", "get", "build_context", "propose"], "canonical_write": False, "project_scoped": True},
                     "core_endpoint": CORE_URL,
                     "security": {"loopback_only": True, "core_endpoint_is_loopback": CORE_URL_IS_LOOPBACK},
                     "ao": ao_capabilities(),
                 })
             if path == "/api/control/worker-policy":
                 return self.json_response(worker_policy_catalog())
+            if path == "/api/memory/status":
+                return self.json_response(context_status())
+            if path == "/api/memory/search":
+                query = parse_qs(urlparse(self.path).query)
+                project_id = (query.get("project_id") or [""])[0]
+                return self.json_response(context_search(project_id, (query.get("q") or [""])[0], parse_bounded_int((query.get("limit") or [None])[0], "limit", 1, CONTEXT_MAX_RECORDS, 20)))
+            if path == "/api/memory/get":
+                query = parse_qs(urlparse(self.path).query)
+                return self.json_response(context_get((query.get("project_id") or [""])[0], (query.get("record_id") or [""])[0]))
+            if path == "/api/memory/build_context":
+                query = parse_qs(urlparse(self.path).query)
+                project_id = (query.get("project_id") or [""])[0]
+                record_ids = [value for value in (query.get("record_id") or []) if value]
+                return self.json_response(context_build(project_id, record_ids, parse_bounded_int((query.get("max_chars") or [None])[0], "max_chars", 500, CONTEXT_MAX_CHARS, CONTEXT_MAX_CHARS)))
             if path == "/api/ao/sessions":
                 sessions, ev = ao_sessions()
                 return self.json_response({"items": sessions, "evidence": ev})
@@ -1324,6 +1499,12 @@ class Handler(BaseHTTPRequestHandler):
                     raise AdapterError("Request body is missing or too large", 413)
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 result = dispatch(body, self.headers.get("Idempotency-Key"))
+                return self.json_response(result, 202)
+            if path == "/api/memory/propose":
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                result = context_propose(json.loads(self.rfile.read(length).decode("utf-8")))
                 return self.json_response(result, 202)
             recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
             if recover_match:
