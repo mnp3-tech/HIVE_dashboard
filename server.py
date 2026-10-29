@@ -68,6 +68,12 @@ API_TOKEN = os.environ.get("HIVE_API_TOKEN", "")
 WORKER_ID_ALIASES = {
     "lmstudio": "lmstudio-local",
     "codex": "codex-subscription",
+    "ollama": "ollama-local",
+    "cline": "cline-local",
+    "kilo": "vscode-kilo",
+    "opencode": "opencode-local",
+    "freebuff": "freebuff-local",
+    "openclaw": "openclaw-local",
 }
 
 # Codex can authenticate either via a ChatGPT subscription login or a metered,
@@ -86,6 +92,7 @@ CODEX_SUBSCRIPTION_CONFIRMED = os.environ.get("CODEX_SUBSCRIPTION_CONFIRMED", ""
 # remote workers never get an endpoint here at all, invented or otherwise.
 LMSTUDIO_DEFAULT_ENDPOINT = "http://127.0.0.1:1234"
 LMSTUDIO_ENDPOINT_ENV = os.environ.get("LMSTUDIO_ENDPOINT", "").strip()
+OLLAMA_DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
 
 WORKER_POLICY = {
     "deterministic": {
@@ -105,6 +112,60 @@ WORKER_POLICY = {
         "fallback_policy": "none_required",
         "endpoint": None,  # resolved dynamically in worker_policy_record() via _lmstudio_endpoint()
         "endpoint_basis": None,
+    },
+    "ollama-local": {
+        "capability": "local_llm_inference",
+        "execution_mode": "local",
+        "cost_mode": "free",
+        "network_requirement": "loopback",
+        "fallback_policy": "none_required",
+        "endpoint": OLLAMA_DEFAULT_ENDPOINT,
+        "endpoint_basis": "documented_default",
+    },
+    "cline-local": {
+        "capability": "coding_assistant",
+        "execution_mode": "local",
+        "cost_mode": "unknown",
+        "network_requirement": "opt_in",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "runtime_unverified",
+    },
+    "vscode-kilo": {
+        "capability": "editor_coding",
+        "execution_mode": "local",
+        "cost_mode": "unknown",
+        "network_requirement": "opt_in",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "extension_adapter_required",
+    },
+    "opencode-local": {
+        "capability": "code_generation",
+        "execution_mode": "local",
+        "cost_mode": "unknown",
+        "network_requirement": "opt_in",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "wsl_cli_adapter_required",
+    },
+    "freebuff-local": {
+        "capability": "code_generation",
+        "execution_mode": "local",
+        "cost_mode": "unknown",
+        "network_requirement": "opt_in",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "wsl_cli_adapter_required",
+    },
+    "openclaw-local": {
+        "capability": "agent_orchestration",
+        "execution_mode": "local",
+        "cost_mode": "unknown",
+        "network_requirement": "opt_in",
+        "fallback_policy": "local_preferred",
+        "endpoint": None,
+        "endpoint_basis": "runtime_unverified",
     },
     "openrouter_free": {
         "capability": "remote_llm_inference",

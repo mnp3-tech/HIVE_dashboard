@@ -453,6 +453,14 @@ class WorkerPolicyTests(unittest.TestCase):
         result = server.evaluate_worker_policy("lmstudio", local_only=True)
         self.assertTrue(result["allowed"])
 
+    def test_known_local_worker_aliases_are_visible_but_unverified_workers_fail_closed(self):
+        for worker_id in ("ollama", "cline", "kilo", "opencode", "freebuff", "openclaw"):
+            record = server.worker_policy_record(worker_id)
+            self.assertNotEqual(record["capability"], None)
+            if worker_id != "ollama":
+                self.assertFalse(record["cost_mode_allowed"])
+        self.assertTrue(server.worker_policy_record("ollama")["cost_mode_allowed"])
+
     def test_remote_worker_allowed_when_local_only_not_requested(self):
         result = server.evaluate_worker_policy("openrouter_free", local_only=False)
         self.assertTrue(result["allowed"])
