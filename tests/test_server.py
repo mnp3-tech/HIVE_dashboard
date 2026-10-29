@@ -953,60 +953,155 @@ class AoSessionHistoryTests(unittest.TestCase):
         self.assertEqual(ev["validity"], "unavailable")
 
 
+class ValidateClientMessageIdTests(unittest.TestCase):
+    def test_accepts_realistic_ids(self):
+        for valid in ("correction-42", "a", "A1_b2-C3"):
+            self.assertEqual(server.validate_client_message_id(valid), valid)
+
+    def test_rejects_malformed(self):
+        for invalid in (None, "", "has space", "semi;colon", 123, "$(rm -rf)"):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.validate_client_message_id(invalid)
+            self.assertEqual(ctx.exception.status, 400)
+
+
 class AoSendTests(unittest.TestCase):
-    """Controlled send: explicit confirmation, validated session id/message, fixed
-    argv, fail-closed when the bridge is unavailable."""
+    """Controlled send uses AO's documented atomic `--steer` transport with a
+    `--client-message-id` for an idempotent round-trip: explicit confirmation,
+    validated session id/message/client_message_id, fixed argv, fail-closed with the
+    delivery handle preserved when the bridge is unavailable or the call fails."""
 
     def test_requires_explicit_confirmation(self):
         with self.assertRaises(server.AdapterError) as ctx:
-            server.ao_send("mer-3", "hello", False, False)
+            server.ao_send("mer-3", "hello", False)
         self.assertEqual(ctx.exception.status, 400)
 
     def test_rejects_invalid_session_id(self):
         with self.assertRaises(server.AdapterError) as ctx:
-            server.ao_send("not a valid id", "hello", False, True)
+            server.ao_send("not a valid id", "hello", True)
         self.assertEqual(ctx.exception.status, 400)
 
     def test_rejects_empty_message(self):
         with self.assertRaises(server.AdapterError) as ctx:
-            server.ao_send("mer-3", "   ", False, True)
+            server.ao_send("mer-3", "   ", True)
         self.assertEqual(ctx.exception.status, 400)
 
     def test_rejects_overlong_message(self):
         with self.assertRaises(server.AdapterError) as ctx:
-            server.ao_send("mer-3", "x" * (server.AO_SEND_MESSAGE_MAX_LEN + 1), False, True)
+            server.ao_send("mer-3", "x" * (server.AO_SEND_MESSAGE_MAX_LEN + 1), True)
         self.assertEqual(ctx.exception.status, 400)
 
-    def test_success_builds_expected_argv_without_steer(self):
+    def test_rejects_malformed_client_message_id(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_send("mer-3", "hello", True, client_message_id="has space")
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_success_always_uses_atomic_steer_transport(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
              patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
-            result = server.ao_send("mer-3", "Focus on the backend.", False, True)
+            result = server.ao_send("mer-3", "Focus on the backend.", True, client_message_id="correction-42")
         args, _ = mock_run.call_args
-        self.assertEqual(args[0], [r"C:\ao\ao.exe", "send", "--session", "mer-3", "--message", "Focus on the backend."])
+        self.assertEqual(
+            args[0],
+            [r"C:\ao\ao.exe", "send", "--session", "mer-3", "--steer", "--message", "Focus on the backend.",
+             "--client-message-id", "correction-42"],
+        )
         self.assertEqual(result["session_id"], "mer-3")
-        self.assertFalse(result["steered"])
+        self.assertEqual(result["client_message_id"], "correction-42")
         self.assertEqual(result["evidence"]["validity"], "valid")
 
-    def test_steer_appends_flag(self):
+    def test_client_message_id_is_auto_generated_when_omitted(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
              patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
-            result = server.ao_send("mer-3", "Use the daemon DTO.", True, True)
+            result = server.ao_send("mer-3", "hello", True)
+        self.assertTrue(result["client_message_id"])
         args, _ = mock_run.call_args
-        self.assertIn("--steer", args[0])
-        self.assertTrue(result["steered"])
+        self.assertIn("--client-message-id", args[0])
+        self.assertIn(result["client_message_id"], args[0])
+
+    def test_caller_supplied_client_message_id_is_reused_not_replaced(self):
+        # Reusing the same id on retry is how the documented transport avoids
+        # double delivery; this pins that the adapter never silently generates a
+        # new one when the caller supplies one.
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")):
+            result = server.ao_send("mer-3", "retry after uncertain result", True, client_message_id="retry-handle-7")
+        self.assertEqual(result["client_message_id"], "retry-handle-7")
 
     def test_output_is_redacted(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch("server.subprocess.run", return_value=fake_completed(stdout="Bearer abcdef1234567890xyz accepted")):
-            result = server.ao_send("mer-3", "hello", False, True)
+            result = server.ao_send("mer-3", "hello", True)
         self.assertNotIn("abcdef1234567890xyz", result["output"])
 
     def test_fails_closed_when_bridge_not_configured(self):
         with patch.object(server, "AO_CLI_PATH", ""):
             with self.assertRaises(server.AdapterError) as ctx:
-                server.ao_send("mer-3", "hello", False, True)
+                server.ao_send("mer-3", "hello", True)
+        self.assertEqual(ctx.exception.status, 503)
+
+    def test_failure_preserves_client_message_id_for_recovery(self):
+        # Bounded failure evidence: on an uncertain/failed send, the delivery handle
+        # must be surfaced to the caller so it can recover the outcome instead of
+        # blindly resending (which could double-deliver).
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", return_value=fake_completed(stderr="transport error", returncode=1)):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("mer-3", "hello", True, client_message_id="handle-99")
+        self.assertIn("handle-99", str(ctx.exception))
+        self.assertIn("send/recover", str(ctx.exception))
+
+    def test_timeout_preserves_client_message_id_for_recovery(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch("server.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ao", timeout=8)):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("mer-3", "hello", True, client_message_id="handle-100")
+        self.assertEqual(ctx.exception.status, 504)
+        self.assertIn("handle-100", str(ctx.exception))
+
+
+class AoRecoverSendTests(unittest.TestCase):
+    """Recovery bridges to `ao send --steer --recover-only --client-message-id` --
+    it must never resend the original message, so it cannot double-deliver."""
+
+    def test_requires_explicit_confirmation(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_recover_send("mer-3", "handle-1", False)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_rejects_invalid_session_id(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_recover_send("not a valid id", "handle-1", True)
+        self.assertEqual(ctx.exception.status, 400)
+
+    def test_requires_valid_client_message_id(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server.ao_recover_send("mer-3", None, True)
+        self.assertEqual(ctx.exception.status, 400)
+        with self.assertRaises(server.AdapterError):
+            server.ao_recover_send("mer-3", "has space", True)
+
+    def test_success_builds_recover_only_argv_without_message(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
+             patch("server.subprocess.run", return_value=fake_completed(stdout="recovered: delivered")) as mock_run:
+            result = server.ao_recover_send("mer-3", "handle-1", True)
+        args, _ = mock_run.call_args
+        self.assertEqual(
+            args[0],
+            [r"C:\ao\ao.exe", "send", "--session", "mer-3", "--steer", "--recover-only", "--client-message-id", "handle-1"],
+        )
+        self.assertNotIn("--message", args[0])
+        self.assertEqual(result["client_message_id"], "handle-1")
+        self.assertEqual(result["evidence"]["validity"], "valid")
+
+    def test_fails_closed_when_bridge_not_configured(self):
+        with patch.object(server, "AO_CLI_PATH", ""):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_recover_send("mer-3", "handle-1", True)
         self.assertEqual(ctx.exception.status, 503)
 
 

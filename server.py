@@ -110,6 +110,7 @@ AO_CLI_PATH = os.environ.get("AO_CLI_PATH", "")
 AO_CLI_TIMEOUT_SECONDS = 8
 AO_CLI_MAX_OUTPUT_CHARS = 200_000
 AO_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
+AO_CLIENT_MESSAGE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 AO_SEND_MESSAGE_MAX_LEN = 4000
 AO_HISTORY_MIN_LIMIT = 1
 AO_HISTORY_MAX_LIMIT = 50  # ao session history itself caps --limit at 50
@@ -162,18 +163,22 @@ def ao_capabilities() -> dict:
         "session_list_confirmed": configured,
         "session_history_confirmed": configured,
         "send_confirmed": configured,
+        "send_recover_confirmed": configured,
         "worker_api_confirmed": False,
         "chat_realtime_api_confirmed": False,
         "transport": "cli_subprocess" if configured else "cli_disabled",
         "cli_path_configured": configured,
         "reason": (
             "Session listing (`ao session ls --all --json`), history "
-            "(`ao session history <id>`), and controlled send "
-            "(`ao send --session <id> --message <text>`) are verified, documented "
-            "`ao` CLI subcommands, bridged via subprocess.run(shell=False) with a "
-            "fixed argv allowlist, bounded timeout/output, and best-effort secret "
-            "redaction -- only when AO_CLI_PATH names an absolute, existing ao "
-            "binary. No other AO HTTP endpoint, worker registry, or internal SQLite "
+            "(`ao session history <id>`), and controlled send are verified, "
+            "documented `ao` CLI subcommands, bridged via subprocess.run(shell=False) "
+            "with a fixed argv allowlist, bounded timeout/output, and best-effort "
+            "secret redaction -- only when AO_CLI_PATH names an absolute, existing ao "
+            "binary. Send always uses the atomic `ao send --steer` transport with a "
+            "`--client-message-id`, per send.md the only AO send mode with a "
+            "documented idempotent round-trip; a failed/uncertain send preserves that "
+            "id so the outcome can be recovered via `--recover-only` instead of "
+            "resent. No other AO HTTP endpoint, worker registry, or internal SQLite "
             "store is read, and the bridge reports unavailable rather than "
             "fabricating success when unconfigured or when a call fails."
         ),
@@ -308,28 +313,78 @@ def ao_session_history(session_id: str, limit: int, offset: int) -> tuple[str, d
     return redact_secrets(raw), evidence(source, utc_now(), "valid")
 
 
-def ao_send(session_id, message, steer: bool, confirm) -> dict:
-    """Controlled, fail-closed bridge to `ao send --session <id> --message <text>`.
+def validate_client_message_id(client_message_id) -> str:
+    if not isinstance(client_message_id, str) or not AO_CLIENT_MESSAGE_ID_PATTERN.match(client_message_id):
+        raise AdapterError("Invalid client_message_id", 400)
+    return client_message_id
+
+
+def ao_send(session_id, message, confirm, client_message_id=None) -> dict:
+    """Controlled, fail-closed bridge to AO's documented atomic steering transport:
+    `ao send --session <id> --steer --message <text> --client-message-id <id>`.
+
+    --steer is always used (never the plain, non-atomic send) because it is the only
+    AO send mode with a documented, idempotent round-trip: per send.md, "--steer uses
+    one atomic daemon operation" and every steering request carries a client message
+    id that "lets the daemon return the durable steering receipt or normal turn
+    without delivering the message twice" on retry. A caller-supplied
+    client_message_id is validated and reused (never silently replaced) so a client
+    retrying after an uncertain result reuses the same handle instead of risking a
+    duplicate delivery; when omitted, a fresh one is generated here.
 
     Mirrors dispatch()'s confirmation gate: an explicit confirm=true is required, the
-    session id and message are validated before any process is spawned, and failure
-    (bridge disabled, CLI error, timeout) raises rather than reporting fabricated
-    success."""
+    session id and message are validated before any process is spawned. On failure
+    (bridge disabled, CLI error, timeout) the client_message_id is preserved in the
+    raised error so the caller can recover the delivery outcome via ao_recover_send()
+    -- per send.md, "do not invent a new client message id after an uncertain
+    result" -- rather than blindly resending."""
     if confirm is not True:
         raise AdapterError("Explicit confirmation is required", 400)
     validate_ao_session_id(session_id)
     text = str(message or "").strip()
     if not (1 <= len(text) <= AO_SEND_MESSAGE_MAX_LEN):
         raise AdapterError(f"message must be between 1 and {AO_SEND_MESSAGE_MAX_LEN} characters", 400)
-    args = ["send", "--session", session_id, "--message", text]
-    if steer:
-        args.append("--steer")
+    client_message_id = validate_client_message_id(client_message_id) if client_message_id is not None else secrets.token_urlsafe(18)
+    args = ["send", "--session", session_id, "--steer", "--message", text, "--client-message-id", client_message_id]
+    try:
+        raw = run_ao_cli(args, ("send",))
+    except AdapterError as error:
+        raise AdapterError(
+            f"{error} -- delivery is uncertain; recover with client_message_id={client_message_id} via "
+            "POST /api/ao/sessions/<id>/send/recover once the transport issue clears, do not resend",
+            error.status,
+        ) from None
+    return {
+        "session_id": session_id,
+        "client_message_id": client_message_id,
+        "output": redact_secrets(raw.strip())[:2000],
+        "evidence": evidence(
+            f"ao-cli:send --session {session_id} --steer --client-message-id {client_message_id}", utc_now(), "valid"
+        ),
+    }
+
+
+def ao_recover_send(session_id, client_message_id, confirm) -> dict:
+    """Bridge to `ao send --session <id> --steer --recover-only --client-message-id
+    <id>`. Recovers the daemon's recorded outcome for a prior send's delivery handle
+    without contacting the provider again and without resending the original
+    message, so it can never double-deliver. Used after ao_send() reports an
+    uncertain/failed result for the same client_message_id."""
+    if confirm is not True:
+        raise AdapterError("Explicit confirmation is required", 400)
+    validate_ao_session_id(session_id)
+    validate_client_message_id(client_message_id)
+    args = ["send", "--session", session_id, "--steer", "--recover-only", "--client-message-id", client_message_id]
     raw = run_ao_cli(args, ("send",))
     return {
         "session_id": session_id,
-        "steered": bool(steer),
+        "client_message_id": client_message_id,
         "output": redact_secrets(raw.strip())[:2000],
-        "evidence": evidence(f"ao-cli:send --session {session_id}", utc_now(), "valid"),
+        "evidence": evidence(
+            f"ao-cli:send --session {session_id} --steer --recover-only --client-message-id {client_message_id}",
+            utc_now(),
+            "valid",
+        ),
     }
 
 
@@ -755,6 +810,7 @@ def dispatch(payload: dict, idempotency_key: str | None):
 
 AO_SESSION_HISTORY_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/history$")
 AO_SESSION_SEND_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/send$")
+AO_SESSION_SEND_RECOVER_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/send/recover$")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -820,6 +876,15 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
                 result = dispatch(body, self.headers.get("Idempotency-Key"))
                 return self.json_response(result, 202)
+            recover_match = AO_SESSION_SEND_RECOVER_PATH.match(path)
+            if recover_match:
+                session_id = recover_match.group(1)
+                length = int(self.headers.get("Content-Length", "0"))
+                if length <= 0 or length > MAX_BODY:
+                    raise AdapterError("Request body is missing or too large", 413)
+                body = json.loads(self.rfile.read(length).decode("utf-8"))
+                result = ao_recover_send(session_id, body.get("client_message_id"), body.get("confirm"))
+                return self.json_response(result, 200)
             send_match = AO_SESSION_SEND_PATH.match(path)
             if send_match:
                 session_id = send_match.group(1)
@@ -827,7 +892,7 @@ class Handler(BaseHTTPRequestHandler):
                 if length <= 0 or length > MAX_BODY:
                     raise AdapterError("Request body is missing or too large", 413)
                 body = json.loads(self.rfile.read(length).decode("utf-8"))
-                result = ao_send(session_id, body.get("message"), bool(body.get("steer")), body.get("confirm"))
+                result = ao_send(session_id, body.get("message"), body.get("confirm"), body.get("client_message_id"))
                 return self.json_response(result, 202)
             return self.json_response({"detail": "Unknown adapter endpoint"}, 404)
         except (ValueError, UnicodeError):

@@ -57,32 +57,45 @@ as a visual reference; this is a separate surface.
     URLs, or credentials are ever read or exposed — surfaced in the snapshot as
     `adapters.creator_ops`. A missing or unreadable database file is reported
     `unavailable` with a real reason, never as zeroed counts.
-11. **AO (Agent Orchestrator) CLI bridge — session listing, history, and controlled
-    send only.** AO's documented interface is a local CLI (`ao`) over its daemon; no
-    public HTTP API is published for session, worker, or chat data, and this adapter
-    never guesses at or probes the daemon's internal transport, and never reads AO's
-    own internal SQLite store. Instead it bridges exactly three documented, verified
-    `ao` subcommands via `subprocess.run(..., shell=False)` with a hardcoded argv
-    allowlist:
+11. **AO (Agent Orchestrator) CLI bridge — session listing, history, and controlled,
+    idempotent send only.** AO's documented interface is a local CLI (`ao`) over its
+    daemon; no public HTTP API is published for session, worker, or chat data, and
+    this adapter never guesses at or probes the daemon's internal transport, and
+    never reads AO's own internal SQLite store. Instead it bridges exactly four
+    documented, verified `ao` subcommand shapes via `subprocess.run(..., shell=False)`
+    with a hardcoded argv allowlist:
     - `GET /api/ao/sessions` → `ao session ls --all --json`
     - `GET /api/ao/sessions/<id>/history?limit=&offset=` → `ao session history <id> --limit --offset`
-    - `POST /api/ao/sessions/<id>/send` (requires `{"message": ..., "confirm": true}`) → `ao send --session <id> --message <text>`
+    - `POST /api/ao/sessions/<id>/send` (requires `{"message": ..., "confirm": true}`, optional `client_message_id`) → `ao send --session <id> --steer --message <text> --client-message-id <id>`
+    - `POST /api/ao/sessions/<id>/send/recover` (requires `{"client_message_id": ..., "confirm": true}`) → `ao send --session <id> --steer --recover-only --client-message-id <id>`
+
+    Send always uses the documented atomic `--steer` transport ("one atomic daemon
+    operation" per `using-ao`'s `send` reference) together with a `--client-message-id`
+    — the only AO send mode with a documented idempotent round-trip. A caller-supplied
+    `client_message_id` is validated and reused verbatim, never silently replaced; one
+    is generated when omitted. If the CLI call fails or times out, the error message
+    explicitly preserves that id and points at `/send/recover` instead of resending —
+    recovery calls `--recover-only`, which asks the daemon for the recorded delivery
+    outcome without re-sending the original message, so it can never double-deliver.
 
     The bridge is disabled unless `AO_CLI_PATH` is set to an absolute path to an
     existing `ao` binary; when disabled, or when a CLI call fails or times out, these
-    routes report `validity: "unavailable"` with a real reason instead of fabricating
-    success. Session ids are validated against a fixed allowlist pattern, send
-    messages are length-bounded, `history` `limit`/`offset` are bounded server-side
-    (limit ≤ 50, matching the CLI's own cap), every call has an 8-second timeout, and
-    CLI stdout/stderr is bounded to 200,000 characters. `redact_secrets()` applies a
-    best-effort regex redaction (bearer tokens, `key=value` secrets, provider API-key
-    prefixes, AWS access key IDs, JWT-shaped strings) to all CLI output before it is
-    returned — a defensive filter, not a guarantee, since session history is free-form
-    chat text that could contain an inline secret in an unanticipated shape.
+    routes report `validity: "unavailable"` (or, for `send`/`send/recover`, a
+    fail-closed error carrying the delivery handle) with a real reason instead of
+    fabricating success. Session ids and client message ids are validated against
+    fixed allowlist patterns, send messages are length-bounded, `history`
+    `limit`/`offset` are bounded server-side (limit ≤ 50, matching the CLI's own cap),
+    every call has an 8-second timeout, and CLI stdout/stderr is bounded to 200,000
+    characters. `redact_secrets()` applies a best-effort regex redaction (bearer
+    tokens, `key=value` secrets, provider API-key prefixes, AWS access key IDs,
+    JWT-shaped strings) to all CLI output before it is returned — a defensive filter,
+    not a guarantee, since session history is free-form chat text that could contain
+    an inline secret in an unanticipated shape.
     `/api/control/capabilities` reports `ao.session_list_confirmed` /
-    `session_history_confirmed` / `send_confirmed` as `true` only when `AO_CLI_PATH`
-    is actually configured; `worker_api_confirmed` and `chat_realtime_api_confirmed`
-    remain `false` always — no such contract is documented for AO.
+    `session_history_confirmed` / `send_confirmed` / `send_recover_confirmed` as
+    `true` only when `AO_CLI_PATH` is actually configured; `worker_api_confirmed` and
+    `chat_realtime_api_confirmed` remain `false` always — no such contract is
+    documented for AO.
 
 ## Run
 
@@ -96,7 +109,8 @@ Open `http://127.0.0.1:4173/` for live-adapter mode. The local adapter serves th
 requests HIVE Core on loopback only. It exposes `GET /api/dashboard/snapshot`,
 `GET /api/control/capabilities`, the controlled `POST /api/control/dispatch` route, and
 the AO CLI bridge routes (`GET /api/ao/sessions`, `GET /api/ao/sessions/<id>/history`,
-`POST /api/ao/sessions/<id>/send`) described in item 11 above.
+`POST /api/ao/sessions/<id>/send`, `POST /api/ao/sessions/<id>/send/recover`)
+described in item 11 above.
 
 To enable the AO CLI bridge, set `AO_CLI_PATH` to an absolute path to the `ao` binary
 before starting the adapter:
@@ -234,9 +248,11 @@ only ever proves reachability, never authentication.
   missing reachability evidence). Also covers the AO CLI bridge: `AO_CLI_PATH`
   configuration detection, the argv allowlist (refusing to spawn when unconfigured or
   when a subcommand prefix isn't allowlisted), `shell=False` and exact argv
-  assertions, timeout/non-zero-exit/invalid-JSON handling, session-id/message/limit/
-  offset validation, session-list normalization, controlled send (including
-  `--steer`), and secret redaction.
+  assertions, timeout/non-zero-exit/invalid-JSON handling, session-id/client-message-
+  id/message/limit/offset validation, session-list normalization, the idempotent
+  atomic-steer send contract (auto-generated vs. caller-supplied `client_message_id`,
+  delivery-handle preservation on failure/timeout for recovery), `--recover-only`
+  recovery, and secret redaction.
 
 ## CREATOR OPS adapter
 
@@ -255,4 +271,4 @@ python -m unittest tests.test_server -v
 ```
 
 Both commands were run in this session: `py_compile` succeeded with no output, and all
-108 unit tests pass.
+119 unit tests pass.
