@@ -274,6 +274,7 @@ ORCHESTRATOR_CONTEXT_SOURCES = {
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-020-disposable-cli-worker-adapters.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-021-obsidian-memory-contract.ukol.md",
+        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-022-session-attestation-and-routing-decision.ukol.md",
         ORCHESTRATOR_VAULT_ROOT / "Operations/Memory-flow.md",
     ),
     "unified-dashboard": (
