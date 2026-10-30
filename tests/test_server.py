@@ -1387,6 +1387,18 @@ def fake_completed(stdout="", stderr="", returncode=0):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+def fake_session_list(session_id, is_terminated=False):
+    """A fake `ao session ls --all --json` CompletedProcess listing exactly one
+    live session, for exercising the AO_SEND_SESSION_ID defense-in-depth liveness
+    check that require_authorized_ao_send_session() performs."""
+    payload = json.dumps({"data": [{
+        "id": session_id, "projectId": "proj", "role": "worker", "displayName": session_id,
+        "status": "working", "activity": "active", "harness": "claude-code",
+        "isTerminated": is_terminated, "updatedAt": "2026-10-29T00:00:00Z",
+    }]})
+    return fake_completed(stdout=payload)
+
+
 class AoCliConfigurationTests(unittest.TestCase):
     """The AO CLI bridge is disabled unless AO_CLI_PATH is an absolute, existing file
     -- never fabricated as available."""
@@ -1413,26 +1425,32 @@ class AoCapabilitiesTests(unittest.TestCase):
     rather than a fixed static declaration."""
 
     def test_unconfigured_reports_all_false(self):
-        with patch.object(server, "AO_CLI_PATH", ""), patch.object(server, "AO_SEND_CALLER_TOKEN", ""):
+        with patch.object(server, "AO_CLI_PATH", ""), patch.object(server, "AO_SEND_CALLER_TOKEN", ""), \
+             patch.object(server, "AO_SEND_SESSION_ID", ""):
             caps = server.ao_capabilities()
         self.assertFalse(caps["session_list_confirmed"])
         self.assertFalse(caps["session_history_confirmed"])
         self.assertFalse(caps["send_confirmed"])
         self.assertFalse(caps["send_recover_confirmed"])
         self.assertFalse(caps["caller_auth_configured"])
+        self.assertFalse(caps["send_session_authorized"])
+        self.assertIsNone(caps["authorized_send_session_id"])
         self.assertFalse(caps["worker_api_confirmed"])
         self.assertFalse(caps["chat_realtime_api_confirmed"])
         self.assertEqual(caps["transport"], "cli_disabled")
         self.assertTrue(caps["reason"])
 
     def test_configured_reports_verified_subcommands_true(self):
-        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"):
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), \
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"):
             caps = server.ao_capabilities()
         self.assertTrue(caps["session_list_confirmed"])
         self.assertTrue(caps["session_history_confirmed"])
         self.assertTrue(caps["send_confirmed"])
         self.assertTrue(caps["send_recover_confirmed"])
         self.assertTrue(caps["caller_auth_configured"])
+        self.assertTrue(caps["send_session_authorized"])
+        self.assertEqual(caps["authorized_send_session_id"], "mer-3")
         self.assertFalse(caps["worker_api_confirmed"])
         self.assertFalse(caps["chat_realtime_api_confirmed"])
         self.assertEqual(caps["transport"], "cli_subprocess")
@@ -1440,12 +1458,26 @@ class AoCapabilitiesTests(unittest.TestCase):
     def test_cli_configured_but_caller_auth_missing_keeps_send_unconfirmed(self):
         # send/send_recover must reflect whether the route is actually reachable by
         # any caller, not merely whether the ao binary exists.
-        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", ""):
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", ""), \
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"):
             caps = server.ao_capabilities()
         self.assertTrue(caps["session_list_confirmed"])
         self.assertFalse(caps["send_confirmed"])
         self.assertFalse(caps["send_recover_confirmed"])
         self.assertFalse(caps["caller_auth_configured"])
+
+    def test_cli_and_caller_auth_configured_but_session_id_missing_keeps_send_unconfirmed(self):
+        # send_confirmed must reflect the AO_SEND_SESSION_ID gate too, since
+        # ao_send() refuses every request without it even when the CLI bridge and
+        # caller-auth token are both fully configured. send_recover is unaffected:
+        # it is not scoped by AO_SEND_SESSION_ID.
+        with patch.object(server, "AO_CLI_PATH", sys.executable), patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), \
+             patch.object(server, "AO_SEND_SESSION_ID", ""):
+            caps = server.ao_capabilities()
+        self.assertFalse(caps["send_confirmed"])
+        self.assertTrue(caps["send_recover_confirmed"])
+        self.assertFalse(caps["send_session_authorized"])
+        self.assertIsNone(caps["authorized_send_session_id"])
 
 
 class RunAoCliTests(unittest.TestCase):
@@ -1671,7 +1703,8 @@ class AoSendTests(unittest.TestCase):
     def test_success_always_uses_atomic_steer_transport(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
-             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stdout="sent")]) as mock_run:
             result = server.ao_send("mer-3", "Focus on the backend.", True, client_message_id="correction-42")
         args, _ = mock_run.call_args
         self.assertEqual(
@@ -1686,7 +1719,8 @@ class AoSendTests(unittest.TestCase):
     def test_client_message_id_is_auto_generated_when_omitted(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
-             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")) as mock_run:
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stdout="sent")]) as mock_run:
             result = server.ao_send("mer-3", "hello", True)
         self.assertTrue(result["client_message_id"])
         args, _ = mock_run.call_args
@@ -1699,13 +1733,15 @@ class AoSendTests(unittest.TestCase):
         # new one when the caller supplies one.
         with patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
-             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")):
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stdout="sent")]):
             result = server.ao_send("mer-3", "retry after uncertain result", True, client_message_id="retry-handle-7")
         self.assertEqual(result["client_message_id"], "retry-handle-7")
 
     def test_output_is_redacted(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
-             patch("server.subprocess.run", return_value=fake_completed(stdout="Bearer abcdef1234567890xyz accepted")):
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stdout="Bearer abcdef1234567890xyz accepted")]):
             result = server.ao_send("mer-3", "hello", True)
         self.assertNotIn("abcdef1234567890xyz", result["output"])
 
@@ -1720,7 +1756,8 @@ class AoSendTests(unittest.TestCase):
         # must be surfaced to the caller so it can recover the outcome instead of
         # blindly resending (which could double-deliver).
         with patch.object(server, "ao_cli_configured", return_value=True), \
-             patch("server.subprocess.run", return_value=fake_completed(stderr="transport error", returncode=1)):
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stderr="transport error", returncode=1)]):
             with self.assertRaises(server.AdapterError) as ctx:
                 server.ao_send("mer-3", "hello", True, client_message_id="handle-99")
         self.assertIn("handle-99", str(ctx.exception))
@@ -1728,11 +1765,97 @@ class AoSendTests(unittest.TestCase):
 
     def test_timeout_preserves_client_message_id_for_recovery(self):
         with patch.object(server, "ao_cli_configured", return_value=True), \
-             patch("server.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="ao", timeout=8)):
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), subprocess.TimeoutExpired(cmd="ao", timeout=8)]):
             with self.assertRaises(server.AdapterError) as ctx:
                 server.ao_send("mer-3", "hello", True, client_message_id="handle-100")
         self.assertEqual(ctx.exception.status, 504)
         self.assertIn("handle-100", str(ctx.exception))
+
+
+class AoSendSessionScopingTests(unittest.TestCase):
+    """Server-controlled, fail-closed authorization for ao_send(), scoped to a
+    single operator-selected AO session (AO_SEND_SESSION_ID). A syntactically
+    valid session id in the request is never, by itself, sufficient -- it must
+    equal the server-configured target, and that target must still appear live
+    and non-terminated in AO's own session registry. Proves unauthorized or
+    unverifiable requests never reach the ao `send` subcommand."""
+
+    def test_unset_authorized_session_id_refuses_every_send_without_running_cli(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", ""), \
+             patch("server.subprocess.run") as mock_run:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("any-session-the-caller-wants", "hello", True)
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertIn("not authorized", str(ctx.exception))
+        mock_run.assert_not_called()
+
+    def test_malformed_authorized_session_id_refuses_every_send(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", "has spaces; is invalid"), \
+             patch("server.subprocess.run") as mock_run:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("mer-3", "hello", True)
+        self.assertEqual(ctx.exception.status, 403)
+        mock_run.assert_not_called()
+
+    def test_mismatched_session_id_is_refused_before_touching_cli(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", "the-one-authorized-session"), \
+             patch("server.subprocess.run") as mock_run:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("a-different-session-the-caller-asked-for", "hello", True)
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertIn("server-authorized", str(ctx.exception))
+        mock_run.assert_not_called()
+
+    def test_capabilities_report_matches_enforcement(self):
+        """The capability declaration and the actual enforcement must never
+        diverge: if capabilities says send is unavailable, ao_send() must also
+        refuse."""
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), \
+             patch.object(server, "AO_SEND_SESSION_ID", ""):
+            caps = server.ao_capabilities()
+            self.assertFalse(caps["send_confirmed"])
+            with self.assertRaises(server.AdapterError):
+                server.ao_send("some-session", "hello", True)
+
+    def test_authorized_safe_fixture_end_to_end(self):
+        """Positive fixture: a correctly authorized, live, non-terminated session
+        succeeds -- via fully mocked subprocess calls only. No real `ao send` is
+        issued by this test."""
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", "the-one-authorized-session"), \
+             patch("server.subprocess.run", side_effect=[
+                 fake_session_list("the-one-authorized-session"), fake_completed(stdout="delivered"),
+             ]) as mock_run:
+            result = server.ao_send("the-one-authorized-session", "status check", True)
+        self.assertEqual(result["session_id"], "the-one-authorized-session")
+        self.assertEqual(mock_run.call_count, 2)
+
+    def test_authorized_but_terminated_session_is_refused(self):
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", "the-one-authorized-session"), \
+             patch("server.subprocess.run", return_value=fake_session_list("the-one-authorized-session", is_terminated=True)) as mock_run:
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("the-one-authorized-session", "hello", True)
+        self.assertEqual(ctx.exception.status, 403)
+        self.assertIn("terminated", str(ctx.exception))
+        # Only `session ls` ran; `send` must never be reached for a terminated session.
+        self.assertEqual(mock_run.call_count, 1)
+
+    def test_unavailable_live_session_list_fails_closed(self):
+        # If the live session list cannot be obtained, the send must be refused
+        # rather than trusting a stale authorization or the caller's claim.
+        with patch.object(server, "ao_cli_configured", return_value=True), \
+             patch.object(server, "AO_SEND_SESSION_ID", "the-one-authorized-session"), \
+             patch("server.subprocess.run", return_value=fake_completed(stderr="daemon unreachable", returncode=1)):
+            with self.assertRaises(server.AdapterError) as ctx:
+                server.ao_send("the-one-authorized-session", "hello", True)
+        self.assertEqual(ctx.exception.status, 503)
+        self.assertIn("Cannot verify", str(ctx.exception))
 
 
 class AoRecoverSendTests(unittest.TestCase):
@@ -1932,7 +2055,8 @@ class AoSendCallerAuthHttpTests(unittest.TestCase):
         with patch.object(server, "AO_SEND_CALLER_TOKEN", "secret-token"), \
              patch.object(server, "ao_cli_configured", return_value=True), \
              patch.object(server, "AO_CLI_PATH", r"C:\ao\ao.exe"), \
-             patch("server.subprocess.run", return_value=fake_completed(stdout="sent")):
+             patch.object(server, "AO_SEND_SESSION_ID", "mer-3"), \
+             patch("server.subprocess.run", side_effect=[fake_session_list("mer-3"), fake_completed(stdout="sent")]):
             status, payload = self._post(
                 "/api/ao/sessions/mer-3/send",
                 body=b'{"message": "hello", "confirm": true}',

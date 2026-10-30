@@ -107,13 +107,29 @@ as a visual reference; this is a separate surface.
     reference. (session listing and history do not carry this requirement — they
     are read-only and gated only by `AO_CLI_PATH`.)
 
+    **`send` is additionally scoped to a single operator-authorized session via
+    `AO_SEND_SESSION_ID`.** The `<id>` in the request path is never trusted by
+    itself, even once it passes format validation — `require_authorized_ao_send_session()`
+    requires it to equal the server-configured `AO_SEND_SESSION_ID` exactly. Unset
+    or malformed `AO_SEND_SESSION_ID` fails every send closed, with no exceptions.
+    As defense in depth on top of that equality check, the authorized session id
+    must additionally appear, and not be terminated, in that call's own live
+    `ao session ls` result — an unavailable session list fails the send closed
+    rather than trusting a stale authorization. `send/recover` is intentionally not
+    scoped by `AO_SEND_SESSION_ID`: it only recovers the daemon's already-recorded
+    outcome for a prior send's delivery handle and never delivers new message
+    content.
+
     `/api/control/capabilities` reports `ao.session_list_confirmed` /
     `session_history_confirmed` as `true` whenever `AO_CLI_PATH` is configured.
-    `send_confirmed` / `send_recover_confirmed` additionally require
-    `AO_SEND_CALLER_TOKEN` to be configured — `ao.caller_auth_configured` reports
-    that fact directly — since those routes cannot actually be reached by any
-    caller otherwise. `worker_api_confirmed` and `chat_realtime_api_confirmed`
-    remain `false` always — no such contract is documented for AO.
+    `send_confirmed` additionally requires `AO_SEND_CALLER_TOKEN` and
+    `AO_SEND_SESSION_ID` to both be configured — `ao.caller_auth_configured` and
+    `ao.send_session_authorized` report those facts directly, and
+    `ao.authorized_send_session_id` echoes the configured target — since the route
+    cannot actually deliver a message otherwise. `send_recover_confirmed` only
+    requires `AO_SEND_CALLER_TOKEN`. `worker_api_confirmed` and
+    `chat_realtime_api_confirmed` remain `false` always — no such contract is
+    documented for AO.
 12. **Worker routing policy read-model (`GET /api/control/worker-policy`).**
     `WORKER_POLICY` is a static, in-memory table declaring `capability`,
     `execution_mode` (`local`/`remote`), `cost_mode` (`free`/`subscription`/
@@ -213,11 +229,14 @@ The launcher automatically uses the existing per-user AO binary at
 otherwise set `AO_CLI_PATH` to an absolute path to the `ao` binary before starting
 the adapter. This enables read-only session listing/history only. To additionally enable `send`/`send/recover`, also set
 `AO_SEND_CALLER_TOKEN` to a secret value, and present it as a bearer token on every
-request to those two routes:
+request to those two routes. `send` further requires `AO_SEND_SESSION_ID`, set to
+the exact session id the operator is authorizing for delivery — any other session
+id in the request path is refused regardless of the caller token:
 
 ```powershell
 $env:AO_CLI_PATH = 'C:\Users\Martin\AppData\Local\Programs\agent-orchestrator\resources\daemon\ao.exe'
 $env:AO_SEND_CALLER_TOKEN = (New-Guid).Guid
+$env:AO_SEND_SESSION_ID = 'mer-3'
 .\start.ps1
 ```
 
@@ -233,7 +252,11 @@ Leaving `AO_CLI_PATH` unset is the safe default: `session listing`/`history` rep
 `validity: "unavailable"` rather than attempting to locate or guess at the `ao`
 binary's location. Leaving `AO_SEND_CALLER_TOKEN` unset is likewise the safe default
 for `send`/`send/recover`: both reject every request with `503` even if `AO_CLI_PATH`
-is configured, since there is no way to authenticate a caller without it.
+is configured, since there is no way to authenticate a caller without it. Leaving
+`AO_SEND_SESSION_ID` unset (or setting it to a malformed value) is the safe default
+for `send` specifically: every send is refused with `403`, even with a valid
+`AO_CLI_PATH` and a correct `AO_SEND_CALLER_TOKEN`, since there is no server-held
+target session to authorize against.
 
 Set the Core URL and token only in the process environment; never put the token in the
 browser, source tree, or command output:
@@ -345,7 +368,8 @@ only ever proves reachability, never authentication.
   `auth_required`), exposes a read-only CREATOR OPS aggregate-status adapter, bridges
   a fixed, verified slice of the AO CLI contract (session listing/history gated by
   `AO_CLI_PATH`; idempotent, caller-authenticated send/recover additionally gated by
-  `AO_SEND_CALLER_TOKEN`), declares a static worker routing policy read-model
+  `AO_SEND_CALLER_TOKEN`; send further scoped to one operator-authorized session via
+  `AO_SEND_SESSION_ID`), declares a static worker routing policy read-model
   (`WORKER_POLICY` / `evaluate_worker_policy()`, local-first + free/subscription-only
   cost-mode admission), and exposes only a proposal-only, fail-closed dispatch route.
   No arbitrary proxy, shell route, provider credential forwarding,

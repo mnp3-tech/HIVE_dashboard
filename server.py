@@ -336,6 +336,19 @@ AO_HISTORY_MAX_OFFSET = 100_000
 # allowed -- since there would be no server-held value to authenticate against.
 AO_SEND_CALLER_TOKEN = os.environ.get("AO_SEND_CALLER_TOKEN", "")
 
+# Server-controlled authorization scope for ao_send(): the single AO session this
+# adapter instance is permitted to deliver a message to. Set by the operator (e.g.
+# to the session selected in the dashboard UI) -- never inferred from the request
+# body, so a request can never grant itself a session to send to. Empty/unset or a
+# value that fails AO_SESSION_ID_PATTERN means no session is authorized, and send
+# fails closed for every request, regardless of what session_id is asked for. This
+# is a separate concern from AO_SEND_CALLER_TOKEN above: that answers "is this HTTP
+# caller allowed to use the route at all", this answers "which single session may
+# actually receive a message". send/recover is intentionally out of scope here --
+# recover only retrieves the daemon's already-recorded outcome for a prior send's
+# delivery handle and never delivers new message content.
+AO_SEND_SESSION_ID = os.environ.get("AO_SEND_SESSION_ID", "").strip()
+
 # Best-effort redaction of credential-shaped substrings (bearer tokens, key=value
 # secrets, provider API key prefixes, AWS access key IDs, JWT-shaped strings) from
 # raw `ao` CLI text before it ever reaches a response. This is a defensive, imperfect
@@ -373,6 +386,10 @@ def ao_send_caller_auth_configured() -> bool:
     return bool(AO_SEND_CALLER_TOKEN)
 
 
+def ao_send_session_authorized() -> bool:
+    return bool(AO_SEND_SESSION_ID) and bool(AO_SESSION_ID_PATTERN.match(AO_SEND_SESSION_ID))
+
+
 def require_ao_send_caller_auth(headers) -> None:
     """Fail-closed caller-authentication gate for the send/recover routes only.
 
@@ -398,23 +415,30 @@ def ao_capabilities() -> dict:
     """Capability declaration for the AO CLI bridge.
 
     session_list/history are verified, documented `ao` CLI subcommands, confirmed
-    whenever AO_CLI_PATH is configured. send/send_recover additionally require the
-    caller-auth gate (AO_SEND_CALLER_TOKEN) to be configured, since those routes
-    cannot actually be reached by any caller otherwise -- confirmed must reflect
-    whether the route can really be used end to end, not just whether the CLI binary
-    exists. worker_api and realtime chat remain unconfirmed: no public HTTP/
-    worker-registry contract is documented for AO, and this adapter never guesses at
-    one.
+    whenever AO_CLI_PATH is configured. send additionally requires the caller-auth
+    gate (AO_SEND_CALLER_TOKEN) and the session-scoping gate (AO_SEND_SESSION_ID) to
+    both be configured, since the route cannot actually deliver a message to any
+    session otherwise -- confirmed must reflect whether the route can really be used
+    end to end, not just whether the CLI binary exists. This must never diverge from
+    what ao_send() itself enforces. send_recover only requires caller-auth: it never
+    delivers new message content, only recovers a prior send's recorded outcome, so
+    it is not scoped to AO_SEND_SESSION_ID. worker_api and realtime chat remain
+    unconfirmed: no public HTTP/worker-registry contract is documented for AO, and
+    this adapter never guesses at one.
     """
     configured = ao_cli_configured()
     caller_auth_configured = ao_send_caller_auth_configured()
-    send_usable = configured and caller_auth_configured
+    session_authorized = ao_send_session_authorized()
+    send_usable = configured and caller_auth_configured and session_authorized
+    recover_usable = configured and caller_auth_configured
     return {
         "session_list_confirmed": configured,
         "session_history_confirmed": configured,
         "send_confirmed": send_usable,
-        "send_recover_confirmed": send_usable,
+        "send_recover_confirmed": recover_usable,
         "caller_auth_configured": caller_auth_configured,
+        "send_session_authorized": session_authorized,
+        "authorized_send_session_id": AO_SEND_SESSION_ID or None,
         "worker_api_confirmed": False,
         "chat_realtime_api_confirmed": False,
         "transport": "cli_subprocess" if configured else "cli_disabled",
@@ -433,8 +457,12 @@ def ao_capabilities() -> dict:
             "the caller must present a matching `Authorization: Bearer <token>` "
             "header, checked with a constant-time comparison before the request "
             "body is read or AO is invoked, and rejected outright if the token is "
-            "not configured. No other AO HTTP endpoint, worker registry, or "
-            "internal SQLite store is read, and the bridge reports unavailable "
+            "not configured. send is further scoped to AO_SEND_SESSION_ID, the one "
+            "operator-authorized session id a message may ever be delivered to; "
+            "unset or malformed AO_SEND_SESSION_ID fails every send closed, and a "
+            "live, non-terminated match in `ao session ls` is re-verified on every "
+            "send as defense in depth. No other AO HTTP endpoint, worker registry, "
+            "or internal SQLite store is read, and the bridge reports unavailable "
             "rather than fabricating success when unconfigured or when a call fails."
         ),
     }
@@ -574,6 +602,39 @@ def validate_client_message_id(client_message_id) -> str:
     return client_message_id
 
 
+def require_authorized_ao_send_session(session_id: str) -> None:
+    """Fail-closed authorization gate scoping ao_send() to the single
+    operator-configured AO_SEND_SESSION_ID. A syntactically valid session id in the
+    request is never, by itself, sufficient to authorize a send -- it must equal
+    the server-configured target. Unset or malformed AO_SEND_SESSION_ID refuses
+    every send, with no exceptions.
+
+    As defense in depth beyond that equality check, the authorized session id must
+    additionally appear, and not be terminated, in this call's own live
+    `ao session ls` result: an unavailable session list fails the send closed
+    rather than trusting a stale authorization or the caller's claim.
+    """
+    if not ao_send_session_authorized():
+        raise AdapterError(
+            "Send is not authorized: AO_SEND_SESSION_ID is not configured, or is configured with an invalid "
+            "format; refusing to send to any session with no server-authorized target.",
+            403,
+        )
+    if session_id != AO_SEND_SESSION_ID:
+        raise AdapterError("Session id is not the server-authorized send target", 403)
+    sessions, sessions_evidence = ao_sessions()
+    if sessions_evidence.get("validity") != "valid":
+        raise AdapterError(
+            f"Cannot verify the authorized session is live: {sessions_evidence.get('reason') or 'no evidence'}",
+            503,
+        )
+    live_session = next((item for item in sessions if item.get("id") == session_id), None)
+    if live_session is None:
+        raise AdapterError("Authorized session id was not found in the live AO session list", 403)
+    if live_session.get("is_terminated"):
+        raise AdapterError("Authorized session is terminated and cannot receive messages", 403)
+
+
 def ao_send(session_id, message, confirm, client_message_id=None) -> dict:
     """Controlled, fail-closed bridge to AO's documented atomic steering transport:
     `ao send --session <id> --steer --message <text> --client-message-id <id>`.
@@ -592,7 +653,11 @@ def ao_send(session_id, message, confirm, client_message_id=None) -> dict:
     (bridge disabled, CLI error, timeout) the client_message_id is preserved in the
     raised error so the caller can recover the delivery outcome via ao_recover_send()
     -- per send.md, "do not invent a new client message id after an uncertain
-    result" -- rather than blindly resending."""
+    result" -- rather than blindly resending.
+
+    Scoped to the single operator-authorized AO_SEND_SESSION_ID (see
+    require_authorized_ao_send_session()): the request's session_id is never
+    trusted by itself, even once it passes format validation."""
     if confirm is not True:
         raise AdapterError("Explicit confirmation is required", 400)
     validate_ao_session_id(session_id)
@@ -600,6 +665,12 @@ def ao_send(session_id, message, confirm, client_message_id=None) -> dict:
     if not (1 <= len(text) <= AO_SEND_MESSAGE_MAX_LEN):
         raise AdapterError(f"message must be between 1 and {AO_SEND_MESSAGE_MAX_LEN} characters", 400)
     client_message_id = validate_client_message_id(client_message_id) if client_message_id is not None else secrets.token_urlsafe(18)
+    if not ao_cli_configured():
+        raise AdapterError(
+            "AO CLI bridge is not configured; set AO_CLI_PATH to an absolute path to the ao binary to enable it",
+            503,
+        )
+    require_authorized_ao_send_session(session_id)
     args = ["send", "--session", session_id, "--steer", "--message", text, "--client-message-id", client_message_id]
     try:
         raw = run_ao_cli(args, ("send",))
