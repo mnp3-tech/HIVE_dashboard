@@ -1,5 +1,301 @@
 # Unified Dashboard — bounded MVP
 
+> **Start here before changing code.** This README explains where the dashboard lives on
+> Martin's PC, which stores are authoritative, how local components communicate, and
+> which parts are current MVP behavior versus the target HIVE cockpit. The complete
+> implementation handoff is [HIVE_DASHBOARD_CLAUDE_HANDOFF.md](HIVE_DASHBOARD_CLAUDE_HANDOFF.md).
+
+## 0. Required reading order for Claude
+
+1. Read this README for the storage, authority, runtime, and communication map.
+2. Read [HIVE_DASHBOARD_CLAUDE_HANDOFF.md](HIVE_DASHBOARD_CLAUDE_HANDOFF.md) for the
+   target visual/functional contract and acceptance criteria.
+3. Inspect the actual Git state with `git status --short --branch` and `git rev-parse HEAD`.
+4. Inspect only the relevant source files and tests; do not dump the whole repository or
+   historical HIVE workspaces into context.
+5. Run the smallest relevant test before and after each implementation phase.
+
+The README describes the current bounded adapter MVP. The handoff document describes
+the desired next-stage dashboard. A statement such as `topology: deferred` is therefore
+current-state evidence, not a rejection of the target CORE visualization.
+
+## 1. PC storage and authority map
+
+| Location | Purpose | Authority / write policy |
+|---|---|---|
+| `C:\Users\Martin\Documents\ChatGPT\DASHBOARD` | This dashboard repository: UI, local adapter, fixtures, tests, launcher scripts, handoff | Claude may implement here or in an isolated branch; do not put secrets in Git |
+| `C:\Users\Martin\HIVE` | HIVE production/runtime checkout | PROD; read-only for review; never modify from this dashboard task |
+| `C:\Users\Martin\HIVE-work\codex-e3` | Codex independent-review/prototype lane and historical evidence | Read-only reference for this dashboard handoff; do not copy the whole tree into context |
+| `C:\Users\Martin\HIVE-work\coordination` | Coordination artifacts and handoffs | Read-only unless explicitly authorized for a specific output |
+| `C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3` | Local CREATOR OPS SQLite database | Dashboard adapter opens it read-only and reads aggregate counts only |
+| `C:\Users\Martin\AppData\Local\Programs\agent-orchestrator\resources\daemon\ao.exe` | Optional local AO CLI binary | Discovered by `start.ps1` when present; invoked only through the fixed allowlist |
+| `docs/assets/` | Stable visual references committed with this repository | Safe read-only design input for Claude and UI review |
+| Obsidian vault | Human-readable shared project projection | Path is intentionally not guessed; WONG remains canonical and live projection is disabled until explicitly configured |
+| runtime token/config locations | HIVE/AO/provider credentials | Never copied into Git, browser storage, README, fixtures, or screenshots |
+
+The dashboard repository is a separate surface. It is not the HIVE Core source tree and
+must not become a second memory, release, or security authority.
+
+## 2. Component map
+
+```text
+Desktop browser
+    │  same-origin HTTP only
+    ▼
+Dashboard server: server.py
+    │  loopback adapter, normalization, evidence, fail-closed proposal routes
+    ├── HIVE Core: http://127.0.0.1:8765 by default
+    │     /health, /ready, and authenticated read-only resources when a token exists
+    ├── AO CLI: local subprocess only when AO_CLI_PATH is configured
+    │     session listing/history; controlled send/recover with separate gates
+    ├── CREATOR OPS SQLite: local mode=ro aggregate queries only
+    ├── local worker adapters: LM Studio/OpenCode only through bounded contracts
+    └── future explicit adapters: GPT / Claude / Codex / Obsidian / Internet
+          no cookie scraping, credential forwarding, or guessed private APIs
+```
+
+For isolated UI/API work, use `fixture_server.py` instead of `server.py`. It is a
+separate loopback-only runtime with deterministic synthetic data, no credential
+loading, no external connections, no subprocesses, and no write routes. It does
+not touch HIVE Core, AO, WONG, ROCKET, or provider sessions.
+
+The browser never receives HIVE Core credentials and never calls HIVE Core directly.
+The server is the trust boundary for URL validation, bearer-token use, normalization,
+redaction, evidence, timeouts, and proposal-only writes.
+
+Default local dashboard URL:
+
+```text
+http://127.0.0.1:4173/
+```
+
+Default local HIVE Core target configured by `server.py`:
+
+```text
+http://127.0.0.1:8765
+```
+
+The Core target must remain loopback-only. A different local port may be supplied through
+`HIVE_CORE_URL`, but the adapter refuses non-loopback targets.
+
+## 3. Where data is stored
+
+### Dashboard repository
+
+- `app.js` — browser rendering, evidence states, demo fixture handling, and proposal UI.
+- `index.html` — dashboard shell and accessible navigation targets.
+- `styles.css` — current visual system and responsive desktop styling.
+- `server.py` — local loopback server and narrow HIVE/AO/CREATOR OPS adapters.
+- `fixture_server.py` — standalone read-only runtime fixture/API for safe UI testing.
+- `snapshot.example.json` — captured example of the normalized adapter contract; it is
+  evidence/fixture data, not a live database.
+- `tests/` — server and UI contract tests.
+- `start.ps1`, `status.ps1`, `stop.ps1` — live-adapter launcher/status/stop helpers.
+- `start-fixture.ps1`, `status-fixture.ps1`, `stop-fixture.ps1` — isolated fixture helpers.
+- `HIVE_DASHBOARD_CLAUDE_HANDOFF.md` — target implementation contract for Claude.
+- `docs/assets/` — committed dashboard and CORE reference images.
+
+### Runtime-generated files
+
+The launcher may create:
+
+```text
+.dashboard.pid
+.dashboard.launch.json
+```
+
+These are local runtime state and are excluded by `.gitignore`. They must not be
+committed or treated as evidence of HIVE Core state.
+
+The fixture launcher may create the separate files `.fixture-dashboard.pid` and
+`.fixture-dashboard.launch.json`. They identify only the local fixture process and
+are also excluded from Git.
+
+### HIVE Core and WONG
+
+The dashboard does not read HIVE Core's internal database directly. It calls the documented
+loopback API and records source, timestamp, validity, and reason for each observation.
+
+WONG is the canonical memory and decision authority. The dashboard may display a
+human-readable projection of project context, but it must not silently create a competing
+canonical store.
+
+### Obsidian
+
+Obsidian is a shared project-context and human-readable projection layer. The vault path
+is not hardcoded or guessed. Until an explicit connector and vault selection are enabled,
+the dashboard must show the integration as disabled/unconfigured rather than inventing a
+live connection.
+
+### Provider state
+
+GPT, Claude, and Codex are worker providers, not competing HIVE authorities. They have
+equal weight in HIVE; routing depends on capabilities, task requirements, availability,
+approval, and cost. Provider credentials and private web sessions are never stored here.
+
+## 4. Communication and write matrix
+
+| Component | Reads | Writes | Notes |
+|---|---|---|---|
+| Browser UI | Normalized dashboard API | Proposal request only | No provider credentials; no direct Core access |
+| `server.py` | HIVE API, AO CLI output, local read-only SQLite | Immutable local proposal request | Normalizes evidence and fails closed |
+| HIVE Core | Its own runtime state | Its own runtime state | Accessed through documented API only |
+| AO CLI bridge | Session list/history and documented delivery outcomes | Controlled send only when all gates pass | `AO_CLI_PATH`, caller token, and authorized session are separate gates |
+| Obsidian adapter | Explicitly selected project context | Only explicitly authorized projection | Never guess vault; no scope expansion |
+| WONG | Canonical memory/decisions | Canonical decisions | Higher authority than dashboard fixtures or provider claims |
+| ULTRON | Connections, tools, attachments, policy events | Security decisions/audit events | MVP guard; not a full antivirus |
+| EVOLVE | Broad sanitized evidence | Isolated branch/proposal/backup | Never direct production or silent WONG mutation |
+| GPT/Claude/Codex adapters | Provider-returned data only | Provider action only if supported and authorized | Unsupported operations remain UNKNOWN/NOT_CONNECTED |
+
+Normal dashboard data flow:
+
+```text
+HIVE Core / AO / local adapters
+       │
+       ▼
+server.py normalizes evidence
+       │
+       ▼
+GET /api/dashboard/snapshot
+       │
+       ▼
+browser UI and CORE overlay
+```
+
+The future live visualization should consume normalized events rather than inventing
+activity. A real event can animate the CORE, move an agent toward Internet/Obsidian/another
+agent, and create a correlation pulse. Silence alone must never create a WORKING state.
+
+## 5. Runtime configuration contract
+
+Environment variable values are local runtime inputs and must never be committed:
+
+| Variable | Meaning | Safe default |
+|---|---|---|
+| `HIVE_CORE_URL` | Loopback HIVE Core URL | `http://127.0.0.1:8765` |
+| `HIVE_API_TOKEN` | Server-side bearer token for protected Core resources | unset; protected resources report `auth_required` |
+| `HIVE_HEALTH_REQUIRES_AUTH` | Explicit operator assertion that this Core validates auth on `/health` | false/unset |
+| `AO_CLI_PATH` | Absolute path to the local `ao.exe` | auto-discover known local path or disabled |
+| `AO_SEND_CALLER_TOKEN` | Server-held caller-auth token for send/recover | unset; send rejected |
+| `AO_SEND_SESSION_ID` | One explicitly authorized AO session for send | unset; send rejected |
+| `CREATOR_OPS_DB_PATH` | Local CREATOR OPS SQLite path | documented local default |
+| `LMSTUDIO_ENDPOINT` | Loopback LM Studio endpoint override | `http://127.0.0.1:1234` |
+| `CODEX_SUBSCRIPTION_CONFIRMED` | Operator confirmation of actual Codex billing mode | false/unset; metered/unknown blocked |
+| `OPENCODE_EXECUTION_CONFIRMED` | Explicit opt-in for bounded disposable execution | false/unset |
+| `BESZEL_URL` | Optional future Beszel configuration | not implemented in current MVP |
+
+Never place the actual values in `.env`, Git, screenshots, prompt text, or browser local
+storage. If an environment file is added later, commit only a redacted `.env.example`.
+
+## 6. Current state versus target state
+
+### Verified current MVP
+
+- Local server and browser shell exist.
+- Evidence-aware snapshot contract exists.
+- HIVE `/health` and `/ready` probing exists.
+- Protected HIVE resources can be reported as `auth_required` rather than fabricated empty data.
+- AO session listing/history and a separately gated send/recover bridge exist.
+- CREATOR OPS local read-only aggregate adapter exists.
+- Proposal-only dispatch exists; no apply/deploy/promote/rollback path exists.
+- Demo fixtures exist and must be explicitly labeled.
+- A standalone read-only runtime fixture/API exists for safe UI testing; it is not live state.
+- Topology/live CORE target is not yet fully implemented in this checkout.
+- Live GPT/Claude/Codex aggregation is not verified.
+- Live Obsidian projection is disabled/unconfigured.
+
+### Required target from the handoff
+
+- Reference-faithful centered CORE with functional event-driven animation.
+- Logical agent orbital movement toward Internet, Obsidian, or other agents.
+- ULTRON ring plus static agent-style icon.
+- GPT and Claude equal visual/architectural weight with different capabilities.
+- Frosted-glass modular panels with intentional empty space.
+- Desktop scaling at 1280×720, 1920×1080, and 2560×1440.
+- Functional attachments, chat send states, Activity, Approvals, resources, limits, profiles,
+  Obsidian projection, and small isolated-branch EVOLVE module.
+
+Do not claim the target features are live merely because the handoff or mockup describes them.
+
+## 7. Visual assets and handoff files
+
+Stable repository assets:
+
+- [Dashboard target](docs/assets/hive-dashboard-target.png)
+- [Original CORE reference](docs/assets/hive-core-reference.png)
+- [Claude handoff](HIVE_DASHBOARD_CLAUDE_HANDOFF.md)
+- [Captured adapter snapshot](snapshot.example.json)
+
+The images are design references. The production dashboard must implement live overlays and
+state transitions with HTML/CSS/SVG/canvas rather than use the screenshot as the entire UI.
+
+## 8. Run and verify
+
+Start the dashboard:
+
+```powershell
+.\start.ps1
+```
+
+Open:
+
+```text
+http://127.0.0.1:4173/
+```
+
+Start the safe runtime fixture instead when testing UI/API behavior without HIVE Core,
+AO, provider credentials, subprocesses, or write access:
+
+```powershell
+.\start-fixture.ps1
+```
+
+Open `http://127.0.0.1:4174/`. Fixture metadata and the main read-only contract are
+available at `http://127.0.0.1:4174/api/fixture/metadata` and
+`http://127.0.0.1:4174/api/dashboard/snapshot`. Stop it with
+`.\stop-fixture.ps1` and inspect it with `.\status-fixture.ps1`.
+
+All `POST`, `PUT`, `PATCH`, and `DELETE` requests receive HTTP 405. The fixture
+returns explicit `LOCAL / RUNTIME FIXTURE` and `fixture` markers; it must never be
+used to claim live provider, hardware, Internet, HIVE Core, or Obsidian connectivity.
+
+For visual fixture mode only:
+
+```text
+http://127.0.0.1:4173/?demo=1
+```
+
+Run targeted checks:
+
+```powershell
+python -m py_compile server.py fixture_server.py tests/test_server.py tests/test_fixture_server.py
+python -m unittest tests.test_server -v
+python -m unittest tests.test_fixture_server -v
+node --test tests/ui_contract.test.mjs
+git diff --check
+```
+
+The fixture mode is not proof of provider connectivity. A live claim requires a real
+observed endpoint response and preserved provenance.
+
+## 9. Claude onboarding checklist
+
+Before editing:
+
+1. Confirm repository path, branch, HEAD, and dirty state.
+2. Read this README and the handoff document.
+3. Confirm that the two assets under `docs/assets/` are present.
+4. Run the existing targeted tests.
+5. Inspect current runtime configuration without printing secret values.
+6. Implement only the next accepted phase from the handoff budget plan.
+7. Keep GPT and Claude equal in HIVE; do not make one provider the hidden authority.
+8. Use real events for functional CORE movement and keep non-core animation ambient.
+9. Stop and report `UNKNOWN` or `BLOCKED` when a connector or credential is unavailable.
+10. Report files, tests, verified integrations, limitations, backup, and remaining budget.
+
+Do not modify PROD, WONG, ROCKET, deployment state, or release evidence. Do not add a
+second canonical memory store. Do not commit credentials or temporary runtime files.
+
 Local-only, read-only-by-default operating picture for HIVE Core. It does not modify
 PROD, WONG, ROCKET, or any existing HIVE implementation. The existing HIVE UI was used
 as a visual reference; this is a separate surface.
@@ -426,5 +722,6 @@ python -m py_compile server.py tests/test_server.py
 python -m unittest tests.test_server -v
 ```
 
-Both commands were run in this session: `py_compile` succeeded with no output, and all
-170 unit tests pass.
+The current verified run executed `py_compile` successfully and completed all 211 unit
+tests with `OK` (the first sandbox attempt was blocked by temporary-directory
+permissions; the external test run passed).
