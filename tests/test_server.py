@@ -6,16 +6,18 @@ All HIVE Core network access is mocked via server.urlopen.
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import io
 import json
+import os
 import sqlite3
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -358,7 +360,11 @@ class OpenCodeAdapterTests(unittest.TestCase):
                 calls.append((argv, kwargs))
                 return subprocess.CompletedProcess(argv, 0, stdout='{"ok":true}\n', stderr="")
 
-            with patch.object(server, "OPENCODE_EXECUTION_CONFIRMED", True), patch.object(server, "OPENCODE_WORKSPACE_ROOT", Path(root)), patch.object(server, "context_build", return_value={"records": [{"record_id": "P-DEMO", "content": "safe"}], "content_hash": "a" * 64}), patch.object(server.subprocess, "run", fake_run):
+            # Windows-drive -> /mnt/<drive> conversion is exercised unpatched on Windows and
+            # covered platform-independently by test_wsl_workspace_path_* below; on other hosts
+            # a temp dir has no drive letter, so only that conversion is stubbed.
+            wsl_patch = patch.object(server, "_wsl_workspace_path", return_value="/mnt/c/disposable/task") if os.name != "nt" else contextlib.nullcontext()
+            with patch.object(server, "OPENCODE_EXECUTION_CONFIRMED", True), patch.object(server, "OPENCODE_WORKSPACE_ROOT", Path(root)), patch.object(server, "context_build", return_value={"records": [{"record_id": "P-DEMO", "content": "safe"}], "content_hash": "a" * 64}), patch.object(server.subprocess, "run", fake_run), wsl_patch:
                 result = server.opencode_run(self._payload(workspace))
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["evidence"]["validity"], "valid")
@@ -368,6 +374,15 @@ class OpenCodeAdapterTests(unittest.TestCase):
         self.assertIn("--format", argv)
         self.assertEqual(calls[0][1]["shell"], False)
         self.assertEqual(calls[0][1]["timeout"], 120)
+
+    def test_wsl_workspace_path_converts_windows_drive_paths(self):
+        self.assertEqual(server._wsl_workspace_path(PureWindowsPath("C:/Users/x/task")), "/mnt/c/Users/x/task")
+        self.assertEqual(server._wsl_workspace_path(PureWindowsPath("D:/w")), "/mnt/d/w")
+
+    def test_wsl_workspace_path_rejects_paths_without_a_drive(self):
+        with self.assertRaises(server.AdapterError) as ctx:
+            server._wsl_workspace_path(PureWindowsPath("relative/task"))
+        self.assertEqual(ctx.exception.status, 400)
 
     def test_workspace_escape_is_blocked(self):
         with tempfile.TemporaryDirectory() as root:
