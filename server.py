@@ -29,7 +29,7 @@ import sqlite3
 import subprocess
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -272,7 +272,10 @@ CREATOR_OPS_TABLES = (
 ORCHESTRATOR_PROJECT_REGISTRY_PATH = Path(
     r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
 )
-ORCHESTRATOR_VAULT_ROOT = ORCHESTRATOR_PROJECT_REGISTRY_PATH.parents[1]
+# Computed with PureWindowsPath so the module also imports on non-Windows hosts (CI/cloud).
+ORCHESTRATOR_VAULT_ROOT = Path(str(PureWindowsPath(
+    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
+).parents[1]))
 ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH = Path(
     r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Tasks\self-evolution\P-013-proposal-only-control-plane.ukol.md"
 )
