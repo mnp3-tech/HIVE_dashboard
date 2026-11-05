@@ -27,7 +27,7 @@ current-state evidence, not a rejection of the target CORE visualization.
 | `C:\Users\Martin\HIVE` | HIVE production/runtime checkout | PROD; read-only for review; never modify from this dashboard task |
 | `C:\Users\Martin\HIVE-work\codex-e3` | Codex independent-review/prototype lane and historical evidence | Read-only reference for this dashboard handoff; do not copy the whole tree into context |
 | `C:\Users\Martin\HIVE-work\coordination` | Coordination artifacts and handoffs | Read-only unless explicitly authorized for a specific output |
-| `C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3` | Local CREATOR OPS SQLite database | Dashboard adapter opens it read-only and reads aggregate counts only |
+| `C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3` | Local CREATOR OPS SQLite database | Used only when `CREATOR_OPS_DB_PATH` points at it; opened read-only (aggregate counts, plus the allowlisted `task_definitions` catalog for the Registry) |
 | `C:\Users\Martin\AppData\Local\Programs\agent-orchestrator\resources\daemon\ao.exe` | Optional local AO CLI binary | Discovered by `start.ps1` when present; invoked only through the fixed allowlist |
 | `docs/assets/` | Stable visual references committed with this repository | Safe read-only design input for Claude and UI review |
 | Obsidian vault | Human-readable shared project projection | Path is intentionally not guessed; WONG remains canonical and live projection is disabled until explicitly configured |
@@ -708,8 +708,8 @@ only ever proves reachability, never authentication.
 
 ## CREATOR OPS adapter
 
-Set `CREATOR_OPS_DB_PATH` to override the default location
-(`C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3`). The
+Set `CREATOR_OPS_DB_PATH` to the database file (there is no built-in default path any more;
+unset means the adapter reports "not configured"). The
 adapter opens this file in SQLite URI `mode=ro` (the connection cannot write) and
 only ever runs fixed `SELECT COUNT(*)` queries against a hardcoded table allowlist —
 no row content is read. A missing file, a locked file, or a non-SQLite file is
@@ -725,3 +725,17 @@ python -m unittest tests.test_server -v
 The current verified run executed `py_compile` successfully and completed all 211 unit
 tests with `OK` (the first sandbox attempt was blocked by temporary-directory
 permissions; the external test run passed).
+
+## Read-only registry configuration (DETAILS → Registry)
+
+All registry paths come from environment variables; nothing user-specific is built in. See `docs/hive/DATA_CONTRACTS.md`
+for every variable, file format and bound. Example for a PowerShell session before `start.ps1`:
+
+```powershell
+$env:ORCHESTRATOR_VAULT_ROOT = '<path to the Orchestrator.inc folder of your vault>'
+$env:CREATOR_OPS_DB_PATH     = '<path to creator_ops.sqlite3>'
+# optional: $env:HIVE_SKILLS_ROOTS, $env:HIVE_PROMPTS_ROOTS, $env:HIVE_BOTS_ROOTS (';'-separated), $env:HIVE_TOOL_MANIFEST_DIR
+```
+
+Without `HIVE_SKILLS_ROOTS` the skill catalog reads only `~/.codex/skills` and `~/.agents/skills`. Without
+`ORCHESTRATOR_VAULT_ROOT` / `CREATOR_OPS_DB_PATH` the Obsidian projections and Creator Ops report "not configured".

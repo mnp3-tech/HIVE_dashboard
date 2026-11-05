@@ -3,6 +3,12 @@
     "agent": {
       "additionalProperties": false,
       "properties": {
+        "age_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "classification": {
           "const": "UNKNOWN"
         },
@@ -21,9 +27,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -95,7 +103,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -117,11 +125,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -161,9 +171,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -196,7 +208,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -212,11 +224,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -242,8 +256,18 @@
           "enum": [
             "discovered_not_activated",
             "metadata_only",
-            "configured_not_run"
+            "manifest_only",
+            "cataloged_not_executable"
           ]
+        },
+        "availability": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "backlinks": {
+          "type": "integer"
         },
         "content_hash": {
           "type": [
@@ -275,11 +299,19 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
+          ]
+        },
+        "done_tasks": {
+          "type": [
+            "integer",
+            "null"
           ]
         },
         "enabled": {
@@ -291,13 +323,19 @@
         "id": {
           "type": "string"
         },
+        "input_schema_summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "item_type": {
           "enum": [
             "skill",
-            "note",
-            "tool",
             "prompt",
             "bot",
+            "note",
+            "tool",
             "task_definition"
           ]
         },
@@ -328,8 +366,26 @@
             "null"
           ]
         },
+        "open_tasks": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "outgoing_links": {
           "type": "integer"
+        },
+        "output_limit_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_schema_summary": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "reason": {
           "type": [
@@ -338,17 +394,34 @@
           ]
         },
         "required_permissions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "risk_basis": {
+          "enum": [
+            "declared",
+            "derived_from_declared_tools",
+            "none"
+          ]
+        },
+        "risk_class": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "unclassified"
+          ]
+        },
+        "runtime": {
           "type": [
-            "array",
             "string",
             "null"
           ]
         },
-        "risk_class": {
-          "type": "null"
-        },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "size": {
           "type": "integer"
@@ -362,14 +435,29 @@
             "null"
           ]
         },
+        "source_path": {
+          "type": "string"
+        },
         "tags": {
           "type": "array"
         },
         "target": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout_s": {
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "transport": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "tree_hash": {
           "type": [
@@ -385,11 +473,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         },
@@ -429,15 +519,20 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
         },
         "id": {
           "type": "string"
+        },
+        "identity_verified": {
+          "type": "boolean"
         },
         "kind": {
           "const": "connector"
@@ -451,10 +546,23 @@
           },
           "type": "array"
         },
+        "notes_scanned": {
+          "type": "integer"
+        },
         "observed_at": {
           "type": [
             "string",
             "null"
+          ]
+        },
+        "part": {
+          "enum": [
+            "core",
+            "creator_ops",
+            "obsidian",
+            "catalogs",
+            "tools",
+            "proposals"
           ]
         },
         "reason": {
@@ -463,11 +571,8 @@
             "null"
           ]
         },
-        "root": {
-          "type": "string"
-        },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -489,13 +594,18 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
+        },
+        "vault_id": {
+          "type": "string"
         },
         "vault_name": {
           "type": "string"
@@ -530,9 +640,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -562,7 +674,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -581,11 +693,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -607,6 +721,12 @@
     "proposal": {
       "additionalProperties": false,
       "properties": {
+        "affected_area": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "affected_files": {
           "items": {
             "type": "string"
@@ -631,11 +751,31 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
+          ]
+        },
+        "evidence_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_row_prefix": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_row_sha256": {
+          "type": [
+            "string",
+            "null"
           ]
         },
         "expected_benefit": {
@@ -692,9 +832,6 @@
             "null"
           ]
         },
-        "review_status": {
-          "const": "PENDING_HUMAN_REVIEW"
-        },
         "risk": {
           "enum": [
             "low",
@@ -710,7 +847,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -719,6 +856,15 @@
           "type": [
             "string",
             "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PENDING_HUMAN_REVIEW",
+            "APPROVED_FOR_PROTOTYPE",
+            "REJECTED",
+            "STALE",
+            "EXPIRED"
           ]
         },
         "test_plan": {
@@ -732,11 +878,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -770,9 +918,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -811,7 +961,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -827,11 +977,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -871,9 +1023,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -909,7 +1063,7 @@
           "type": "string"
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -925,11 +1079,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -952,7 +1108,10 @@
       "additionalProperties": false,
       "properties": {
         "display": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "observed_at": {
           "type": [
@@ -974,11 +1133,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -1019,9 +1180,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -1063,7 +1226,7 @@
           "type": "array"
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -1100,11 +1263,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -1200,8 +1365,11 @@
             "null"
           ]
         },
+        "recent": {
+          "type": "array"
+        },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -1229,11 +1397,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -1279,9 +1449,11 @@
             "CONFLICT",
             "FIXTURE",
             "NOT_CONNECTED",
+            "NOT_VERIFIED",
             "OBSERVED",
             "OFFLINE",
             "STALE",
+            "UNAVAILABLE",
             "UNKNOWN",
             "UNVERIFIED"
           ]
@@ -1343,7 +1515,7 @@
           ]
         },
         "schema_version": {
-          "const": "hive.readonly.v1"
+          "const": "hive.readonly.v2"
         },
         "source": {
           "type": "string"
@@ -1368,11 +1540,13 @@
             "valid",
             "stale",
             "unavailable",
+            "inaccessible",
             "untrusted",
             "conflict",
             "unknown",
             "auth_required",
             "not_configured",
+            "not_verified",
             "fixture"
           ]
         }
@@ -1392,7 +1566,7 @@
       "type": "object"
     }
   },
-  "$id": "urn:hive:hive.readonly.v1",
+  "$id": "urn:hive:hive.readonly.v2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "Evidence envelope + record kinds served by /api/registry. Generated from hive_registry.build_schema(); do not edit by hand.",
   "title": "HIVE read-only registry records"

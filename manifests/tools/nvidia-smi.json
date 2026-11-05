@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "enabled": false,
+  "source": "hive-dashboard configuration (manifests/tools)",
+  "id": "nvidia-smi",
+  "name": "nvidia-smi GPU query",
+  "transport": "cli",
+  "argv": [
+    "nvidia-smi",
+    "--query-gpu=name,utilization.gpu,temperature.gpu",
+    "--format=csv,noheader,nounits"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "utilization_gpu": {
+        "type": "string"
+      },
+      "temperature_gpu": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "gpu.metrics.read"
+  ],
+  "required_permissions": [
+    "local.os.read"
+  ],
+  "risk": "low",
+  "timeout_s": 8,
+  "output_limit_bytes": 200000
+}

@@ -1,0 +1,1 @@
+SYNTHETIC FIXTURE prompt without frontmatter. Body must never be returned.

@@ -257,10 +257,8 @@ STATUS_BUCKETS = {
 # outside this single local SQLite file, and only ever executes fixed, hardcoded
 # COUNT(*) queries against a small allowlist of tables below -- no row content
 # (captions, handles, notes, URLs, credentials) is ever read or exposed.
-CREATOR_OPS_DB_PATH = os.environ.get(
-    "CREATOR_OPS_DB_PATH",
-    r"C:\Users\Martin\Documents\ChatGPT\CREATOR OPS\data\creator_ops.sqlite3",
-)
+# Explicit configuration only: no user-specific default path is committed. Unset => Creator Ops reports "not configured".
+CREATOR_OPS_DB_PATH = os.environ.get("CREATOR_OPS_DB_PATH", "").strip()
 CREATOR_OPS_TABLES = (
     "accounts",
     "posts",
@@ -275,38 +273,39 @@ CREATOR_OPS_TABLES = (
 
 # Shared Orchestrator.inc read-model sources. These are local, curated registry
 # artifacts only; they never become a second task database or an execution authority.
-ORCHESTRATOR_PROJECT_REGISTRY_PATH = Path(
-    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
-)
-# Computed with PureWindowsPath so the module also imports on non-Windows hosts (CI/cloud).
-ORCHESTRATOR_VAULT_ROOT = Path(str(PureWindowsPath(
-    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Registry\projects.json"
-).parents[1]))
-ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH = Path(
-    r"C:\Users\Martin\Documents\Obsidian Vault\Orchestrator.inc\Tasks\self-evolution\P-013-proposal-only-control-plane.ukol.md"
-)
-ORCHESTRATOR_CONTEXT_SOURCES = {
+def _configured_dir(env_name: str):
+    """An absolute directory from an environment variable, or None. No user-specific default is ever used."""
+    raw = os.environ.get(env_name, "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() and ".." not in path.parts else None
+
+
+# The Orchestrator.inc folder of the Obsidian vault, from ORCHESTRATOR_VAULT_ROOT only. Unset => the project-registry,
+# self-evolution checkpoint and context-source projections report "not configured" instead of guessing a path.
+ORCHESTRATOR_VAULT_ROOT = _configured_dir("ORCHESTRATOR_VAULT_ROOT")
+ORCHESTRATOR_PROJECT_REGISTRY_PATH = ORCHESTRATOR_VAULT_ROOT / "Registry" / "projects.json" if ORCHESTRATOR_VAULT_ROOT else None
+ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH = (ORCHESTRATOR_VAULT_ROOT / "Tasks" / "self-evolution" / "P-013-proposal-only-control-plane.ukol.md"
+                                         if ORCHESTRATOR_VAULT_ROOT else None)
+_CONTEXT_SOURCES_RELATIVE = {
     "orchestrator-inc": (
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-008-worker-adapters.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-015-local-model-and-jarvis-discovery.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-020-disposable-cli-worker-adapters.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-021-obsidian-memory-contract.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-022-session-attestation-and-routing-decision.ukol.md",
-        ORCHESTRATOR_VAULT_ROOT / "Operations/Memory-flow.md",
+        "Tasks/orchestrator-inc/P-008-worker-adapters.ukol.md",
+        "Tasks/orchestrator-inc/P-015-local-model-and-jarvis-discovery.ukol.md",
+        "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
+        "Tasks/orchestrator-inc/P-019-worker-inventory-and-coordination.ukol.md",
+        "Tasks/orchestrator-inc/P-020-disposable-cli-worker-adapters.ukol.md",
+        "Tasks/orchestrator-inc/P-021-obsidian-memory-contract.ukol.md",
+        "Tasks/orchestrator-inc/P-022-session-attestation-and-routing-decision.ukol.md",
+        "Operations/Memory-flow.md",
     ),
-    "unified-dashboard": (
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/unified-dashboard/P-018-hive-operations-cockpit.ukol.md",
-    ),
-    "self-evolution": (ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH,),
-    "creator-ops": (
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-011-creator-ops-instagram-story-skill.ukol.md",
-    ),
-    "jarvis": (
-        ORCHESTRATOR_VAULT_ROOT / "Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",
-    ),
+    "unified-dashboard": ("Tasks/unified-dashboard/P-018-hive-operations-cockpit.ukol.md",),
+    "self-evolution": ("Tasks/self-evolution/P-013-proposal-only-control-plane.ukol.md",),
+    "creator-ops": ("Tasks/orchestrator-inc/P-011-creator-ops-instagram-story-skill.ukol.md",),
+    "jarvis": ("Tasks/orchestrator-inc/P-016-jarvis-stt-tts-runtime.ukol.md",),
 }
+ORCHESTRATOR_CONTEXT_SOURCES = ({pid: tuple(ORCHESTRATOR_VAULT_ROOT / rel for rel in rels) for pid, rels in _CONTEXT_SOURCES_RELATIVE.items()}
+                                if ORCHESTRATOR_VAULT_ROOT else {})
 CONTEXT_MAX_QUERY = 160
 CONTEXT_MAX_RECORDS = 20
 CONTEXT_MAX_CHARS = 6_000
@@ -1084,6 +1083,8 @@ def project_catalog():
 def orchestrator_project_registry():
     """Read the curated Obsidian project registry without exposing raw payloads."""
     source = "obsidian:Registry/projects.json"
+    if ORCHESTRATOR_PROJECT_REGISTRY_PATH is None:
+        return [], evidence(source, None, "unavailable", "Project registry not configured: set ORCHESTRATOR_VAULT_ROOT")
     try:
         raw = json.loads(ORCHESTRATOR_PROJECT_REGISTRY_PATH.read_text(encoding="utf-8"))
         records = raw.get("projects", []) if isinstance(raw, dict) else []
@@ -1125,6 +1126,8 @@ def validate_memory_envelope(envelope: dict) -> bool:
 
 
 def _context_record(project_id: str, path: Path, include_content: bool = False) -> dict | None:
+    if ORCHESTRATOR_VAULT_ROOT is None:
+        return None
     try:
         resolved = path.resolve()
         root = ORCHESTRATOR_VAULT_ROOT.resolve()
@@ -1271,6 +1274,8 @@ def context_propose(payload: dict) -> dict:
 def self_evolution_status():
     """Project-scoped P-013 checkpoint projection; proposal-only and read-only."""
     source = "obsidian:Tasks/self-evolution/P-013-proposal-only-control-plane.ukol.md"
+    if ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH is None:
+        return {"item": None, "evidence": evidence(source, None, "unavailable", "Self-evolution checkpoint not configured: set ORCHESTRATOR_VAULT_ROOT")}
     try:
         text = ORCHESTRATOR_SELF_EVOLUTION_TASK_PATH.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as error:
@@ -1692,6 +1697,12 @@ def creator_ops_status() -> dict:
     ever read. Failure to open or query the file is reported as unavailable with a
     real reason, never fabricated as empty/zero counts.
     """
+    base_cfg = {"configured": bool(CREATOR_OPS_DB_PATH)}
+    if not CREATOR_OPS_DB_PATH:
+        return {**base_cfg, "token_configured": False, "authenticated": False, "authentication_validity": "unavailable",
+                "authentication_reason": "No credentials are used; this is a local, read-only file adapter.", "reachable": False,
+                "last_observed_at": None, "last_seen": None, "validity": "unavailable",
+                "reason": "CREATOR OPS database not configured: set CREATOR_OPS_DB_PATH", "counts": {}}
     db_path = Path(CREATOR_OPS_DB_PATH)
     base = {"configured": True, "token_configured": False, "authenticated": False,
             "authentication_validity": "unavailable", "authentication_reason": "No credentials are used; this is a local, read-only file adapter."}
@@ -1779,22 +1790,15 @@ def adapter_health(health: dict, ready: dict) -> dict:
     }
 
 
-def registry_tools() -> list:
-    """Configured tool definitions for the read-only registry. Listing them never runs them."""
-    tools = [{"id": wid, "name": name, "transport": "cli", "target": " ".join(argv)} for wid, name, argv in LOCAL_CLI_PROBES]
-    tools += [{"id": wid, "name": name, "transport": "http loopback", "target": url} for wid, name, url, _ in LOCAL_WORKER_PROBES]
-    tools.append({"id": "ao-cli", "name": "AO CLI", "transport": "cli", "target": "configured" if AO_CLI_PATH else "not configured"})
-    tools.append({"id": "os-probe", "name": "Windows OS probe", "transport": "cli", "target": "powershell.exe (fixed read-only script in hive_system.py)"})
-    tools.append({"id": "nvidia-smi", "name": "nvidia-smi", "transport": "cli", "target": " ".join(hive_system.NVIDIA_ARGV)})
-    return tools
+REGISTRY_CACHE = hive_registry.RegistryCache()
 
 
-def registry_snapshot() -> dict:
-    """Read-only registry (hive_registry.py). Runs inside the snapshot preflight scope so an unreachable Core costs one bounded call.
-    The Obsidian root comes only from the ORCHESTRATOR_VAULT_ROOT environment variable, never from the hardcoded constant above."""
-    with core_snapshot_scope():
-        return hive_registry.build_registry(fetch_with_evidence, creator_ops_status, registry_tools(),
-                                            vault_root=os.environ.get("ORCHESTRATOR_VAULT_ROOT") or None, bucket=bucket_for)
+def registry_snapshot(parts=None) -> dict:
+    """Read-only registry (hive_registry.py). Loaded only when the Registry view asks for it; each source runs isolated with its
+    own timeout and cache TTL; the HIVE Core part runs inside the snapshot preflight scope in its own thread. Paths come only from
+    environment variables (see docs/hive/DATA_CONTRACTS.md); nothing is executed and nothing is written."""
+    return hive_registry.build_registry(fetch_with_evidence, hive_registry.config_from_env(), bucket=bucket_for, parts=parts,
+                                        cache=REGISTRY_CACHE, core_scope=core_snapshot_scope, creator_ops_counts=creator_ops_status)
 
 
 def snapshot():
@@ -2045,7 +2049,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/dashboard/snapshot":
                 return self.json_response(snapshot())
             if path == "/api/registry":
-                return self.json_response(registry_snapshot())
+                requested = [p for p in ",".join(parse_qs(urlparse(self.path).query).get("part", [])).split(",") if p]
+                if any(p not in hive_registry.PARTS for p in requested):
+                    return self.json_response({"error": f"unknown registry part; allowed: {', '.join(hive_registry.PARTS)}"}, 400)
+                return self.json_response(registry_snapshot(requested or None))
             if path == "/api/control/capabilities":
                 return self.json_response({
                     "delegation": {"proposal": True, "task": False, "mission": False, "self_upgrade_apply": False},

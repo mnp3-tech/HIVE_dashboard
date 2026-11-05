@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only registry check on the real host (intended for the Windows PC).
 
-Builds the same registry GET /api/registry serves, validates every record against schemas/hive-readonly-v1.schema.json and
+Builds the same registry GET /api/registry serves (all parts), validates every record against schemas/hive-readonly-v1.schema.json and
 prints a summary: connector states, ULTRON status, counts, and for skills only name, version, hash prefix and declared
 capabilities (no descriptions, no note content, no paths beyond the configured roots). Executes nothing, writes nothing.
 Exit 0 = schema valid and read-only invariants hold; 1 = a check failed (the summary still prints).
@@ -30,17 +30,23 @@ def main():
     print(f"registry {reg['schema_version']} generated {reg['generated_at']} mode={reg['mode']}")
     for c in reg["connectors"]:
         print(f"  connector {c['id']:<28} {c['display']:<14} {c.get('reason') or ''}"[:200])
-    u = reg["ultron"]
+    u = reg.get("ultron") or {"display": "PART NOT LOADED", "state": "UNKNOWN", "source": "-", "observed_at": None, "reason": "core part did not answer"}
     print(f"  ULTRON {u['display']} state={u['state']} source={u['source']} observed_at={u['observed_at']} reason={u['reason']}"[:240])
     for key in ("agents", "workers", "providers", "capabilities"):
-        print(f"  {key:<12} {len(reg[key]['items']):>4}  section={reg[key]['evidence']['display']}")
-    print(f"  tasks        {len(reg['tasks']['instances']['items']):>4}  definitions={reg['tasks']['definitions']['evidence']['display']}")
-    for key, sec in reg["catalogs"].items():
-        print(f"  catalog {key:<10} {len(sec['items']):>4}  section={sec['evidence']['display']}")
-    for s in reg["catalogs"]["skills"]["items"]:
+        sec = reg.get(key) or {"items": [], "evidence": {"display": "PART NOT LOADED"}}
+        print(f"  {key:<12} {len(sec['items']):>4}  section={sec['evidence'].get('display')}")
+    inst = (reg.get("tasks") or {}).get("instances") or {"items": []}
+    print(f"  tasks        {len(inst['items']):>4}  (HIVE Core task instances)")
+    for key, sec in (reg.get("catalogs") or {}).items():
+        print(f"  catalog {key:<11} {len(sec['items']):>4}  section={sec['evidence'].get('display') or 'aggregate (per-root connectors above)'}")
+    for part, meta in reg.get("parts", {}).items():
+        if meta.get("error"):
+            print(f"  part {part}: {meta['error']}")
+    for s in ((reg.get("catalogs") or {}).get("skills") or {"items": []})["items"]:
         print(f"    skill {s['source']}/{s['source_id']}: {s.get('name')} v={s.get('version') or 'NOT_PROVIDED'} {str(s.get('content_hash'))[:19]} "
               f"caps={','.join(s.get('declared_capabilities') or []) or 'NOT_PROVIDED'} enabled={s['enabled']}"[:220])
-    print(f"  proposals    {len(reg['proposals']['items']):>4}  " + ", ".join(f"{p['proposal_id']}={p['display']}" for p in reg["proposals"]["items"]))
+    props = (reg.get("proposals") or {"items": []})["items"]
+    print(f"  proposals    {len(props):>4}  " + ", ".join(f"{p['proposal_id']}={p['status']}" for p in props))
     print("PASS" if not problems else "FAIL: " + "; ".join(problems[:10]))
     return 0 if not problems else 1
 

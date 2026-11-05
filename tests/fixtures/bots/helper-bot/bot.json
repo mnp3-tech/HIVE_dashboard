@@ -1,0 +1,14 @@
+{
+  "name": "helper-bot",
+  "version": "0.3.0",
+  "description": "SYNTHETIC FIXTURE bot manifest.",
+  "runtime": "local-fixture",
+  "tools": [
+    "Read",
+    "Bash"
+  ],
+  "permissions": [
+    "repo.read"
+  ],
+  "enabled": true
+}

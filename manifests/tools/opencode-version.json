@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "enabled": false,
+  "source": "hive-dashboard configuration (manifests/tools)",
+  "id": "opencode-version",
+  "name": "OpenCode version probe (WSL)",
+  "transport": "cli",
+  "argv": [
+    "wsl.exe",
+    "-d",
+    "Ubuntu-24.04",
+    "--",
+    "opencode",
+    "--version"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "version": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "worker.cli.version"
+  ],
+  "required_permissions": [
+    "local.process.start"
+  ],
+  "risk": "medium",
+  "timeout_s": 4,
+  "output_limit_bytes": 4096
+}

@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "enabled": false,
+  "source": "hive-dashboard configuration (manifests/tools)",
+  "id": "lmstudio-models",
+  "name": "LM Studio model listing",
+  "transport": "http-loopback",
+  "endpoint": "http://127.0.0.1:1234/v1/models",
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "models.list.local"
+  ],
+  "required_permissions": [
+    "loopback.http.read"
+  ],
+  "risk": "low",
+  "timeout_s": 2,
+  "output_limit_bytes": 128000
+}

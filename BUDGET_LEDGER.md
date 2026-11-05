@@ -120,3 +120,7 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 ## Read-only foundation (GAP-10 added; GAP-5 still OPEN)
 - hive_registry.py, schemas/hive-readonly-v1.schema.json, server.py and fixture_server.py (`/api/registry`), app.js/index.html/styles.css (Registry view), docs/hive/proposals/proposals-v1.json, tools/registry_summary.py, tests/test_registry.py (+41), tests/e2e/registry.e2e.mjs (+4), tests/fixtures/ (synthetic), docs. Full suite once on the final code: Python 351, UI contract 20, Node 97, Playwright 7+10+11+7+16+4, all green. One defect caught by the tests and fixed (shared evidence log).
 - Effort: rough estimate about $12-15 of the USER-REPORTED ~$70 remaining (not observed). Subagents: 5 of 8 (none used). Nothing executed, nothing written externally, no PROD/WONG/ROCKET access. P1.2/P1.3 not started.
+
+## Registry v2 and read-only operational integrations
+- Basis: USER-REPORTED ~$70 remaining at Gate A (before the read-only foundation). ESTIMATED effort (rough, not observed): read-only foundation ~$12-15; this phase ~$18-22; estimated remaining on the user-reported basis ~$33-40. The historical ESTIMATED running total (~$97) is left unchanged above; the two bases are recorded side by side and remain unreconciled.
+- Files: see HANDOFF_REPORT section 29. Tests once on the final code: Python 356, UI contract 20, Node 97, Playwright 7+10+11+7+16+6, all green. Subagents: 5 of 8 (none used). No execution path, no external write, no PROD/WONG/ROCKET access. P1.3 not started.

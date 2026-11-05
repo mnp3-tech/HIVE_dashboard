@@ -1,0 +1,48 @@
+{
+  "version": "1.0.0",
+  "enabled": false,
+  "source": "hive-dashboard configuration (manifests/tools)",
+  "id": "os-probe",
+  "name": "Windows OS probe",
+  "transport": "cli",
+  "argv": [
+    "powershell.exe",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "(fixed read-only script in hive_system.py)"
+  ],
+  "input_schema": {
+    "type": "object",
+    "properties": {}
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "cpu_percent": {
+        "type": "string"
+      },
+      "mem_total_kb": {
+        "type": "string"
+      },
+      "mem_free_kb": {
+        "type": "string"
+      },
+      "volumes": {
+        "type": "string"
+      },
+      "pnp": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "system.metrics.read"
+  ],
+  "required_permissions": [
+    "local.os.read"
+  ],
+  "risk": "low",
+  "timeout_s": 8,
+  "output_limit_bytes": 200000
+}

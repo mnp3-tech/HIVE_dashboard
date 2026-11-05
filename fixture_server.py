@@ -319,9 +319,30 @@ def fixture_model_limits(now: datetime) -> dict:
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "tests" / "fixtures"
+_FIXTURE_DB: Path | None = None
 
 
-def fixture_registry(now: datetime) -> dict:
+def fixture_creator_db() -> Path:
+    """Synthetic Creator Ops database (temporary file, created once) matching the documented task_definitions contract."""
+    global _FIXTURE_DB
+    if _FIXTURE_DB is None or not _FIXTURE_DB.is_file():
+        import sqlite3
+        import tempfile
+        path = Path(tempfile.mkdtemp(prefix="hive-fixture-")) / "creator_ops_fixture.sqlite3"
+        db = sqlite3.connect(path)
+        db.execute("CREATE TABLE task_definitions (id TEXT, name TEXT, version TEXT, input_schema TEXT, output_schema TEXT, required_capabilities TEXT, risk_class TEXT, availability TEXT)")
+        db.execute("CREATE TABLE accounts (id TEXT, handle TEXT, secret TEXT)")  # must never be read by the catalog
+        db.executemany("INSERT INTO task_definitions VALUES (?,?,?,?,?,?,?,?)", [
+            ("story-draft", "Draft an Instagram story (SYNTHETIC)", "2.1.0", '{"type":"object","properties":{"topic":{},"tone":{}}}', '{"type":"object","properties":{"draft":{}}}', '["content.draft"]', "medium", "listed"),
+            ("caption-check", "Caption check <img src=x onerror=alert(1)> (SYNTHETIC)", "1.0.0", "not json", None, "content.review", "low", None)])
+        db.execute("INSERT INTO accounts VALUES ('a1', 'fixture_handle', 'FIXTURE-SECRET-MUST-NOT-APPEAR')")
+        db.commit()
+        db.close()
+        _FIXTURE_DB = path
+    return _FIXTURE_DB
+
+
+def fixture_registry(now: datetime, parts=None) -> dict:
     """Read-only registry on synthetic data. hive_registry labels every record fixture, so none can read as live."""
     iso = lambda seconds: (now - timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
     core = {
@@ -337,6 +358,7 @@ def fixture_registry(now: datetime) -> dict:
             {"id": "task-fixture-2", "title": "Unassigned task (fixture)", "status": "queued", "created_at": iso(120)}]},
         "/events": {"items": [
             {"event_id": "evt-ultron-1", "role_id": "ULTRON", "state": "working", "timestamp": iso(20), "event_type": "ROUTING_OBSERVED", "title": "fixture routing pulse"},
+            {"event_id": "evt-ultron-0", "role_id": "ULTRON", "state": "idle", "timestamp": iso(400), "event_type": "HEALTH_OBSERVED"},
             {"event_id": "evt-fury-1", "role_id": "FURY", "state": "working", "provider": "claude", "timestamp": iso(30), "task_id": "task-fixture-1", "correlation_id": "corr-fixture-1"},
             {"event_id": "evt-thor-old", "role_id": "THOR", "state": "idle", "timestamp": iso(900)},
             {"event_id": "evt-vision-future", "role_id": "VISION", "state": "working", "timestamp": iso(-3600)}]},
@@ -347,12 +369,12 @@ def fixture_registry(now: datetime) -> dict:
         return core.get(key), {"source": f"hive:{path}", "observed_at": iso(1), "validity": "valid" if key in core else "unavailable",
                                "reason": None if key in core else "not in fixture"}
 
-    def creator_ops():
-        return {"validity": "valid", "reason": "Synthetic counts (fixture).", "last_observed_at": iso(5), "counts": {"local_tasks": 3, "creative_tools": 2}}
-
-    return hive_registry.build_registry(fetch, creator_ops, [{"id": "fixture-tool", "name": "Fixture tool", "transport": "cli", "target": "none (fixture)"}],
-                                        skill_roots=[("fixture", str(FIXTURE_DIR / "skills"))], vault_root=str(FIXTURE_DIR / "vault"),
-                                        now=lambda: now, mode="fixture")
+    cfg = hive_registry.RegistryConfig(
+        skill_roots=[("fixture", str(FIXTURE_DIR / "skills"))], prompt_roots=[("fixture", str(FIXTURE_DIR / "prompts"))],
+        bot_roots=[("fixture", str(FIXTURE_DIR / "bots"))], vault_root=str(FIXTURE_DIR / "vault"), creator_ops_db=str(fixture_creator_db()),
+        tool_manifest_dir=str(FIXTURE_DIR / "tools"),
+        sources={k: "fixture (tests/fixtures)" for k in ("skills", "prompts", "bots", "obsidian", "creator_ops", "tools")})
+    return hive_registry.build_registry(fetch, cfg, now=lambda: now, mode="fixture", parts=parts)
 
 
 def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = None) -> tuple[dict, int]:
@@ -364,7 +386,10 @@ def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = N
     if path == "/api/dashboard/snapshot":
         return build_snapshot(now), 200
     if path == "/api/registry":
-        return fixture_registry(now), 200
+        requested = [p for p in ",".join(query.get("part", [])).split(",") if p]
+        if any(p not in hive_registry.PARTS for p in requested):
+            return {"error": f"unknown registry part; allowed: {', '.join(hive_registry.PARTS)}"}, 400
+        return fixture_registry(now, requested or None), 200
     if path == "/api/control/worker-policy":
         return build_worker_policy(now), 200
     if path == "/api/control/capabilities":

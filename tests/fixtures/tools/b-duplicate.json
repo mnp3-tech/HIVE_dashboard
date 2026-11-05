@@ -1,0 +1,35 @@
+{
+  "version": "0.1.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "q": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "r": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "fixture.read"
+  ],
+  "required_permissions": [
+    "fixture.read"
+  ],
+  "risk": "low",
+  "timeout_s": 5,
+  "output_limit_bytes": 1000,
+  "id": "fixture-echo",
+  "name": "Duplicate id (SYNTHETIC)",
+  "transport": "cli",
+  "argv": [
+    "echo",
+    "dup"
+  ]
+}

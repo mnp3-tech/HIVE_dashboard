@@ -1,0 +1,32 @@
+{
+  "version": "0.1.0",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "q": {
+        "type": "string"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "r": {
+        "type": "string"
+      }
+    }
+  },
+  "capabilities": [
+    "fixture.read"
+  ],
+  "required_permissions": [
+    "fixture.read"
+  ],
+  "risk": "low",
+  "timeout_s": 5,
+  "output_limit_bytes": 1000,
+  "id": "fixture-remote",
+  "name": "Remote endpoint (SYNTHETIC, rejected)",
+  "transport": "http-loopback",
+  "endpoint": "http://example.com/api"
+}

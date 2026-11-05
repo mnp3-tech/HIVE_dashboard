@@ -347,3 +347,7 @@ body.reduced-motion .core-arms,body.reduced-motion .core-ambient path,body.reduc
 .reg-chip{font:10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;padding:3px 6px;border-radius:5px;border:1px solid #3a5566;color:#9fb5c4;white-space:nowrap}
 .reg-chip.ok{color:var(--cyan,#5fd6e8);border-color:#2d6359}.reg-chip.warn{color:#f3c56b;border-color:#6b5525}.reg-chip.fail{color:#ff7b86;border-color:#6b2a33}
 .reg-chip.deferred{color:#c7a6ff;border-color:#4a3568}.reg-chip.unknown{color:#9fb5c4;border-color:#3a5566}
+.reg-q{display:inline-block;min-width:14px;text-align:center;font-weight:700;color:#9fb5c4;border:1px dashed #3a5566;border-radius:4px;padding:0 3px;cursor:help}
+.reg-sub{margin:8px 0 2px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#8aa3b3)}
+.reg-line{margin:2px 0;font-size:12px;overflow-wrap:anywhere}
+.reg-section[aria-busy="true"]>summary small{font-style:italic}

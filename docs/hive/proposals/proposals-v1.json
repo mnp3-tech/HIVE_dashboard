@@ -24,7 +24,10 @@
     ],
     "rollback_plan": "Revert the commit; the current behaviour (no correlation, no inferred link) is the safe fallback.",
     "created_at": "2026-11-05T12:00:00Z",
-    "expires_at": "2027-02-05T12:00:00Z"
+    "expires_at": "2027-02-05T12:00:00Z",
+    "status": "PENDING_HUMAN_REVIEW",
+    "affected_area": "event contract / CORE movement",
+    "correlation_id": "prop:PROP-0001"
   },
   {
     "proposal_id": "PROP-0002",
@@ -51,7 +54,10 @@
     ],
     "rollback_plan": "Revert the connector; local-only labelling remains the fail-closed default.",
     "created_at": "2026-11-05T12:00:00Z",
-    "expires_at": "2027-02-05T12:00:00Z"
+    "expires_at": "2027-02-05T12:00:00Z",
+    "status": "PENDING_HUMAN_REVIEW",
+    "affected_area": "approvals",
+    "correlation_id": "prop:PROP-0002"
   },
   {
     "proposal_id": "PROP-0003",
@@ -75,6 +81,9 @@
     ],
     "rollback_plan": "Revert the pattern change; the current regex stays in place.",
     "created_at": "2026-11-05T12:00:00Z",
-    "expires_at": "2027-02-05T12:00:00Z"
+    "expires_at": "2027-02-05T12:00:00Z",
+    "status": "PENDING_HUMAN_REVIEW",
+    "affected_area": "redaction",
+    "correlation_id": "prop:PROP-0003"
   }
 ]
