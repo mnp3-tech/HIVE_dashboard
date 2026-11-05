@@ -52,3 +52,7 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Defects found and fixed: "USB 0" shown for a failed probe; removable media classified external; phone note truncated at 1280x720.
 - Not started: P1.2 (profiles, Obsidian/WONG/Internet), P1.3 (ULTRON, EVOLVE), layout editor. GAP-1..GAP-7 unchanged and OPEN; GAP-8 added.
 - Subagents: 4 total (none used in P1.1). Effort: ~$7 of $10 for P1.1; running total about $46 of $100 (rough, not observed spend).
+
+## Visual parity review (GAP-5), documentation only
+- Produced docs/hive/screenshots/compare-{1280,1920,2560}.png (target vs fixture UI), docs/hive/VISUAL_REVIEW.md (16 differences, deliberate truthfulness deviations, task-card data sources, plan). No code or test changes. GAP-5 stays OPEN; GAP-1..GAP-8 unchanged.
+- Effort ~$1. Implementation (~$12-15 est.) not started; it changes the layout grid, so it waits for a backup tag created by the owner.
