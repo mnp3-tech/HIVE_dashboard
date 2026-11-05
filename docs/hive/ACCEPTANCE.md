@@ -175,3 +175,9 @@ Effect on tracked items (statuses unchanged unless stated): S15.15 gains a user-
 - Not done in P1.1 (still NOT_RUN): GPU utilization without nvidia-smi, per-core/other temperature sources, any provider quota fetching.
 
 (Visual phase: S15.1 stays NOT_VERIFIED; new automated checks for the visual phase live in tests/e2e/visual.e2e.mjs, tests/core.test.mjs (context labels) and tests/ops.test.mjs (task cards). They verify truthfulness constraints and layout, not visual similarity.)
+
+## Owner decisions after the wallpaper integration
+- Wallpaper integration (commit 305bc87) accepted by the owner as a provenance-safe asset integration only. Full visual parity is NOT accepted; GAP-5 stays OPEN. The owner will inspect the regenerated comparisons at 1280x720, 1920x1080 and 2560x1440 before any further visual change or P1 phase.
+- UI-1 (OPEN, targeted issue): at 1280x720 the UNKNOWN captions under the GPU and TEMP gauges in System Resources touch. Fix only when the owner approves further visual work; must keep the "UNKNOWN" label and the 13.2 reference-px text floor.
+- ASSET-1 (OPEN, accepted limitation): the wallpaper source is 1672x941 and is upscaled 1.53x to 2560x1440, so it is soft. Not to be masked with CSS sharpening or filters; resolved only by a higher-resolution source.
+- Measured CORE geometry is frozen. P1.2 and P1.3 are not started and wait for an explicit owner decision.
