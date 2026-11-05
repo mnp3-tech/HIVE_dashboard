@@ -90,3 +90,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## P1.1 single data path (GAP-8 stays OPEN)
 - hive-ops.js (no Core-metric fallback, richer hover), app.js (call), tests/ops.test.mjs (1 replaced, 1 added), docs. Full suite once: Python 292, ui_contract 20, Node 89, Playwright 7+10+11+7+15 green. Effort ~$1.5 (rough); running total about $84 of $100 (tool-building and docs included). Subagents 5 of 8. P1.2/P1.3 not started.
+
+## Live-check tool hardening (GAP-8 stays OPEN)
+- tools/live_check_windows.mjs (node:http, crash handlers, NOT_RUN/FAIL exit codes, server cleanup, stderr kept), tests/live_check.test.mjs (+4), docs. Effort ~$1.5 (rough); running total about $85.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.
