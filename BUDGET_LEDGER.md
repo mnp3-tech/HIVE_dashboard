@@ -99,3 +99,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Windows diagnostic follow-up: snapshot latency finding (GAP-8 open, GAP-9 added)
 - tools/diagnose_snapshot.py (new), tools/live_check_windows.mjs (snapshot latency separated, exit 6, --skip-browser), tests (+1 Python, +1 Node), docs. No product timeout changed. Full suite once: Python 301, ui_contract 20, Node 95, Playwright 7+10+11+7+15 green. Effort ~$2 (rough); running total about $90.5 of $100 - remaining budget is small, so further Windows iterations should be run-then-fix with minimal tooling. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## GAP-9 narrow fix: Core preflight gate (GAP-8/GAP-9 open)
+- server.py (preflight gate in core_json + snapshot wrapper), tests/test_snapshot_latency.py (+9), docs. No timeout increased. Full suite once: Python 310, ui_contract 20, Node 95, Playwright 7+10+11+7+15 green. Effort ~$2 (rough); running total about $92.5 of $100 - remaining budget is small; further Windows rounds should stay run-then-fix. Subagents 5 of 8. P1.2/P1.3 not started.

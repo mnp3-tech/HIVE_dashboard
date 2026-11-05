@@ -29,7 +29,9 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PureWindowsPath
@@ -720,6 +722,24 @@ def ao_recover_send(session_id, client_message_id, confirm) -> dict:
     }
 
 
+# Snapshot-scoped preflight gate (GAP-9). Inside snapshot() the FIRST Core call is a bounded preflight; if it fails at the
+# connection level (refused / no response in time), every remaining GET to Core in that snapshot is skipped and reports the same
+# unavailable state with a reason instead of waiting for its own timeout (on Windows a refused loopback connect can take ~2 s each).
+# HTTP errors (401/403/404/500...) prove Core is reachable and never trip the gate. Nothing is cached across snapshots.
+CORE_PREFLIGHT_TIMEOUT_S = 1.5
+CORE_CALL_TIMEOUT_S = 4
+_core_gate = threading.local()
+
+
+@contextmanager
+def core_snapshot_scope():
+    _core_gate.state = {"first": True, "down": None}
+    try:
+        yield
+    finally:
+        _core_gate.state = None
+
+
 def core_json(path: str, method: str = "GET", body: dict | None = None, idempotency_key: str | None = None):
     if not CORE_URL_IS_LOOPBACK:
         raise AdapterError("HIVE_CORE_URL does not resolve to a loopback address; refusing to contact a non-loopback Core", 503)
@@ -735,8 +755,15 @@ def core_json(path: str, method: str = "GET", body: dict | None = None, idempote
         headers["Idempotency-Key"] = idempotency_key
     payload = json.dumps(body).encode("utf-8") if body is not None else None
     request = Request(f"{CORE_URL}{path}", data=payload, headers=headers, method=method)
+    gate = getattr(_core_gate, "state", None) if method == "GET" else None
+    timeout = CORE_CALL_TIMEOUT_S
+    if gate is not None:
+        if gate["down"]:
+            raise AdapterError(gate["down"], 503)
+        if gate["first"]:
+            timeout, gate["first"] = CORE_PREFLIGHT_TIMEOUT_S, False
     try:
-        with urlopen(request, timeout=4) as response:
+        with urlopen(request, timeout=timeout) as response:
             raw = response.read(512_000)
             return json.loads(raw.decode("utf-8")) if raw else {}
     except HTTPError as error:
@@ -745,7 +772,12 @@ def core_json(path: str, method: str = "GET", body: dict | None = None, idempote
             raise AdapterError("HIVE Core rejected authentication or authorization", error.code) from None
         raise AdapterError(f"HIVE Core returned HTTP {error.code}: {detail[:240]}", error.code) from None
     except (URLError, TimeoutError, OSError) as error:
-        raise AdapterError(f"HIVE Core is unavailable: {error.reason if hasattr(error, 'reason') else error}", 503) from None
+        reason = f"HIVE Core is unavailable: {error.reason if hasattr(error, 'reason') else error}"
+        # connection-level only: a refused/unreachable/timed-out socket (an OSError or timeout), not any URLError
+        transport = isinstance(error, (TimeoutError, OSError)) and not isinstance(error, URLError) or isinstance(getattr(error, "reason", None), (OSError, TimeoutError))
+        if gate is not None and gate["down"] is None and transport:
+            gate["down"] = reason + " (preflight failed; the remaining HIVE Core probes were skipped in this snapshot)"
+        raise AdapterError(reason, 503) from None
     except (ValueError, UnicodeError) as error:
         raise AdapterError(f"HIVE Core returned invalid JSON: {error}", 502) from None
 
@@ -1747,6 +1779,11 @@ def adapter_health(health: dict, ready: dict) -> dict:
 
 
 def snapshot():
+    with core_snapshot_scope():
+        return _snapshot_impl()
+
+
+def _snapshot_impl():
     health = health_probe()
     ready = ready_probe()
     if health["status"] in HEALTH_OK_STATUSES:
