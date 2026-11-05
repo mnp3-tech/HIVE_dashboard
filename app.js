@@ -122,7 +122,7 @@ function render(){
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
   evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderView();
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderShell(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -325,6 +325,38 @@ function renderTargets(snapshot){
   setText('delegate-worker-evidence', evidenceLine(snapshot.workersEvidence));
 }
 
+
+// ---- P0.1 cockpit shell: every value below comes from the snapshot or reads UNKNOWN / NOT PROVIDED ----
+const SHELL_ROLES = ['FURY','SHURI','THOR','VISION','FALCON','UATU'];
+const SHELL_PROVIDERS = [['gpt','GPT'],['codex','CODEX'],['claude','CLAUDE']];
+function providerObservation(snapshot, key){
+  const hit=(snapshot.workers||[]).filter(item=>item && String(item.provider||item.name||item.id||'').toLowerCase().includes(key));
+  if(!hit.length) return {tone:'unknown', label:'UNKNOWN'};
+  const status=hit[0].status||'unknown'; return {tone:tone(status), label:stateLabel(status)};
+}
+function gaugeMarkup(label, metric){
+  const known=metric && metric.value!=null && Number.isFinite(Number(metric.value)) && metric.unit==='%';
+  const pct=known?Math.max(0,Math.min(100,Number(metric.value))):0; const c=2*Math.PI*40;
+  return `<div class="gauge ${known?'':'unknown'}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(label)} ${known?pct.toFixed(0)+'%':'UNKNOWN'}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${known?pct.toFixed(0)+' %':'UNKNOWN'}</text></svg><label>${esc(label)}</label></div>`;
+}
+function renderShell(snapshot){
+  const status=snapshot.core&&snapshot.core.status; const t=tone(status);
+  const stage=$('#core-stage'); if(stage) stage.dataset.tone=t;
+  setText('core-center-state', stateLabel(status)); setText('env-tag', snapshot.environment || 'UNVERIFIED');
+  SHELL_PROVIDERS.forEach(([key])=>{ const chip=$(`.source-chip[data-provider="${key}"]`); if(!chip) return; const o=providerObservation(snapshot,key); chip.className=`source-chip ${o.tone}`; const em=chip.querySelector('em'); if(em) em.textContent=o.label; });
+  const sessions=(state.chat&&state.chat.sessions)||[];
+  const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';
+  const projects=(snapshot.projects||[]).filter(item=>item&&(item.id||item.name)); const pr=$('#project-rail');
+  if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map(item=>`<div class="rail-row"><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
+  const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>`<div class="rail-row"><i class="dot"></i><div class="grow"><strong>${role}</strong></div><span class="state">PROVIDER UNKNOWN</span></div>`).join('');
+  const act=$('#activity-rows'); if(act) act.innerHTML=(snapshot.events||[]).filter(e=>e&&e.timestamp).length?snapshot.events.filter(e=>e&&e.timestamp).slice(0,8).map(e=>`<div class="act-row"><time>${esc(isoTime(e.timestamp))}</time><div><b>${esc(e.component_id||'role n/a')}</b> · ${esc(e.title||e.kind||'event')}<br><small>${esc(e.source||'source unknown')} · ${esc(stateLabel(e.severity||'unknown'))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
+  const ap=$('#approval-rows'); if(ap) ap.innerHTML=SHELL_PROVIDERS.map(([,label])=>`<div class="approval-row"><strong>${label}</strong><span class="ap-state">NOT CONNECTED</span><button class="ap-btn approve" disabled>Approve</button><button class="ap-btn" disabled>Edit</button><button class="ap-btn reject" disabled>Reject</button></div>`).join('');
+  const g=$('#resource-gauges'); if(g) g.innerHTML=gaugeMarkup('CPU',snapshot.metrics.cpu)+gaugeMarkup('RAM',snapshot.metrics.memory)+gaugeMarkup('DISK',snapshot.metrics.disk)+gaugeMarkup('GPU',null)+gaugeMarkup('TEMP',null);
+  const lim=$('#limit-rows'); if(lim) lim.innerHTML=[...SHELL_PROVIDERS.map(([k,l])=>[k,l]),['local','LOCAL']].map(([k,l])=>{ const o=k==='local'?{tone:'unknown'}:providerObservation(snapshot,k); return `<div class="limit-row"><i class="dot ${o.tone}"></i><strong>${l}</strong><div class="bar"></div><span class="v">Limit: NOT_PROVIDED</span></div>`; }).join('');
+}
+function setConsole(open){ const c=$('#console'); if(c) c.hidden=!open; }
+function tickClock(){ const el=$('#clock-tag'); if(el) el.textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+
 function renderView(){
   $$('[data-views]').forEach(section => {
     const views = (section.dataset.views || '').split(' ').filter(Boolean);
@@ -408,12 +440,16 @@ function demoChat(){
 
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.view=item.dataset.view; render();}));
 $('#delegate-button').addEventListener('click',()=>{state.view='proposals'; render();});
+$('#console-open').addEventListener('click',()=>setConsole(true));
+$('#console-close').addEventListener('click',()=>setConsole(false));
+document.addEventListener('keydown',event=>{ if(event.key==='Escape') setConsole(false); });
+tickClock(); setInterval(tickClock,30000);
 $('#delegate-form').addEventListener('submit',submitDelegation);
 $('#refresh-button').addEventListener('click',load);
 $('#density-toggle').addEventListener('click',()=>{const next=DENSITY_CYCLE[(DENSITY_CYCLE.indexOf(state.density)+1)%DENSITY_CYCLE.length]; state.density=next; savePrefs(); render();});
 $$('.mode-button').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode; savePrefs(); render();}));
 $('#chat-refresh')?.addEventListener('click',load);
-$('#chat-draft-form')?.addEventListener('submit',event=>{event.preventDefault(); const input=$('#chat-draft-input'), status=$('#chat-draft-status'); const prompt=input?.value.trim(); if(!prompt){if(status)status.textContent='Enter a bounded request first.';return;} const target=$('#delegate-prompt'); if(target)target.value=prompt; state.view='proposals'; render(); if(status)status.textContent='Draft copied to proposal form · no provider message sent.';});
+$('#chat-draft-form')?.addEventListener('submit',event=>{event.preventDefault(); const input=$('#chat-draft-input'), status=$('#chat-draft-status'); const prompt=input?.value.trim(); if(!prompt){if(status)status.textContent='Enter a bounded request first.';return;} const target=$('#delegate-prompt'); if(target)target.value=prompt; state.view='proposals'; setConsole(true); render(); if(status)status.textContent='Draft copied to proposal form · no provider message sent.';});
 $('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
 document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
