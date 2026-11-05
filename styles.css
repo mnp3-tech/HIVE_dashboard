@@ -102,3 +102,24 @@ body{overflow:hidden;min-height:0;height:100vh;background:radial-gradient(ellips
 .console-close{position:fixed;top:calc(var(--gap) + 10px);right:calc(var(--gap) + 16px);z-index:61}
 .console-overlay .app-shell{min-height:100%}.console-overlay .sidebar{min-height:100%}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---- P0.1 review fixes (UX review + own overflow check at 1280x720) ---- */
+:root{--rail:clamp(250px,17vw,520px)}
+.topbar-hive{gap:.6rem;padding:.55rem .8rem}
+.source-chip{width:8rem}
+@media (max-width:1500px){.tb-label{display:none}.source-chip{width:8rem;padding:.25rem .3rem}.tb-ultron{padding:.2rem .5rem}.tb-jarvis{font-size:.62rem;padding:.2rem .45rem}.topbar-hive .top-tag{font-size:.62rem;padding:.2rem .4rem}}
+.topbar-hive>.tb-actions{flex:0 0 auto}
+.tb-label,.rail-row small,.rail-row .state,.gauge label,.limit-row span.v,.ap-state,.composer-status,.source-chip em,.tb-ultron small{font-size:max(.7rem,10px)}
+.act-row{grid-template-columns:4.4rem 1fr}.act-row time{white-space:nowrap}
+.approval-row{flex-wrap:wrap;gap:.35rem .5rem}.approval-row strong{width:auto;flex:0 0 auto}.approval-row .ap-state{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-actions{flex:1 0 100%;display:flex;gap:.35rem}.ap-actions .ap-btn{flex:1 1 0;min-width:0}
+.rail>.hive-panel{flex:0 1 auto}#panel-chats,#panel-activity{flex:1 1 0}
+.res-row .hive-panel{height:clamp(120px,19vh,260px)}
+.res-row .hp-body{display:flex;flex-direction:column;justify-content:center}.res-row .hp-body.gauges{flex-direction:row;justify-content:space-around}
+.core-stage{padding:.4rem 0}
+.core-vortex{opacity:.55;filter:drop-shadow(0 0 22px rgba(255,150,60,.55))}.core-stage[data-tone="ok"] .core-vortex{opacity:.95}
+.core-ring{stroke:rgba(79,240,192,.45);stroke-width:2.5}.ring-inner{stroke:rgba(255,160,70,.45)}
+.core-center-title{font-size:24px}.core-center-state{font-size:16px}
+.source-chip{flex-direction:column;gap:0;line-height:1.2;width:6.8rem;padding:.2rem .4rem}.source-chip i{display:none}
+@media (max-width:1500px){.source-chip{width:6.8rem;padding:.2rem .3rem}}
+.topbar-hive .top-tag,.topbar-hive .tb-actions .button{font-size:.72rem;letter-spacing:.06em}

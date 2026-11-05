@@ -59,6 +59,27 @@ for (const res of RES) {
     for (const r of rects) assert.ok(r.l >= res.minGap - 0.5 && r.t >= res.minGap - 0.5 && r.r <= res.w - res.minGap + 0.5 && r.b <= res.h - res.minGap + 0.5, `edge margin: ${r.id}`);
     const scroll = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, sh: document.documentElement.scrollHeight }));
     assert.ok(scroll.sw <= res.w && scroll.sh <= res.h, `page scrolls: ${JSON.stringify(scroll)}`);
+    // no clipped content inside any panel (catches buttons/labels cut off at the right edge)
+    const clipped = await page.$$eval('#topbar, .hive-panel, .hive-panel *', els => els.filter(e => e.offsetParent !== null && e.getClientRects().length)
+      .filter(e => { const p = e.closest('.hive-panel'); if (!p) return false; const a = e.getBoundingClientRect(), b = p.getBoundingClientRect(); return a.width > 0 && (a.right > b.right + 1 || a.left < b.left - 1) && getComputedStyle(e).position !== 'fixed' && !e.closest('.hp-body[id="activity-rows"]'); })
+      .map(e => (e.id || e.className || e.tagName) + ':' + (e.textContent || '').trim().slice(0, 20)));
+    assert.deepEqual(clipped, [], `content outside its panel: ${clipped.join(' | ')}`);
+    // CORE must stay the dominant element, and sibling text must not collide or overflow its own box
+    const coreBox = await page.$eval('#hive-core-art', e => { const r = e.getBoundingClientRect(); return { w: r.width, h: r.height }; });
+    assert.ok(coreBox.h >= res.h * 0.4, `CORE too small: ${coreBox.h}px high`);
+    const collisions = await page.evaluate(() => {
+      const bad = [];
+      document.querySelectorAll('.source-chip, .approval-row, .tb-ultron, .limit-row').forEach(box => {
+        if (box.scrollWidth > box.clientWidth + 1) bad.push('overflow:' + (box.className || box.id));
+        const kids = [...box.children].filter(k => k.getClientRects().length).map(k => k.getBoundingClientRect());
+        for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++) {
+          const a = kids[i], b = kids[j];
+          if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) bad.push('collision in ' + (box.className || box.id));
+        }
+      });
+      return bad;
+    });
+    assert.deepEqual(collisions, []);
     // CORE centered +-2px (horizontal, against the viewport)
     const core = await page.$eval('#hive-core-art', e => { const r = e.getBoundingClientRect(); return { cx: r.left + r.width / 2, w: r.width }; });
     assert.ok(Math.abs(core.cx - res.w / 2) <= 2, `CORE centre ${core.cx} vs ${res.w / 2}`);
