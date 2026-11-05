@@ -81,3 +81,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 ## Supplied wallpaper integration (GAP-5 stays OPEN)
 - Verified SHA-256 of assets/src/hive-wallpaper-v1.png, added tools/convert_wallpaper.py, regenerated assets/hive-wallpaper.jpg (356 KB), updated tests/test_assets.py (+2 tests, reproducibility test re-pointed, nothing weakened), docs (HANDOFF_REPORT s16). One screenshot pass, full suite once (all green). No core/svg/icon/token assets used.
 - Subagents: still 5 of 8. Effort ~$2 (rough); running total about $79 of $100.
+
+## UI-1 compact UNKNOWN gauge glyph (GAP-5 stays OPEN)
+- app.js (glyph, focus/hover tooltip on .stage, no re-render when markup unchanged, evidence line), stage.css (glyph/tooltip), tests/e2e/system.e2e.mjs (+2, helper reads data-status), docs. CORE geometry untouched. Full suite once: Python 282, ui_contract 20, Node 88, Playwright 7+10+11+7+15 green. Effort ~$1.5 (rough); running total about $80.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.

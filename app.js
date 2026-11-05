@@ -346,11 +346,29 @@ function providerObservation(snapshot, key){
 function gaugeMarkup(v){
   const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
   const inner=v.known?v.text:'?';
-  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label><small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small></div>`;
+  const compact=!v.known&&COMPACT_GAUGES.includes(v.key); // GPU/TEMP: neutral ? glyph instead of the UNKNOWN caption (status stays UNKNOWN)
+  const sub=compact?`<span class="g-sub g-glyph" role="img" tabindex="0" aria-label="${esc(UNKNOWN_TIP)}" data-tip="${esc(UNKNOWN_TIP)}">?</span>`:`<small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small>`;
+  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" data-status="${v.known?'KNOWN':'UNKNOWN'}" title="${compact?'':esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${sub}</div>`;
 }
+const COMPACT_GAUGES=['gpu','temp'], UNKNOWN_TIP='UNKNOWN \u2014 no fresh telemetry';
+let gaugeTip=null;
+function showGaugeTip(el){ // tooltip lives on .stage (panels clip overflow); positioned in stage units
+  const stage=document.querySelector('.stage'); if(!stage) return;
+  if(!gaugeTip){ gaugeTip=document.createElement('div'); gaugeTip.id='gauge-tip'; gaugeTip.setAttribute('role','tooltip'); gaugeTip.hidden=true; stage.appendChild(gaugeTip); }
+  gaugeTip.textContent=el.dataset.tip||UNKNOWN_TIP; gaugeTip.hidden=false;
+  const sr=stage.getBoundingClientRect(), k=sr.width/1671||1, r=el.getBoundingClientRect(), w=gaugeTip.offsetWidth;
+  const x=Math.max(8,Math.min(1671-w-8,(r.left+r.width/2-sr.left)/k-w/2)); gaugeTip.style.left=x+'px'; gaugeTip.style.top=((r.top-sr.top)/k-gaugeTip.offsetHeight-6)+'px';
+}
+function hideGaugeTip(){ if(gaugeTip) gaugeTip.hidden=true; }
+document.addEventListener('mouseover',e=>{ const t=e.target.closest&&e.target.closest('.g-glyph'); if(t) showGaugeTip(t); });
+document.addEventListener('mouseout',e=>{ if(e.target.closest&&e.target.closest('.g-glyph')) hideGaugeTip(); });
+document.addEventListener('focusin',e=>{ const t=e.target.closest&&e.target.closest('.g-glyph'); if(t) showGaugeTip(t); });
+document.addEventListener('focusout',e=>{ if(e.target.closest&&e.target.closest('.g-glyph')) hideGaugeTip(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideGaugeTip(); });
 function renderResources(snapshot){
   const views=OPS.resourceViews(state.system, snapshot.metrics);
-  const g=$('#resource-gauges'); if(g) g.innerHTML=views.map(gaugeMarkup).join('');
+  const g=$('#resource-gauges'); if(g){ const html=views.map(gaugeMarkup).join(''); if(g.dataset.sig!==html){ g.dataset.sig=html; g.innerHTML=html; } } // unchanged markup is not re-rendered, so keyboard focus survives polling
+  state.unknownGauges=views.filter(v=>!v.known).map(v=>v.label);
   const lines=OPS.deviceLines(state.system); const el=$('#sys-summary');
   if(el){ const all=lines?lines:['USB / devices: UNKNOWN'].concat(state.system&&state.system.evidence&&state.system.evidence.reason?[state.system.evidence.reason]:[]); el.innerHTML=all.map(t=>`<div>${esc(t)}</div>`).join(''); el.title=all.join(' · '); }
   setSvgText('devices-state', OPS.devicesNodeText(state.system));
@@ -360,7 +378,8 @@ function renderSystemConsole(){
   const sys=state.system; const list=$('#system-devices'); if(!list) return;
   const ev=(sys&&sys.evidence)||null; const vd=ev?ev.validity:(sys&&sys.error?'unavailable':'unknown');
   const badge=$('#system-validity'); if(badge){ badge.textContent=stateLabel(vd); badge.className=`panel-status ${tone(vd==='fixture'?'valid':vd)}`; }
-  setText('system-evidence', sys&&sys.error?`System endpoint error: ${sys.error}`:evidenceLine(ev));
+  const unk=state.unknownGauges||[];
+  setText('system-evidence', (sys&&sys.error?`System endpoint error: ${sys.error}`:evidenceLine(ev))+(unk.length?` · ${unk.map(l=>l+' UNKNOWN').join(', ')} (no fresh telemetry)`:''));
   const known=(sys&&sys.items)||{}; const disks=known.disks_known===true?(known.disks||[]):[], usb=known.usb_known===true?(known.usb||[]):[];
   const row=(a,b,c)=>`<div class="rail-row"><div class="grow"><strong>${esc(a)}</strong><small>${esc(b)}</small></div><span class="state">${esc(c)}</span></div>`;
   list.innerHTML=(disks.length||usb.length)?

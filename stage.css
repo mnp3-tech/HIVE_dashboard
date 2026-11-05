@@ -158,3 +158,9 @@ html,body{overflow:hidden}
 .stage .hive-panel#panel-resources .res-body .hp-body.gauges{flex-basis:326px;width:326px;gap:2px;padding-left:10px}
 .stage .hive-panel#panel-resources .res-body .hp-body.gauges .gauge{flex:0 0 59px;width:59px}
 .stage .gauge .g-sub{letter-spacing:-.02em;max-width:60px}
+
+/* ---- compact UNKNOWN gauges (GPU/TEMP): neutral ? glyph; semantics stay UNKNOWN via aria-label + tooltip ---- */
+.stage .gauge .g-glyph{display:inline-block;min-width:20px;font-size:14.2px;font-weight:700;line-height:1.1;color:var(--c-unknown);cursor:help;border-radius:6px;letter-spacing:0}
+.stage .gauge .g-glyph:focus-visible{outline:2px solid #7fd6ff;outline-offset:2px}
+.stage #gauge-tip{position:absolute;z-index:60;padding:5px 9px;border-radius:7px;font-size:13.2px;line-height:1.25;white-space:nowrap;pointer-events:none;color:#e7f3ff;background:rgba(5,16,32,.96);border:1px solid rgba(110,190,255,.5)}
+.stage #gauge-tip[hidden]{display:none}

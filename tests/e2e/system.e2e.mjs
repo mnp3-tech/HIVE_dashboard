@@ -26,7 +26,7 @@ async function open(url, vp = { width: 1920, height: 1080 }) {
   await p.waitForFunction(() => document.querySelectorAll('#resource-gauges .gauge').length === 5 && document.querySelectorAll('#limit-rows .limit-row').length === 4);
   return { p, errors, ctx };
 }
-const gauges = p => p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ label: g.querySelector('label').textContent, text: g.classList.contains('unknown') ? g.querySelector('.g-sub').textContent : g.querySelector('text').textContent, ring: g.querySelector('text').textContent, unknown: g.classList.contains('unknown'), sub: g.classList.contains('unknown') ? null : (g.querySelector('.g-sub')?.textContent || null) })));
+const gauges = p => p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ label: g.querySelector('label').textContent, text: g.dataset.status === 'UNKNOWN' ? 'UNKNOWN' : g.querySelector('text').textContent, ring: g.querySelector('text').textContent, unknown: g.classList.contains('unknown'), sub: g.classList.contains('unknown') ? null : (g.querySelector('.g-sub')?.textContent || null) })));
 const limits = p => p.$$eval('#limit-rows .limit-row', rs => rs.map(r => ({ label: r.querySelector('strong').textContent, status: r.dataset.status, text: r.querySelector('.v').textContent, fill: r.querySelector('.bar span').style.width })));
 
 test('fixture: OS gauges show real fixture values, GPU/TEMP stay UNKNOWN, disk shows free space', async () => {
@@ -98,4 +98,40 @@ test('layout: resources and limits panels do not clip or overlap at 1280x720 and
     await p.screenshot({ path: join(root, 'docs/hive/screenshots', `system-fixture-${vp.width}x${vp.height}.png`) });
     await ctx.close();
   }
+});
+
+const TIP = 'UNKNOWN \u2014 no fresh telemetry';
+test('compact GPU/TEMP gauges: neutral ? glyph, UNKNOWN kept in the DOM and accessibility tree, tooltip on hover and focus, 1280x720', async () => {
+  const { p, errors, ctx } = await open(FIX, { width: 1280, height: 720 });
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge text')?.textContent !== '?', null, { timeout: 8000 });
+  const info = await p.$$eval('#resource-gauges .gauge', gs => gs.map(g => { const gl = g.querySelector('.g-glyph'); return { k: g.dataset.k, status: g.dataset.status, glyph: gl ? { text: gl.textContent, label: gl.getAttribute('aria-label'), role: gl.getAttribute('role'), tab: gl.tabIndex, tip: gl.dataset.tip, visibleUnknown: /UNKNOWN/.test(g.querySelector('.g-sub').textContent) } : null, ringLabel: g.querySelector('svg').getAttribute('aria-label') }; }));
+  for (const k of ['gpu', 'temp']) { const g = info.find(x => x.k === k); assert.equal(g.status, 'UNKNOWN'); assert.equal(g.glyph.text, '?'); assert.equal(g.glyph.label, TIP); assert.equal(g.glyph.tip, TIP); assert.equal(g.glyph.role, 'img'); assert.equal(g.glyph.tab, 0); assert.equal(g.glyph.visibleUnknown, false); assert.match(g.ringLabel, /UNKNOWN/); }
+  for (const k of ['cpu', 'ram', 'disk']) assert.equal(info.find(x => x.k === k).glyph, null, k + ' is known in the fixture and has no glyph');
+  // accessibility tree exposes the UNKNOWN text
+  const snap = await p.locator('#resource-gauges').ariaSnapshot(); assert.ok(snap.includes(TIP), snap);
+  // hover shows the tooltip, leaving hides it
+  await p.hover('.gauge[data-k="gpu"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent)), TIP);
+  const box = await p.$eval('#gauge-tip', e => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top }; }); assert.ok(box.l >= 0 && box.r <= 1280 && box.t >= 0, JSON.stringify(box));
+  await p.mouse.move(5, 5); assert.equal(await p.$eval('#gauge-tip', e => e.hidden), true);
+  // keyboard focus shows it, Escape hides it, focus survives a re-render cycle
+  await p.focus('.gauge[data-k="temp"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent)), TIP);
+  await p.keyboard.press('Escape'); assert.equal(await p.$eval('#gauge-tip', e => e.hidden), true);
+  await p.focus('.gauge[data-k="temp"] .g-glyph'); await p.waitForTimeout(2500); assert.equal(await p.evaluate(() => document.activeElement?.className), 'g-sub g-glyph', 'polling must not drop keyboard focus');
+  // the two glyphs no longer collide, and nothing overlaps or clips
+  const rects = await p.$$eval('#resource-gauges .gauge', gs => gs.map(g => { const a = g.getBoundingClientRect(), b = g.querySelector('.g-sub').getBoundingClientRect(); return { l: a.left, r: a.right, sl: b.left, sr: b.right }; }));
+  for (let i = 0; i < rects.length - 1; i++) assert.ok(rects[i].sr <= rects[i + 1].sl + 0.5, 'captions overlap at ' + i);
+  // the full UNKNOWN text is kept in the evidence/details line
+  assert.match(await p.$eval('#system-evidence', e => e.textContent), /GPU UNKNOWN, TEMP UNKNOWN \(no fresh telemetry\)/);
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('live adapter: unknown gauges keep UNKNOWN (CPU/RAM/DISK as captions, GPU/TEMP as ? glyph); no glyph for any other state', async () => {
+  const { p, errors, ctx } = await open(LIVE, { width: 1280, height: 720 });
+  await p.waitForTimeout(1200);
+  const r = await p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ k: g.dataset.k, st: g.dataset.status, cap: g.querySelector('.g-sub').textContent, glyph: !!g.querySelector('.g-glyph') })));
+  assert.deepEqual(r.map(x => x.glyph), [false, false, false, true, true]); assert.ok(r.every(x => x.st === 'UNKNOWN'));
+  assert.deepEqual(r.slice(0, 3).map(x => x.cap), ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']);
+  assert.equal(await p.$$eval('.g-glyph', e => e.length), 2, '? glyph only on the two compact UNKNOWN gauges (OFFLINE / UNVERIFIED / NOT CONNECTED never use it)');
+  assert.match(await p.$eval('#system-evidence', e => e.textContent), /GPU UNKNOWN, TEMP UNKNOWN/);
+  assert.deepEqual(errors, []); await ctx.close();
 });
