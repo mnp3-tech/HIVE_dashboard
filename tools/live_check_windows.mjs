@@ -46,9 +46,11 @@ if (!ready) finish(4, `NOT_RUN: the dashboard server did not answer at ${BASE} w
 let exit = 0;
 try {
   // --- API: the data the dashboard receives
-  const sys = await getJson(BASE + '/api/system/resources');
+  const t0 = Date.now(); const sys = await getJson(BASE + '/api/system/resources');
   const items = sys.items, ev = sys.evidence;
-  console.log(`evidence: ${ev.validity} source=${ev.source} observed_at=${ev.observed_at}`);
+  console.log(`system request took ${Date.now() - t0} ms`);
+  console.log(`evidence: ${ev.validity} source=${ev.source} observed_at=${ev.observed_at} probe_ms=${ev.probe_ms} timings=${JSON.stringify(ev.probe_timings_ms)} completed=${JSON.stringify(ev.probe_completed)} stalled_in=${ev.probe_stalled_in}`);
+  note(!/timed out/i.test(String(ev.reason || '') + String(items.cpu.reason || '')), 'OS probe did not time out (a timeout is a FAILURE of the probe, never a valid UNKNOWN)' + (/timed out/i.test(String(ev.reason || '')) ? `: ${ev.reason}` : ''));
   for (const k of ['cpu', 'memory', 'disk', 'gpu', 'temperature']) console.log(`api ${k}: validity=${items[k].validity} value=${items[k].value} source=${items[k].source} observed_at=${items[k].observed_at} reason=${items[k].reason}`);
   note(!/fixture/i.test(JSON.stringify(sys)), 'API response contains no fixture marker (live mode)');
   for (const k of ['cpu', 'memory', 'disk']) {
@@ -57,7 +59,11 @@ try {
     else note(m.validity === 'valid' && typeof m.value === 'number' && m.value >= 0 && m.value <= 100 && !!m.source && !!m.observed_at, `${k} valid with source and observed_at`);
   }
   for (const k of ['gpu', 'temperature']) note(items[k].validity === 'unavailable' ? items[k].value === null && !!items[k].reason : items[k].source === 'nvidia-smi', `${k} UNKNOWN (or valid only from nvidia-smi)`);
-  const snap = await getJson(BASE + '/api/dashboard/snapshot');
+  if (fails.length) { exit = 1; console.log('browser checks skipped: the API checks above already failed, so gauge/layout results would be meaningless'); }
+  else {
+  const t1 = Date.now(); let snap;
+  try { snap = await getJson(BASE + '/api/dashboard/snapshot'); console.log(`snapshot request took ${Date.now() - t1} ms`); }
+  catch (e) { throw new Error(`snapshot did not answer within 10 s (server slow): ${String(e.message).split('\n')[0]}`); }
 
   // --- Browser
   let chromium;
@@ -102,6 +108,7 @@ try {
       }
     } finally { await browser.close(); }
     exit = fails.length ? 1 : 0;
+  }
   }
 } catch (e) {
   fails.push('request/runtime failure: ' + String(e && e.message).split('\n')[0]); exit = 1;

@@ -40,3 +40,14 @@ test('the failing paths never read as PASS', async () => {
   const r = await run([TOOL, '--base', 'http://127.0.0.1:1', '--ready-timeout-ms', '300']);
   assert.doesNotMatch(r.out, /^PASS$/m);
 });
+
+test('a probe timeout reported by the API is a FAIL naming the timeout (not a valid UNKNOWN); browser phase is skipped', async () => {
+  const http = await import('node:http');
+  const unk = { value: null, unit: '%', validity: 'unavailable', source: 'local:os-probe', observed_at: null, reason: 'OS probe timed out after 8 s (finished: cpu; stalled in: memory)' };
+  const body = JSON.stringify({ items: { cpu: unk, memory: unk, disk: unk, gpu: unk, temperature: unk }, evidence: { source: 'windows:powershell', validity: 'unavailable', observed_at: '2026-11-05T00:00:00Z', reason: unk.reason, probe_ms: 8012, probe_completed: ['cpu'], probe_stalled_in: 'memory' } });
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }); res.end(req.url.startsWith('/api/system/resources') ? body : '{}'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const r = await run([TOOL, '--base', `http://127.0.0.1:${srv.address().port}`]); srv.close();
+  assert.equal(r.code, 1); assert.match(r.out, /FAIL .*OS probe did not time out \(a timeout is a FAILURE of the probe, never a valid UNKNOWN\)/);
+  assert.match(r.out, /stalled_in=memory/); assert.match(r.out, /browser checks skipped/); assert.match(last(r.out), /^FAIL:/); assert.doesNotMatch(r.out, /^PASS$/m);
+});

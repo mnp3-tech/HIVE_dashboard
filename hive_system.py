@@ -33,23 +33,30 @@ MAX_OUTPUT_CHARS = 200_000
 CACHE_TTL_S = 5.0
 
 # Fixed script: no request-derived text is ever interpolated into it.
-POWERSHELL_SCRIPT = r"""
-$ErrorActionPreference = 'Stop'
-$r = [ordered]@{ errors = [ordered]@{} }
-try { $r.cpu_percent = [double](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime } catch { $r.errors.cpu = $_.Exception.Message }
-try { $o = Get-CimInstance Win32_OperatingSystem; $r.mem_total_kb = [int64]$o.TotalVisibleMemorySize; $r.mem_free_kb = [int64]$o.FreePhysicalMemory } catch { $r.errors.memory = $_.Exception.Message }
-try { $r.gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [string]$_.Name }) } catch { $r.errors.gpu = $_.Exception.Message }
-try {
+# Fixed script, assembled from constant sections: no request-derived text is ever interpolated into it.
+# After each section it records the cumulative elapsed milliseconds (JSON `timings_ms`) and writes `HIVE_T <name> <ms>`
+# to stderr, so a timed-out probe still reveals which section finished and which one stalled.
+_PS_HEADER = r"""$ErrorActionPreference = 'Stop'
+$r = [ordered]@{ errors = [ordered]@{}; timings_ms = [ordered]@{} }
+$sw = [Diagnostics.Stopwatch]::StartNew()
+function Mark($n) { $r.timings_ms[$n] = $sw.ElapsedMilliseconds; [Console]::Error.WriteLine("HIVE_T $n $($sw.ElapsedMilliseconds)") }
+"""
+_PS_SECTIONS = (
+    ("cpu", r"""try { $r.cpu_percent = [double](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime } catch { $r.errors.cpu = $_.Exception.Message }"""),
+    ("memory", r"""try { $o = Get-CimInstance Win32_OperatingSystem; $r.mem_total_kb = [int64]$o.TotalVisibleMemorySize; $r.mem_free_kb = [int64]$o.FreePhysicalMemory } catch { $r.errors.memory = $_.Exception.Message }"""),
+    ("gpu", r"""try { $r.gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [string]$_.Name }) } catch { $r.errors.gpu = $_.Exception.Message }"""),
+    ("disks", r"""try {
   $d = @{}; Get-Disk | ForEach-Object { $d[[string]$_.Number] = @{ bus = [string]$_.BusType; readonly = [bool]$_.IsReadOnly } }
   $r.volumes = @(Get-Volume | Where-Object { $_.DriveLetter } | ForEach-Object {
     $p = Get-Partition -DriveLetter $_.DriveLetter -ErrorAction SilentlyContinue
     $n = if ($p) { [string]$p.DiskNumber } else { $null }
     [ordered]@{ letter = [string]$_.DriveLetter; label = [string]$_.FileSystemLabel; drive_type = [string]$_.DriveType; size = [int64]$_.Size; free = [int64]$_.SizeRemaining
                 bus = if ($n -and $d.ContainsKey($n)) { $d[$n].bus } else { $null }; readonly = if ($n -and $d.ContainsKey($n)) { $d[$n].readonly } else { $null } } })
-} catch { $r.errors.disks = $_.Exception.Message }
-try { $r.pnp = @(Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_*' -or $_.Class -eq 'WPD' } | Select-Object -First 40 | ForEach-Object { [ordered]@{ name = [string]$_.FriendlyName; class = [string]$_.Class; status = [string]$_.Status } }) } catch { $r.errors.usb = $_.Exception.Message }
-$r | ConvertTo-Json -Compress -Depth 5
-"""
+} catch { $r.errors.disks = $_.Exception.Message }"""),
+    ("usb", r"""try { $r.pnp = @(Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_*' -or $_.Class -eq 'WPD' } | Select-Object -First 40 | ForEach-Object { [ordered]@{ name = [string]$_.FriendlyName; class = [string]$_.Class; status = [string]$_.Status } }) } catch { $r.errors.usb = $_.Exception.Message }"""),
+)
+SECTION_ORDER = tuple(name for name, _ in _PS_SECTIONS)
+POWERSHELL_SCRIPT = _PS_HEADER + "".join(f"{snippet}\nMark '{name}'\n" for name, snippet in _PS_SECTIONS) + "$r | ConvertTo-Json -Compress -Depth 5\n"
 POWERSHELL_ARGV = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", POWERSHELL_SCRIPT]
 NVIDIA_ARGV = ["nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"]
 
@@ -77,8 +84,22 @@ def _num(v):
 
 def default_runner(argv, timeout=PROBE_TIMEOUT_S):
     """Run one FIXED argv with shell=False; returns (returncode, stdout). Raises OSError/TimeoutExpired."""
-    p = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace")
+    # stdin is closed (a server-started child must never wait on an inherited handle) and, on Windows, no console window is created.
+    extra = {"creationflags": 0x08000000} if os.name == "nt" else {}  # CREATE_NO_WINDOW
+    p = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=timeout, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, **extra)
     return p.returncode, (p.stdout or "")[:MAX_OUTPUT_CHARS]
+
+
+def parse_progress(stderr):
+    """`HIVE_T <section> <ms>` lines written by the probe script -> {section: cumulative_ms}. Anything else is ignored."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    out = {}
+    for line in str(stderr or "").splitlines()[:50]:
+        parts = line.strip().split()
+        if len(parts) == 3 and parts[0] == "HIVE_T" and parts[1] in SECTION_ORDER and parts[2].isdigit():
+            out[parts[1]] = int(parts[2])
+    return out
 
 
 def _classify_volume(v):
@@ -199,9 +220,9 @@ def unavailable_result(reason, source="local:os-probe"):
 class AdapterError(Exception):
     """A probe failure. `reason` goes on every field; `evidence_reason` on the evidence block."""
 
-    def __init__(self, reason, evidence_reason, source="windows:powershell"):
+    def __init__(self, reason, evidence_reason, source="windows:powershell", detail=None):
         super().__init__(reason)
-        self.reason, self.evidence_reason, self.source = reason, evidence_reason, source
+        self.reason, self.evidence_reason, self.source, self.detail = reason, evidence_reason, source, detail or {}
 
 
 class SystemAdapter:
@@ -223,8 +244,11 @@ class PowerShellAdapter(SystemAdapter):
     def read(self):
         try:
             code, out = self.run(POWERSHELL_ARGV)
-        except subprocess.TimeoutExpired:
-            raise AdapterError("OS probe timed out", "PowerShell probe timed out")
+        except subprocess.TimeoutExpired as e:
+            done = parse_progress(getattr(e, "stderr", None))
+            stalled = next((n for n in SECTION_ORDER if n not in done), None)
+            note = f" after {PROBE_TIMEOUT_S} s (finished: {', '.join(done) or 'nothing'}; stalled in: {stalled or 'unknown'})"
+            raise AdapterError("OS probe timed out" + note, "PowerShell probe timed out" + note, detail={"completed": list(done), "stalled_in": stalled})
         except (OSError, ValueError) as e:
             raise AdapterError("PowerShell not runnable: " + str(e)[:100], "PowerShell not runnable")
         try:
@@ -268,17 +292,24 @@ def collect_system(runner=None, platform_name=None, now=None, adapter=None):
             items = unavailable_result("OS probe is implemented for Windows (PowerShell) only; NOT VERIFIED on this platform")
             return {"items": items, "evidence": {"source": "local:os-probe", "validity": "unavailable", "observed_at": observed, "reason": "Non-Windows host: no OS metrics are reported"}}
         adapter = PowerShellAdapter(runner)
+    t0 = time.monotonic()
     try:
         raw = adapter.read()
     except AdapterError as e:
-        return {"items": unavailable_result(e.reason), "evidence": {"source": e.source, "validity": "unavailable", "observed_at": observed, "reason": e.evidence_reason}}
+        ev = {"source": e.source, "validity": "unavailable", "observed_at": observed, "reason": e.evidence_reason, "probe_ms": round((time.monotonic() - t0) * 1000)}
+        ev.update({"probe_completed": e.detail.get("completed"), "probe_stalled_in": e.detail.get("stalled_in")} if e.detail else {})
+        return {"items": unavailable_result(e.reason), "evidence": ev}
+    probe_ms = round((time.monotonic() - t0) * 1000)
+    tm = raw.get("timings_ms") if isinstance(raw.get("timings_ms"), dict) else {}
+    timings = {k: int(v) for k, v in tm.items() if k in SECTION_ORDER and _num(v) is not None and 0 <= v < 3_600_000}
     items = parse_powershell(raw, observed)
     out = adapter.gpu_vendor_output()  # optional vendor tool; absence is normal and silent
     if out:
         apply_nvidia(items, out, observed)
     valids = [items[k]["validity"] == "valid" for k in ("cpu", "memory", "disk")]
     validity = "valid" if all(valids) else "degraded" if any(valids) else "unavailable"
-    return {"items": items, "evidence": {"source": "windows:powershell", "validity": validity, "observed_at": observed, "reason": None if validity == "valid" else "Some OS values were not returned; see per-field reasons"}}
+    return {"items": items, "evidence": {"source": "windows:powershell", "validity": validity, "observed_at": observed, "reason": None if validity == "valid" else "Some OS values were not returned; see per-field reasons",
+                                          "probe_ms": probe_ms, "probe_timings_ms": timings}}
 
 
 _cache = {"at": 0.0, "value": None}

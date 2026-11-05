@@ -179,6 +179,76 @@ class MetricContractTests(unittest.TestCase):
         self.assertIn("Win32_PerfFormattedData_PerfOS_Processor", hs.POWERSHELL_SCRIPT)
 
 
+class ProbeTimeoutTests(unittest.TestCase):
+    """Regression: a live-server probe timeout (owner-reported on Windows) is a FAILURE with a diagnosable reason, never a valid
+    value or a quietly accepted UNKNOWN, and the fix is not a longer timeout."""
+
+    def test_timeout_is_unavailable_with_progress_and_stalled_section_never_valid(self):
+        def runner(argv, timeout=0):
+            raise subprocess.TimeoutExpired("powershell", timeout, stderr="HIVE_T cpu 120\nHIVE_T memory 340\nnoise\nHIVE_T bogus 5\n")
+        out = hs.collect_system(runner=runner, platform_name="nt")
+        for k in ("cpu", "memory", "disk", "gpu", "temperature"):
+            m = out["items"][k]
+            self.assertEqual((m["validity"], m["value"], m["observed_at"]), ("unavailable", None, None), k)
+            self.assertIn("timed out", m["reason"]); self.assertIn("finished: cpu, memory", m["reason"]); self.assertIn("stalled in: gpu", m["reason"])
+        ev = out["evidence"]
+        self.assertEqual(ev["validity"], "unavailable"); self.assertEqual((ev["probe_completed"], ev["probe_stalled_in"]), (["cpu", "memory"], "gpu")); self.assertIsInstance(ev["probe_ms"], int)
+
+    def test_timeout_without_any_progress_names_nothing_finished(self):
+        out = hs.collect_system(runner=lambda argv, timeout=0: (_ for _ in ()).throw(subprocess.TimeoutExpired("p", timeout)), platform_name="nt")
+        self.assertIn("finished: nothing", out["evidence"]["reason"]); self.assertEqual(out["evidence"]["probe_stalled_in"], "cpu")
+
+    def test_the_timeout_was_not_raised_to_make_a_test_pass(self):
+        import inspect
+        self.assertLessEqual(hs.PROBE_TIMEOUT_S, 8)
+        self.assertEqual(inspect.signature(hs.default_runner).parameters["timeout"].default, hs.PROBE_TIMEOUT_S)
+        calls = []
+        def runner(*args, **kwargs):
+            calls.append((args, kwargs)); raise FileNotFoundError("nvidia-smi") if args[0][0] == "nvidia-smi" else AssertionError("stop")
+        try:
+            hs.PowerShellAdapter(runner).read()
+        except Exception:
+            pass
+        self.assertEqual(calls[0], ((hs.POWERSHELL_ARGV,), {}), "the adapter must not pass a custom (longer) timeout")
+
+    def test_default_runner_closes_stdin_and_hides_the_console_window_on_windows_only(self):
+        ok = subprocess.CompletedProcess(["x"], 0, stdout="{}", stderr="")
+        with patch.object(subprocess, "run", return_value=ok) as run:
+            with patch("os.name", "nt"):
+                hs.default_runner(hs.POWERSHELL_ARGV)
+            kw = run.call_args.kwargs
+            self.assertIs(kw["stdin"], subprocess.DEVNULL); self.assertEqual(kw["creationflags"], 0x08000000); self.assertEqual(kw["timeout"], hs.PROBE_TIMEOUT_S)
+            with patch("os.name", "posix"):
+                hs.default_runner(["echo"])
+            self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL); self.assertNotIn("creationflags", run.call_args.kwargs)
+
+    def test_script_reports_progress_after_every_section_and_stays_constant(self):
+        for name in hs.SECTION_ORDER:
+            self.assertIn(f"Mark '{name}'", hs.POWERSHELL_SCRIPT)
+        self.assertEqual(hs.SECTION_ORDER, ("cpu", "memory", "gpu", "disks", "usb"))
+        self.assertIn("HIVE_T $n", hs.POWERSHELL_SCRIPT)
+
+    def test_progress_parser_accepts_only_known_sections_and_integers(self):
+        self.assertEqual(hs.parse_progress(b"HIVE_T cpu 10\nHIVE_T usb 99\nHIVE_T nope 1\nHIVE_T cpu x\nrandom"), {"cpu": 10, "usb": 99})
+        self.assertEqual(hs.parse_progress(None), {})
+
+    def test_success_records_probe_time_and_sanitised_section_timings(self):
+        raw = dict(RAW, timings_ms={"cpu": 100, "memory": 200, "gpu": "x", "bogus": 5, "usb": -1})
+        with patch.dict("os.environ", {"SystemDrive": "C:"}):
+            ev = hs.collect_system(adapter=hs.MockAdapter(raw))["evidence"]
+        self.assertEqual(ev["probe_timings_ms"], {"cpu": 100, "memory": 200}); self.assertIsInstance(ev["probe_ms"], int)
+
+    def test_diagnostic_tool_refuses_off_windows(self):
+        import importlib.util, io, contextlib
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location("diag", Path(hs.__file__).parent / "tools/diagnose_system_probe.py")
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        buf = io.StringIO()
+        with patch("os.name", "posix"), contextlib.redirect_stdout(buf):
+            self.assertEqual(mod.main([]), 2)
+        self.assertIn("Windows", buf.getvalue())
+
+
 class SmokeToolTests(unittest.TestCase):
     """The Windows smoke checker must pass honest data and fail every dishonest shape (logic only; Windows path is run by the owner)."""
 
