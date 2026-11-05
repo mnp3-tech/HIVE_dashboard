@@ -4,9 +4,19 @@ Honesty rules: a value exists only if the OS (or provider) returned it and it pa
 validation; otherwise it is UNKNOWN with a reason. Nothing is estimated, clamped into
 range, or filled from a default. MTP/PTP phones are never treated as disks.
 
-The Windows probe is an ADAPTER BOUNDARY: `collect_system(runner=...)` takes an injectable
-runner, tests use mocked output. The real PowerShell/nvidia-smi calls are NOT VERIFIED in
-the Linux cloud container (no PowerShell here) and must be verified on the Windows PC.
+Data sources (read-only, bounded, server-side; nothing is scraped from Task Manager or any UI):
+  CPU    Win32_PerfFormattedData_PerfOS_Processor (_Total) - the OS performance counter, locale independent
+  RAM    Win32_OperatingSystem (TotalVisibleMemorySize / FreePhysicalMemory)
+  DISK   Get-Volume (system drive size / free)
+  GPU    nvidia-smi if present and well-formed; otherwise UNKNOWN. Installed adapters are listed only as
+         `hardware_present` (a capability, never telemetry); no utilisation is derived from them.
+  TEMP   nvidia-smi GPU temperature if present; otherwise UNKNOWN. ACPI thermal zones are NOT used: they are
+         not CPU/GPU die temperatures and are often static or meaningless.
+
+Adapter interface: `SystemAdapter.read()` returns the raw OS dict (or raises AdapterError) and
+`gpu_vendor_output()` returns optional nvidia-smi text. `PowerShellAdapter` is the real Windows path (NOT
+VERIFIED in the Linux cloud container; verify on the Windows PC); `MockAdapter` is used on Linux and in tests.
+Every metric carries source, observed_at, validity and, when unavailable, a reason.
 """
 from __future__ import annotations
 
@@ -26,7 +36,7 @@ CACHE_TTL_S = 5.0
 POWERSHELL_SCRIPT = r"""
 $ErrorActionPreference = 'Stop'
 $r = [ordered]@{ errors = [ordered]@{} }
-try { $r.cpu_percent = (Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average } catch { $r.errors.cpu = $_.Exception.Message }
+try { $r.cpu_percent = [double](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime } catch { $r.errors.cpu = $_.Exception.Message }
 try { $o = Get-CimInstance Win32_OperatingSystem; $r.mem_total_kb = [int64]$o.TotalVisibleMemorySize; $r.mem_free_kb = [int64]$o.FreePhysicalMemory } catch { $r.errors.memory = $_.Exception.Message }
 try { $r.gpus = @(Get-CimInstance Win32_VideoController | ForEach-Object { [string]$_.Name }) } catch { $r.errors.gpu = $_.Exception.Message }
 try {
@@ -38,7 +48,6 @@ try {
                 bus = if ($n -and $d.ContainsKey($n)) { $d[$n].bus } else { $null }; readonly = if ($n -and $d.ContainsKey($n)) { $d[$n].readonly } else { $null } } })
 } catch { $r.errors.disks = $_.Exception.Message }
 try { $r.pnp = @(Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_*' -or $_.Class -eq 'WPD' } | Select-Object -First 40 | ForEach-Object { [ordered]@{ name = [string]$_.FriendlyName; class = [string]$_.Class; status = [string]$_.Status } }) } catch { $r.errors.usb = $_.Exception.Message }
-try { $r.temp_deci_kelvin = @(Get-CimInstance -Namespace root/wmi -ClassName MSAcpi_ThermalZoneTemperature | ForEach-Object { [double]$_.CurrentTemperature }) } catch { $r.errors.temperature = $_.Exception.Message }
 $r | ConvertTo-Json -Compress -Depth 5
 """
 POWERSHELL_ARGV = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", POWERSHELL_SCRIPT]
@@ -140,9 +149,9 @@ def parse_powershell(raw, now=None):
     errs = raw.get("errors") if isinstance(raw.get("errors"), dict) else {}
     cpu_v = _num(raw.get("cpu_percent"))
     if cpu_v is not None and 0 <= cpu_v <= 100:
-        cpu = _rec(round(cpu_v, 1), "%", "valid", f"{src}/Win32_Processor", None, observed)
+        cpu = _rec(round(cpu_v, 1), "%", "valid", f"{src}/Win32_PerfFormattedData_PerfOS_Processor", None, observed)
     else:
-        cpu = _unknown(f"{src}/Win32_Processor", str(errs.get("cpu") or "CPU load not returned or out of range")[:160], "%")
+        cpu = _unknown(f"{src}/Win32_PerfFormattedData_PerfOS_Processor", str(errs.get("cpu") or "CPU load not returned or out of range")[:160], "%")
     tot, fr = _num(raw.get("mem_total_kb")), _num(raw.get("mem_free_kb"))
     if tot and tot > 0 and fr is not None and 0 <= fr <= tot:
         used = tot - fr
@@ -158,14 +167,8 @@ def parse_powershell(raw, now=None):
     else:
         disk = _unknown(f"{src}/Get-Volume", str(errs.get("disks") or "System drive not reported or invalid")[:160], "%")
     gpus = [str(g)[:80] for g in raw.get("gpus", []) if isinstance(g, str) and g.strip()] if isinstance(raw.get("gpus"), list) else []
-    gpu = _unknown(f"{src}/Win32_VideoController", "GPU utilization is not provided by the OS counters used here" + ("" if not errs.get("gpu") else f"; {str(errs['gpu'])[:100]}"), "%", adapters=gpus)
-    temps = raw.get("temp_deci_kelvin")
-    tvals = [(_num(t) / 10.0 - 273.15) for t in temps if _num(t) is not None] if isinstance(temps, list) else []
-    tvals = [t for t in tvals if -40 <= t <= 150]
-    if tvals:
-        temperature = _rec(round(max(tvals), 1), "C", "valid", f"{src}/MSAcpi_ThermalZoneTemperature", "ACPI thermal zone; not necessarily the CPU die", observed)
-    else:
-        temperature = _unknown(f"{src}/MSAcpi_ThermalZoneTemperature", str(errs.get("temperature") or "No valid temperature returned (often needs elevation or vendor tool)")[:160], "C")
+    gpu = _unknown(f"{src}/Win32_VideoController", "No reliable local GPU utilization source (installed adapters are hardware present, not telemetry)" + ("" if not errs.get("gpu") else f"; {str(errs['gpu'])[:100]}"), "%", hardware_present=gpus)
+    temperature = _unknown("none", "No reliable local temperature source (ACPI thermal zones are not used; vendor tool not observed)", "C")
     return {"cpu": cpu, "memory": memory, "disk": disk, "gpu": gpu, "temperature": temperature, "disks": disks, "usb": _parse_usb(raw, src, observed),
             # An empty list only means "none" if the probe actually returned a list; otherwise it is UNKNOWN.
             "disks_known": isinstance(raw.get("volumes"), list), "usb_known": isinstance(raw.get("pnp"), list)}
@@ -182,8 +185,8 @@ def apply_nvidia(result, output, now=None):
         except ValueError:
             return result
         if math.isfinite(util) and 0 <= util <= 100:
-            result["gpu"] = _rec(round(util, 1), "%", "valid", "nvidia-smi", None, observed, adapters=[parts[0][:80]])
-        if math.isfinite(temp) and 0 <= temp <= 150 and result["temperature"]["validity"] != "valid":
+            result["gpu"] = _rec(round(util, 1), "%", "valid", "nvidia-smi", None, observed, hardware_present=[parts[0][:80]])
+        if math.isfinite(temp) and 0 <= temp <= 150:
             result["temperature"] = _rec(round(temp, 1), "C", "valid", "nvidia-smi", "GPU temperature", observed)
     return result
 
@@ -193,33 +196,86 @@ def unavailable_result(reason, source="local:os-probe"):
     return {"cpu": u("%"), "memory": u("%"), "disk": u("%"), "gpu": u("%"), "temperature": u("C"), "disks": [], "usb": [], "disks_known": False, "usb_known": False}
 
 
-def collect_system(runner=None, platform_name=None, now=None):
-    """Return {items, evidence}. Never raises; any failure becomes per-field UNKNOWN with a reason."""
+class AdapterError(Exception):
+    """A probe failure. `reason` goes on every field; `evidence_reason` on the evidence block."""
+
+    def __init__(self, reason, evidence_reason, source="windows:powershell"):
+        super().__init__(reason)
+        self.reason, self.evidence_reason, self.source = reason, evidence_reason, source
+
+
+class SystemAdapter:
+    """Interface: read-only access to local OS metrics. Implementations must be bounded and never raise anything but AdapterError."""
+
+    def read(self) -> dict:  # raw dict in the shape parse_powershell validates
+        raise NotImplementedError
+
+    def gpu_vendor_output(self):  # optional nvidia-smi text, or None when the tool is absent/failed
+        return None
+
+
+class PowerShellAdapter(SystemAdapter):
+    """The real Windows path: one fixed PowerShell script plus optional nvidia-smi; shell=False, timeouts, bounded output."""
+
+    def __init__(self, runner=None):
+        self.run = runner or default_runner
+
+    def read(self):
+        try:
+            code, out = self.run(POWERSHELL_ARGV)
+        except subprocess.TimeoutExpired:
+            raise AdapterError("OS probe timed out", "PowerShell probe timed out")
+        except (OSError, ValueError) as e:
+            raise AdapterError("PowerShell not runnable: " + str(e)[:100], "PowerShell not runnable")
+        try:
+            raw = json.loads(out)
+            if not isinstance(raw, dict) or code != 0:
+                raise ValueError("unexpected output")
+        except ValueError:
+            raise AdapterError("OS probe returned unusable output", f"PowerShell exit {code}; output was not valid JSON")
+        return raw
+
+    def gpu_vendor_output(self):
+        try:
+            c, o = self.run(NVIDIA_ARGV)
+            return o if c == 0 else None
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            return None
+
+
+class MockAdapter(SystemAdapter):
+    """Linux/test adapter: returns a supplied raw dict (or raises a supplied AdapterError). Never used by the live server."""
+
+    def __init__(self, raw=None, error=None, nvidia=None):
+        self.raw, self.error, self.nvidia = raw, error, nvidia
+
+    def read(self):
+        if self.error:
+            raise self.error
+        return self.raw
+
+    def gpu_vendor_output(self):
+        return self.nvidia
+
+
+def collect_system(runner=None, platform_name=None, now=None, adapter=None):
+    """Return {items, evidence}. Never raises; any failure becomes per-field UNKNOWN with a reason.
+    An explicit `adapter` (tests/mock) bypasses the platform gate; otherwise only Windows runs the real adapter."""
     plat = platform_name or os.name
     observed = now or _now()
-    if plat != "nt":
-        items = unavailable_result("OS probe is implemented for Windows (PowerShell) only; NOT VERIFIED on this platform")
-        return {"items": items, "evidence": {"source": "local:os-probe", "validity": "unavailable", "observed_at": observed, "reason": "Non-Windows host: no OS metrics are reported"}}
-    run = runner or default_runner
+    if adapter is None:
+        if plat != "nt":
+            items = unavailable_result("OS probe is implemented for Windows (PowerShell) only; NOT VERIFIED on this platform")
+            return {"items": items, "evidence": {"source": "local:os-probe", "validity": "unavailable", "observed_at": observed, "reason": "Non-Windows host: no OS metrics are reported"}}
+        adapter = PowerShellAdapter(runner)
     try:
-        code, out = run(POWERSHELL_ARGV)
-    except subprocess.TimeoutExpired:
-        return {"items": unavailable_result("OS probe timed out"), "evidence": {"source": "windows:powershell", "validity": "unavailable", "observed_at": observed, "reason": "PowerShell probe timed out"}}
-    except (OSError, ValueError) as e:
-        return {"items": unavailable_result("PowerShell not runnable: " + str(e)[:100]), "evidence": {"source": "windows:powershell", "validity": "unavailable", "observed_at": observed, "reason": "PowerShell not runnable"}}
-    try:
-        raw = json.loads(out)
-        if not isinstance(raw, dict) or code != 0:
-            raise ValueError("unexpected output")
-    except ValueError:
-        return {"items": unavailable_result("OS probe returned unusable output"), "evidence": {"source": "windows:powershell", "validity": "unavailable", "observed_at": observed, "reason": f"PowerShell exit {code}; output was not valid JSON"}}
+        raw = adapter.read()
+    except AdapterError as e:
+        return {"items": unavailable_result(e.reason), "evidence": {"source": e.source, "validity": "unavailable", "observed_at": observed, "reason": e.evidence_reason}}
     items = parse_powershell(raw, observed)
-    try:  # optional vendor tool; absence is normal and silent
-        c2, o2 = run(NVIDIA_ARGV)
-        if c2 == 0:
-            apply_nvidia(items, o2, observed)
-    except (OSError, subprocess.TimeoutExpired, ValueError):
-        pass
+    out = adapter.gpu_vendor_output()  # optional vendor tool; absence is normal and silent
+    if out:
+        apply_nvidia(items, out, observed)
     valids = [items[k]["validity"] == "valid" for k in ("cpu", "memory", "disk")]
     validity = "valid" if all(valids) else "degraded" if any(valids) else "unavailable"
     return {"items": items, "evidence": {"source": "windows:powershell", "validity": validity, "observed_at": observed, "reason": None if validity == "valid" else "Some OS values were not returned; see per-field reasons"}}

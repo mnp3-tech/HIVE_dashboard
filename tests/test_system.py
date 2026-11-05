@@ -57,8 +57,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual((r["cpu"]["value"], r["cpu"]["validity"]), (23.0, "valid"))
         self.assertEqual(r["memory"]["value"], 75.0); self.assertEqual(r["memory"]["total_bytes"], 16 * 1024 ** 3)
         self.assertEqual(r["disk"]["value"], 60.0); self.assertEqual(r["disk"]["free_bytes"], 400 * GB); self.assertEqual(r["disk"]["drive"], "C:\\")
-        self.assertAlmostEqual(r["temperature"]["value"], 56.85, delta=0.06)  # hottest zone: 3300.0 deci-kelvin = 56.85 C
-        self.assertEqual(r["gpu"]["validity"], "unavailable"); self.assertIsNone(r["gpu"]["value"]); self.assertEqual(r["gpu"]["adapters"], ["Mock GPU"])
+        # ACPI thermal-zone data in the raw object is ignored: it is not a reliable CPU/GPU temperature
+        self.assertIsNone(r["temperature"]["value"]); self.assertEqual(r["temperature"]["validity"], "unavailable"); self.assertTrue(r["temperature"]["reason"])
+        self.assertEqual(r["gpu"]["validity"], "unavailable"); self.assertIsNone(r["gpu"]["value"]); self.assertEqual(r["gpu"]["hardware_present"], ["Mock GPU"])
+        self.assertNotIn("adapters", r["gpu"], "installed hardware is a capability, not telemetry, and is not named like a metric source")
+        self.assertIn("PerfOS_Processor", r["cpu"]["source"])
 
     def test_disk_kinds_access_and_free_space(self):
         d = {x["id"]: x for x in hs.parse_powershell(RAW)["disks"]}
@@ -104,7 +107,7 @@ class ParseTests(unittest.TestCase):
 
     def test_probe_errors_are_reported_as_reasons(self):
         r = hs.parse_powershell({"errors": {"cpu": "Access denied", "temperature": "Not supported"}})
-        self.assertEqual(r["cpu"]["reason"], "Access denied"); self.assertEqual(r["temperature"]["reason"], "Not supported")
+        self.assertEqual(r["cpu"]["reason"], "Access denied"); self.assertIn("No reliable local temperature source", r["temperature"]["reason"])
         self.assertEqual(r["disks"], []); self.assertEqual(r["usb"], [])
 
     def test_nvidia_fills_gpu_only_from_a_wellformed_line(self):
@@ -113,6 +116,67 @@ class ParseTests(unittest.TestCase):
         self.assertEqual((r["gpu"]["value"], r["gpu"]["source"]), (41.0, "nvidia-smi"))
         for junk in ("", "garbage", "a,b,c", "n, 101, 50", "n, -5, 50", "n, nan, 50", "only,two"):
             r2 = hs.parse_powershell(RAW); hs.apply_nvidia(r2, junk); self.assertIsNone(r2["gpu"]["value"], junk)
+
+
+class MetricContractTests(unittest.TestCase):
+    """Every metric: source, observed_at, validity, and a reason whenever it is not valid. Never invented."""
+
+    def _all(self, items):
+        return [items[k] for k in ("cpu", "memory", "disk", "gpu", "temperature")]
+
+    def test_valid_and_unavailable_metrics_carry_the_full_contract(self):
+        with patch.dict("os.environ", {"SystemDrive": "C:"}):
+            items = hs.collect_system(adapter=hs.MockAdapter(RAW), now="2026-11-05T00:00:00+00:00")["items"]
+        for m in self._all(items):
+            for key in ("source", "observed_at", "validity", "reason", "value"):
+                self.assertIn(key, m)
+            self.assertTrue(m["source"])
+            if m["validity"] == "valid":
+                self.assertEqual(m["observed_at"], "2026-11-05T00:00:00+00:00"); self.assertIsNotNone(m["value"])
+            else:
+                self.assertEqual(m["validity"], "unavailable"); self.assertIsNone(m["value"]); self.assertIsNone(m["observed_at"]); self.assertTrue(m["reason"])
+        self.assertEqual([m["validity"] for m in self._all(items)], ["valid", "valid", "valid", "unavailable", "unavailable"])
+
+    def test_gpu_and_temperature_stay_unknown_without_a_reliable_source(self):
+        items = hs.collect_system(adapter=hs.MockAdapter(RAW))["items"]
+        for k in ("gpu", "temperature"):
+            self.assertIsNone(items[k]["value"]); self.assertEqual(items[k]["validity"], "unavailable")
+        self.assertEqual(items["gpu"]["hardware_present"], ["Mock GPU"])  # present hardware is not utilisation
+        for junk in ("", "garbage", "n, 101, 50", "n, -5, 50"):
+            r = hs.collect_system(adapter=hs.MockAdapter(RAW, nvidia=junk))["items"]
+            self.assertIsNone(r["gpu"]["value"], junk)
+
+    def test_nvidia_provides_gpu_and_temperature_with_source_and_time(self):
+        r = hs.collect_system(adapter=hs.MockAdapter(RAW, nvidia="Mock RTX, 12, 40"), now="2026-11-05T01:02:03+00:00")["items"]
+        for k, v in (("gpu", 12.0), ("temperature", 40.0)):
+            self.assertEqual((r[k]["value"], r[k]["source"], r[k]["validity"], r[k]["observed_at"]), (v, "nvidia-smi", "valid", "2026-11-05T01:02:03+00:00"))
+
+    def test_adapter_failure_makes_everything_unknown_with_reasons(self):
+        err = hs.AdapterError("OS probe timed out", "PowerShell probe timed out")
+        out = hs.collect_system(adapter=hs.MockAdapter(error=err))
+        for m in self._all(out["items"]):
+            self.assertIsNone(m["value"]); self.assertEqual(m["validity"], "unavailable"); self.assertEqual(m["reason"], "OS probe timed out"); self.assertTrue(m["source"])
+        self.assertEqual(out["evidence"]["validity"], "unavailable")
+
+    def test_adapters_implement_the_interface_and_mock_never_touches_a_process(self):
+        self.assertTrue(issubclass(hs.PowerShellAdapter, hs.SystemAdapter) and issubclass(hs.MockAdapter, hs.SystemAdapter))
+        with patch.object(subprocess, "run", side_effect=AssertionError("no process may be started")):
+            hs.collect_system(adapter=hs.MockAdapter(RAW, nvidia="x, 1, 2"))
+            hs.collect_system(platform_name="posix")  # Linux without an adapter: honest UNKNOWN, no process
+
+    def test_live_module_never_uses_fixture_values_or_the_fixture_server(self):
+        import re
+        from pathlib import Path
+        root = Path(hs.__file__).parent
+        for name in ("hive_system.py", "server.py"):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIsNone(re.search(r"^\s*(import|from)\s+fixture_server", text, re.M), name)
+        self.assertNotIn("fixture", (root / "hive_system.py").read_text(encoding="utf-8").lower().replace("no fixture", ""), "hive_system.py must not reference fixture data")
+
+    def test_script_does_not_read_task_manager_or_the_ui_and_has_no_acpi_temperature(self):
+        for banned in ("taskmgr", "Task Manager", "SendKeys", "UIAutomation", "MSAcpi", "ThermalZone", "Get-Process taskmgr"):
+            self.assertNotIn(banned, hs.POWERSHELL_SCRIPT)
+        self.assertIn("Win32_PerfFormattedData_PerfOS_Processor", hs.POWERSHELL_SCRIPT)
 
 
 class CollectTests(unittest.TestCase):

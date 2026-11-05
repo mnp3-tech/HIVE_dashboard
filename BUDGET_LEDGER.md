@@ -84,3 +84,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## UI-1 compact UNKNOWN gauge glyph (GAP-5 stays OPEN)
 - app.js (glyph, focus/hover tooltip on .stage, no re-render when markup unchanged, evidence line), stage.css (glyph/tooltip), tests/e2e/system.e2e.mjs (+2, helper reads data-status), docs. CORE geometry untouched. Full suite once: Python 282, ui_contract 20, Node 88, Playwright 7+10+11+7+15 green. Effort ~$1.5 (rough); running total about $80.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## P1.1 data-source confirmation and adapter tightening (GAP-8 stays OPEN)
+- hive_system.py (adapter interface, perf-counter CPU, ACPI temperature removed, hardware_present), fixture_server.py (field rename), tests/test_system.py (+7), docs. Full suite once: Python 289, ui_contract 20, Node 88, Playwright 7+10+11+7+15 green. Windows path NOT verified. Effort ~$2 (rough); running total about $82.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.

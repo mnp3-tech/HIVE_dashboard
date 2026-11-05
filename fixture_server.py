@@ -293,7 +293,7 @@ def fixture_system(now: datetime) -> dict:
     return {"fixture_only": True, "items": {
         "cpu": rec(17.0, "%"), "memory": rec(44.0, "%", used_bytes=7 * 1024 ** 3, total_bytes=16 * 1024 ** 3),
         "disk": rec(63.0, "%", drive="C:\\", free_bytes=int(0.37 * TB), total_bytes=TB),
-        "gpu": unk("%", "GPU utilization not provided (fixture exercises UNKNOWN)", adapters=["Fixture GPU"]),
+        "gpu": unk("%", "GPU utilization not provided (fixture exercises UNKNOWN)", hardware_present=["Fixture GPU"]),
         "temperature": unk("C", "No valid temperature returned (fixture exercises UNKNOWN)"),
         "disks": [
             {"id": "C:\\", "label": "System", "kind": "fixed", "total_bytes": TB, "free_bytes": int(0.37 * TB), "access": "Read/Write", "validity": "fixture", "reason": None, "source": "fixture:system", "observed_at": obs},
