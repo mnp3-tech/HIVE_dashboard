@@ -144,6 +144,7 @@
           <button class="nav-item" data-view="workers"><span>⚙</span>Workers</button>
           <button class="nav-item" data-view="system"><span>▤</span>System</button>
           <button class="nav-item" data-view="proposals"><span>✎</span>Proposals</button>
+          <button class="nav-item" data-view="registry"><span>◎</span>Registry</button>
         </nav>
         <div class="sidebar-spacer"></div>
         <div class="sidebar-foot">
@@ -260,6 +261,11 @@
             <div class="event-list" id="event-list"><div class="empty-state compact"><span>≋</span><strong>Nothing observed</strong><small>Events are rendered only from a timestamped source.</small></div></div>
           </section>
 
+          <section class="panel registry-panel" id="registry-panel" hidden data-views="registry" aria-label="Read-only registry">
+            <div class="panel-heading"><div><p class="eyebrow">READ-ONLY REGISTRY · NOTHING HERE IS EXECUTED</p><h2>Agents, workers, tasks, catalogs and evidence</h2></div><span class="panel-status unknown" id="registry-mode">NOT LOADED</span></div>
+            <div class="evidence-line" id="registry-evidence">Open this view to load /api/registry.</div>
+            <div class="registry-body" id="registry-body"></div>
+          </section>
           <section class="delegate-view panel" id="delegate-view" hidden data-views="proposals">
             <div class="panel-heading"><div><p class="eyebrow">PROPOSAL-ONLY ACTIONS</p><h2>Draft a proposal for HIVE Core</h2></div><span class="panel-status">GOVERNOR / AUDITED</span></div>
             <form class="delegate-form" id="delegate-form">

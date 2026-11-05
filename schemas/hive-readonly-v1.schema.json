@@ -1,0 +1,1399 @@
+{
+  "$defs": {
+    "agent": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "const": "UNKNOWN"
+        },
+        "classification_reason": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "agent"
+        },
+        "last_event_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_event_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_state": {
+          "enum": [
+            "IDLE",
+            "WORKING",
+            "WAITING_APPROVAL",
+            "REVIEW",
+            "FAILED",
+            "SECURITY_BLOCKED",
+            "OFFLINE",
+            "UNKNOWN"
+          ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "task_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "capability": {
+      "additionalProperties": false,
+      "properties": {
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declared_by": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "capability"
+        },
+        "name": {
+          "type": "string"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "catalog_item": {
+      "additionalProperties": false,
+      "properties": {
+        "activation": {
+          "enum": [
+            "discovered_not_activated",
+            "metadata_only",
+            "configured_not_run"
+          ]
+        },
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declared_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "enabled": {
+          "const": false
+        },
+        "file_count": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "item_type": {
+          "enum": [
+            "skill",
+            "note",
+            "tool",
+            "prompt",
+            "bot",
+            "task_definition"
+          ]
+        },
+        "kind": {
+          "const": "catalog_item"
+        },
+        "modified_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outgoing_links": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_permissions": {
+          "type": [
+            "array",
+            "string",
+            "null"
+          ]
+        },
+        "risk_class": {
+          "type": "null"
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tags": {
+          "type": "array"
+        },
+        "target": {
+          "type": "string"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "tree_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tree_truncated": {
+          "type": "boolean"
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "connector": {
+      "additionalProperties": false,
+      "properties": {
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "connector"
+        },
+        "name": {
+          "type": "string"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "table_counts": {
+          "type": "object"
+        },
+        "transport": {
+          "type": "string"
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        },
+        "vault_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "evidence_record": {
+      "additionalProperties": false,
+      "properties": {
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "evidence_record"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "type": "string"
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "proposal": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "expected_benefit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "gap_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "proposal"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "problem": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "proposal_only": {
+          "const": true
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review_status": {
+          "const": "PENDING_HUMAN_REVIEW"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "unclassified"
+          ]
+        },
+        "rollback_plan": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "test_plan": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "provider": {
+      "additionalProperties": false,
+      "properties": {
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "provider"
+        },
+        "label": {
+          "type": "string"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observed_workers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "role": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "const": "UNKNOWN"
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "descriptor": {
+          "type": "string"
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "role"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "null"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "section_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "display": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "source",
+        "observed_at",
+        "validity",
+        "reason",
+        "display"
+      ],
+      "type": "object"
+    },
+    "task_instance": {
+      "additionalProperties": false,
+      "properties": {
+        "assigned_worker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "task_instance"
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "status_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "ultron_status": {
+      "additionalProperties": false,
+      "properties": {
+        "age_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "ACTIVE",
+            "STALE",
+            "UNKNOWN",
+            "OFFLINE",
+            "UNVERIFIED",
+            "FIXTURE"
+          ]
+        },
+        "freshness_window_s": {
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "ultron_status"
+        },
+        "last_event_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_event_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_state": {
+          "enum": [
+            "IDLE",
+            "WORKING",
+            "WAITING_APPROVAL",
+            "REVIEW",
+            "FAILED",
+            "SECURITY_BLOCKED",
+            "OFFLINE",
+            "UNKNOWN",
+            null
+          ]
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "IDLE",
+            "WORKING",
+            "WAITING_APPROVAL",
+            "REVIEW",
+            "FAILED",
+            "SECURITY_BLOCKED",
+            "OFFLINE",
+            "UNKNOWN"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    },
+    "worker": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "correlation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "current_task": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "display": {
+          "enum": [
+            "AUTH_REQUIRED",
+            "CONFLICT",
+            "FIXTURE",
+            "NOT_CONNECTED",
+            "OBSERVED",
+            "OFFLINE",
+            "STALE",
+            "UNKNOWN",
+            "UNVERIFIED"
+          ]
+        },
+        "freshness": {
+          "enum": [
+            "live",
+            "stale",
+            "offline",
+            "unknown"
+          ]
+        },
+        "heartbeat": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "worker"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "not_provided": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "const": "hive.readonly.v1"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "status_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validity": {
+          "enum": [
+            "valid",
+            "stale",
+            "unavailable",
+            "untrusted",
+            "conflict",
+            "unknown",
+            "auth_required",
+            "not_configured",
+            "fixture"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "source",
+        "source_id",
+        "observed_at",
+        "validity",
+        "reason",
+        "correlation_id",
+        "schema_version",
+        "display"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:hive:hive.readonly.v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Evidence envelope + record kinds served by /api/registry. Generated from hive_registry.build_schema(); do not edit by hand.",
+  "title": "HIVE read-only registry records"
+}

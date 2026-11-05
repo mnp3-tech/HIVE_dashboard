@@ -623,6 +623,58 @@ function renderView(){
     section.hidden = !views.includes(state.view);
   });
   $$('.nav-item').forEach(item=>item.classList.toggle('active',item.dataset.view===state.view));
+  if(state.view==='registry' && !registryBusy && (!state.registryAt || Date.now()-state.registryAt>15000)){ state.registryAt=Date.now(); loadRegistry(); }
+}
+
+// ---- Read-only registry (hive_registry.py via GET /api/registry). Display only: nothing here executes, approves, activates or writes.
+const REG_TONE={OBSERVED:'ok',ACTIVE:'ok',FIXTURE:'deferred',STALE:'warn',UNVERIFIED:'warn',AUTH_REQUIRED:'warn',CONFLICT:'fail',OFFLINE:'unknown',UNKNOWN:'unknown',NOT_CONNECTED:'unknown'};
+let registryBusy=false;
+async function loadRegistry(){
+  registryBusy=true;
+  try{ const r=await fetch('/api/registry',{headers:{Accept:'application/json'},cache:'no-store'}); if(!r.ok) throw new Error(`registry returned HTTP ${r.status}`); state.registry=await r.json(); state.registryError=null; }
+  catch(e){ state.registry=null; state.registryError=String(e&&e.message||e); }
+  finally{ registryBusy=false; }
+  renderRegistry();
+}
+const regChip=(display,title)=>`<span class="reg-chip ${REG_TONE[display]||'unknown'}" title="${esc(title||display||'UNKNOWN')}">${esc(display||'UNKNOWN')}</span>`;
+function regMeta(rec){
+  const np=(rec.not_provided||[]).length?` · NOT_PROVIDED: ${rec.not_provided.join(', ')}`:'';
+  return `${rec.source}${rec.observed_at?` · observed ${rec.observed_at}`:' · no observation'}${rec.correlation_id?` · correlation ${rec.correlation_id}`:' · correlation_id: none'}${np}`;
+}
+const regRow=(rec,main,sub)=>`<div class="reg-row" data-kind="${esc(rec.kind)}" data-id="${esc(rec.id)}" data-display="${esc(rec.display)}">${regChip(rec.display,rec.reason)}<div class="reg-text"><strong>${esc(main)}</strong>${sub?`<span>${esc(sub)}</span>`:''}<small>${esc(regMeta(rec))}</small>${rec.reason?`<small class="reg-reason">${esc(rec.reason)}</small>`:''}</div></div>`;
+function regSection(key,title,sec,rowFn){
+  const ev=(sec&&sec.evidence)||{}, items=(sec&&sec.items)||[];
+  return `<details class="reg-section" data-section="${esc(key)}" open><summary><span>${esc(title)}</span>${ev.display?regChip(ev.display,ev.reason):''}<small>${items.length} item(s) · ${esc(ev.source||'no source')}</small></summary>${ev.reason?`<p class="reg-reason">${esc(ev.reason)}</p>`:''}${items.length?items.map(rowFn).join(''):'<p class="reg-empty">Nothing from this source.</p>'}</details>`;
+}
+function renderRegistry(){
+  const body=$('#registry-body'), mode=$('#registry-mode'), evl=$('#registry-evidence'); if(!body) return;
+  const g=state.registry;
+  if(!g){ if(mode){ mode.textContent='UNAVAILABLE'; mode.className='panel-status unknown'; } if(evl) evl.textContent=state.registryError?`Registry unavailable: ${state.registryError}`:'Loading /api/registry…'; body.innerHTML=''; return; }
+  if(mode){ mode.textContent=g.mode==='fixture'?'FIXTURE DATA':'LIVE · READ-ONLY'; mode.className=`panel-status ${g.mode==='fixture'?'deferred':'ok'}`; }
+  if(evl) evl.textContent=`Generated ${g.generated_at} · schema ${g.schema_version} · read_only=${g.read_only} · executes_nothing=${g.executes_nothing}`;
+  const u=g.ultron||{};
+  const ultron=`<details class="reg-section" data-section="ultron" open><summary><span>ULTRON (orchestration observation)</span>${regChip(u.display,u.reason)}<small>state ${esc(u.state||'UNKNOWN')} · window ${esc(u.freshness_window_s)} s</small></summary><div class="reg-row" data-kind="ultron_status" data-display="${esc(u.display)}">${regChip(u.display,u.reason)}<div class="reg-text"><strong>${esc(u.display)} · state ${esc(u.state)}</strong><span>${u.last_event_id?`last event ${esc(u.last_event_id)} (${esc(u.last_event_type)})${u.age_s!=null?` · ${esc(u.age_s)} s old`:''}`:'no ULTRON event'}</span><small>${esc(regMeta(u))}</small>${u.reason?`<small class="reg-reason">${esc(u.reason)}</small>`:''}</div></div></details>`;
+  const conn={evidence:{source:'all connectors',reason:'Each connector reports its own state (aggregate header has no state of its own).'},items:g.connectors||[]};
+  const c=g.catalogs||{};
+  body.innerHTML=[
+    regSection('connectors','Connectors',conn,r=>regRow(r,r.name||r.id,[r.transport,r.table_counts&&Object.keys(r.table_counts).length?`tables: ${Object.entries(r.table_counts).map(([k,v])=>`${k} ${v}`).join(', ')}`:''].filter(Boolean).join(' · '))),
+    ultron,
+    regSection('agents','Agents (observed identities)',g.agents,r=>regRow(r,r.role_id,`classification ${r.classification} · last state ${r.last_state}${r.provider?` · provider ${r.provider}`:''}${r.task_id?` · task ${r.task_id}`:''}`)),
+    regSection('roles','Roles (catalog)',g.roles,r=>regRow(r,r.role_id,`${r.descriptor} · classification ${r.classification} · provider: not mapped`)),
+    regSection('workers','Workers',g.workers,r=>regRow(r,r.name||r.source_id,`${r.provider?`provider ${r.provider}`:'provider NOT_PROVIDED'} · status ${r.status_raw||'UNKNOWN'} · heartbeat ${r.freshness}${r.current_task?` · task ${r.current_task}`:''}${(r.capabilities||[]).length?` · caps ${r.capabilities.join(', ')}`:''}`)),
+    regSection('providers','Providers',g.providers,r=>regRow(r,r.label,(r.observed_workers||[]).length?`named by ${r.observed_workers.join(', ')}`:'no worker names this provider')),
+    regSection('capabilities','Capabilities (declared)',g.capabilities,r=>regRow(r,r.name,`declared by ${(r.declared_by||[]).join(', ')}`)),
+    regSection('tasks','Task instances',g.tasks&&g.tasks.instances,r=>regRow(r,r.title||r.source_id,`status ${r.status_raw||'UNKNOWN'} · ${r.assigned_worker?`worker ${r.assigned_worker}`:'no worker assigned by the source'}${(r.required_capabilities||[]).length?` · needs ${r.required_capabilities.join(', ')}`:''}`)),
+    regSection('task-definitions','Task definitions',g.tasks&&g.tasks.definitions,r=>regRow(r,r.name||r.id,'')),
+    regSection('creator-ops','Creator Ops task catalog',c.creator_ops,r=>regRow(r,r.name||r.id,'')),
+    regSection('obsidian','Obsidian notes (metadata only)',c.obsidian,r=>regRow(r,r.name,`modified ${r.modified_at||'?'} · ${r.size??'?'} bytes · tags ${(r.tags||[]).join(', ')||'none'} · ${r.outgoing_links??0} link(s)`)),
+    regSection('skills','Skills (discovered, not activated)',c.skills,r=>regRow(r,`${r.name}${r.version?` v${r.version}`:''}`,`${r.description||'no description'} · ${r.content_hash?r.content_hash.slice(0,19)+'…':'no hash'} · enabled=${r.enabled}`)),
+    regSection('prompts','Prompts',c.prompts,r=>regRow(r,r.name||r.id,'')),
+    regSection('bots','Bots',c.bots,r=>regRow(r,r.name||r.id,'')),
+    regSection('tools','Tools (configured, never run here)',c.tools,r=>regRow(r,r.name,`${r.transport} · ${r.target}`)),
+    regSection('proposals','Self-evolution proposals (display only)',g.proposals,r=>regRow(r,`${r.proposal_id} · ${r.gap_id} · risk ${r.risk}`,`${r.problem||''} · review ${r.review_status}`)),
+    regSection('evidence','Evidence log (latest observations)',{evidence:{source:'in-memory, bounded',reason:'Recorded on every registry read; never sent anywhere.'},items:g.evidence_log||[]},r=>regRow(r,r.subject,'')),
+  ].join('');
 }
 
 async function submitDelegation(event){

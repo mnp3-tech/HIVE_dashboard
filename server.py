@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import hmac
 import hive_events
+import hive_registry
 import hive_system
 import ipaddress
 import json
@@ -1778,6 +1779,24 @@ def adapter_health(health: dict, ready: dict) -> dict:
     }
 
 
+def registry_tools() -> list:
+    """Configured tool definitions for the read-only registry. Listing them never runs them."""
+    tools = [{"id": wid, "name": name, "transport": "cli", "target": " ".join(argv)} for wid, name, argv in LOCAL_CLI_PROBES]
+    tools += [{"id": wid, "name": name, "transport": "http loopback", "target": url} for wid, name, url, _ in LOCAL_WORKER_PROBES]
+    tools.append({"id": "ao-cli", "name": "AO CLI", "transport": "cli", "target": "configured" if AO_CLI_PATH else "not configured"})
+    tools.append({"id": "os-probe", "name": "Windows OS probe", "transport": "cli", "target": "powershell.exe (fixed read-only script in hive_system.py)"})
+    tools.append({"id": "nvidia-smi", "name": "nvidia-smi", "transport": "cli", "target": " ".join(hive_system.NVIDIA_ARGV)})
+    return tools
+
+
+def registry_snapshot() -> dict:
+    """Read-only registry (hive_registry.py). Runs inside the snapshot preflight scope so an unreachable Core costs one bounded call.
+    The Obsidian root comes only from the ORCHESTRATOR_VAULT_ROOT environment variable, never from the hardcoded constant above."""
+    with core_snapshot_scope():
+        return hive_registry.build_registry(fetch_with_evidence, creator_ops_status, registry_tools(),
+                                            vault_root=os.environ.get("ORCHESTRATOR_VAULT_ROOT") or None, bucket=bucket_for)
+
+
 def snapshot():
     with core_snapshot_scope():
         return _snapshot_impl()
@@ -2025,6 +2044,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.stream_events(parse_qs(urlparse(self.path).query))
             if path == "/api/dashboard/snapshot":
                 return self.json_response(snapshot())
+            if path == "/api/registry":
+                return self.json_response(registry_snapshot())
             if path == "/api/control/capabilities":
                 return self.json_response({
                     "delegation": {"proposal": True, "task": False, "mission": False, "self_upgrade_apply": False},

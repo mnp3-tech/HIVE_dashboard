@@ -335,3 +335,15 @@ body.reduced-motion .core-arms,body.reduced-motion .core-ambient path,body.reduc
 .rail-right>#panel-activity{flex:0 1 auto;max-height:58%}
 .rail-right>#panel-approvals{margin-top:auto;flex:0 0 auto}
 .empty-state small,.hive-panel .empty-state small{color:#8aa0b4}
+/* ---- read-only registry view (DETAILS console) ---- */
+.registry-body{padding:0 21px 20px;display:grid;gap:10px}
+.reg-section{border:1px solid var(--line-soft);border-radius:10px;background:rgba(8,20,30,.55);padding:8px 12px}
+.reg-section>summary{cursor:pointer;display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.04em;list-style:none}
+.reg-section>summary small{color:var(--muted,#8aa3b3);font-weight:400;letter-spacing:0}
+.reg-row{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:7px 0;border-top:1px solid var(--line-soft)}
+.reg-text{display:grid;gap:2px;min-width:0}.reg-text strong{overflow-wrap:anywhere}.reg-text span,.reg-text small{overflow-wrap:anywhere}
+.reg-text small{color:var(--muted,#8aa3b3);font-size:12px}.reg-reason{color:#c9b98a;font-size:12px;margin:2px 0}
+.reg-empty{color:var(--muted,#8aa3b3);font-size:12px;margin:6px 0}
+.reg-chip{font:10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:1px;padding:3px 6px;border-radius:5px;border:1px solid #3a5566;color:#9fb5c4;white-space:nowrap}
+.reg-chip.ok{color:var(--cyan,#5fd6e8);border-color:#2d6359}.reg-chip.warn{color:#f3c56b;border-color:#6b5525}.reg-chip.fail{color:#ff7b86;border-color:#6b2a33}
+.reg-chip.deferred{color:#c7a6ff;border-color:#4a3568}.reg-chip.unknown{color:#9fb5c4;border-color:#3a5566}

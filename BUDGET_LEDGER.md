@@ -111,3 +111,12 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## UI-1 finalization + visual review (GAP-5 stays OPEN)
 - app.js, hive-ops.js, stage.css (glyph for every unavailable gauge, detail tooltip, card hover titles), tests (system e2e, ops, visual e2e +1, live-check tool), 12 small before/after crops, docs. One regression found by the suite (title override) and fixed; full suite run twice on code changes (the first run caught it). Effort ~$3 (rough); running total about $97 of $100 - about $3 remain. Subagents 5 of 8. No new backup tag. P1.2/P1.3 not started.
+
+## Budget reconciliation (recorded at Gate A of the read-only foundation)
+- ESTIMATED (this ledger): running total about $97 of $100. Every figure above is a rough effort estimate written by the assistant; the ledger has always stated that dollar spend is not observable from the session.
+- USER-REPORTED (owner, at Gate A): about $30 actually spent, about $70 remaining of the original $100; timebox about 2.5 hours.
+- Not reconciled: neither figure can be verified from the session. Historical entries above are left unchanged. Planning from Gate A onward uses the USER-REPORTED remaining budget.
+
+## Read-only foundation (GAP-10 added; GAP-5 still OPEN)
+- hive_registry.py, schemas/hive-readonly-v1.schema.json, server.py and fixture_server.py (`/api/registry`), app.js/index.html/styles.css (Registry view), docs/hive/proposals/proposals-v1.json, tools/registry_summary.py, tests/test_registry.py (+41), tests/e2e/registry.e2e.mjs (+4), tests/fixtures/ (synthetic), docs. Full suite once on the final code: Python 351, UI contract 20, Node 97, Playwright 7+10+11+7+16+4, all green. One defect caught by the tests and fixed (shared evidence log).
+- Effort: rough estimate about $12-15 of the USER-REPORTED ~$70 remaining (not observed). Subagents: 5 of 8 (none used). Nothing executed, nothing written externally, no PROD/WONG/ROCKET access. P1.2/P1.3 not started.

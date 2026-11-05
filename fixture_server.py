@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import hive_events
+import hive_registry
 import hive_system
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -317,6 +318,43 @@ def fixture_model_limits(now: datetime) -> dict:
     return {"items": hive_system.model_limits(workers), "evidence": _evidence(now, "fixture:model-limits")}
 
 
+FIXTURE_DIR = Path(__file__).resolve().parent / "tests" / "fixtures"
+
+
+def fixture_registry(now: datetime) -> dict:
+    """Read-only registry on synthetic data. hive_registry labels every record fixture, so none can read as live."""
+    iso = lambda seconds: (now - timedelta(seconds=seconds)).isoformat().replace("+00:00", "Z")
+    core = {
+        "/health": {"status": "ok"},
+        "/workers": {"items": [
+            {"id": "claude-subscription", "name": "Claude (fixture)", "provider": "claude", "model": "fixture-model", "status": "running",
+             "capabilities": ["code.review", "docs.write"], "current_task": "task-fixture-1", "last_seen": iso(10)},
+            {"id": "lmstudio-local", "name": "LM Studio (fixture)", "provider": "local", "status": "idle", "capabilities": ["chat.local"], "last_seen": iso(200)},
+            {"id": "mystery-worker", "name": "No provider declared (fixture)", "status": "unknown"}]},
+        "/tasks": {"items": [
+            {"id": "task-fixture-1", "title": "Render live CORE state (fixture)", "status": "running", "worker_id": "claude-subscription",
+             "required_capabilities": ["code.review"], "correlation_id": "corr-fixture-1", "created_at": iso(300)},
+            {"id": "task-fixture-2", "title": "Unassigned task (fixture)", "status": "queued", "created_at": iso(120)}]},
+        "/events": {"items": [
+            {"event_id": "evt-ultron-1", "role_id": "ULTRON", "state": "working", "timestamp": iso(20), "event_type": "ROUTING_OBSERVED", "title": "fixture routing pulse"},
+            {"event_id": "evt-fury-1", "role_id": "FURY", "state": "working", "provider": "claude", "timestamp": iso(30), "task_id": "task-fixture-1", "correlation_id": "corr-fixture-1"},
+            {"event_id": "evt-thor-old", "role_id": "THOR", "state": "idle", "timestamp": iso(900)},
+            {"event_id": "evt-vision-future", "role_id": "VISION", "state": "working", "timestamp": iso(-3600)}]},
+    }
+
+    def fetch(path):
+        key = path.split("?")[0]
+        return core.get(key), {"source": f"hive:{path}", "observed_at": iso(1), "validity": "valid" if key in core else "unavailable",
+                               "reason": None if key in core else "not in fixture"}
+
+    def creator_ops():
+        return {"validity": "valid", "reason": "Synthetic counts (fixture).", "last_observed_at": iso(5), "counts": {"local_tasks": 3, "creative_tools": 2}}
+
+    return hive_registry.build_registry(fetch, creator_ops, [{"id": "fixture-tool", "name": "Fixture tool", "transport": "cli", "target": "none (fixture)"}],
+                                        skill_roots=[("fixture", str(FIXTURE_DIR / "skills"))], vault_root=str(FIXTURE_DIR / "vault"),
+                                        now=lambda: now, mode="fixture")
+
+
 def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = None) -> tuple[dict, int]:
     now = now or datetime.now(timezone.utc)
     if path == "/api/fixture/metadata":
@@ -325,6 +363,8 @@ def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = N
         return fixture_system(now), 200
     if path == "/api/dashboard/snapshot":
         return build_snapshot(now), 200
+    if path == "/api/registry":
+        return fixture_registry(now), 200
     if path == "/api/control/worker-policy":
         return build_worker_policy(now), 200
     if path == "/api/control/capabilities":
