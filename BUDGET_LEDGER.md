@@ -108,3 +108,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Windows live check PASS recorded (documentation only)
 - ACCEPTANCE.md (GAP-8 closed scoped, GAP-9 resolved, residuals listed), HANDOFF_REPORT.md section 26. No code or tests changed. Effort ~$0.5 (rough); running total about $94 of $100 - about $6 remain, which is less than any earlier P1 phase cost ($7-14), so P1.2 would need either more budget or a much narrower scope. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## UI-1 finalization + visual review (GAP-5 stays OPEN)
+- app.js, hive-ops.js, stage.css (glyph for every unavailable gauge, detail tooltip, card hover titles), tests (system e2e, ops, visual e2e +1, live-check tool), 12 small before/after crops, docs. One regression found by the suite (title override) and fixed; full suite run twice on code changes (the first run caught it). Effort ~$3 (rough); running total about $97 of $100 - about $3 remain. Subagents 5 of 8. No new backup tag. P1.2/P1.3 not started.

@@ -279,3 +279,11 @@ test('browser is display-only: no hardware/browser telemetry APIs, and /api/syst
   const sysFetches = [...app.matchAll(/fetch\('(\/api\/system[^']*)'/g)].map(m => m[1]);
   assert.deepEqual(sysFetches, ['/api/system/resources']);
 });
+
+test('resourceViews: an unavailable gauge carries reason/source/observed_at for the details; a known one carries its own observed_at and no reason', () => {
+  const v = O.resourceViews({ items: { cpu: { value: null, unit: '%', validity: 'unavailable', source: 'windows:powershell/x', observed_at: null, reason: 'OS probe timed out' }, memory: { value: 50, unit: '%', validity: 'valid', source: 's', observed_at: '2026-11-05T00:00:00Z' }, disk: { value: 500, unit: '%', validity: 'valid', source: 's', observed_at: '2026-11-05T00:00:00Z' } } });
+  assert.deepEqual([v[0].known, v[0].reason, v[0].source, v[0].observed_at], [false, 'OS probe timed out', 'windows:powershell/x', null]);
+  assert.deepEqual([v[1].known, v[1].reason, v[1].observed_at], [true, null, '2026-11-05T00:00:00Z']);
+  assert.deepEqual([v[2].known, v[2].reason, v[2].observed_at], [false, 'out-of-range value rejected', null]); // a rejected value never shows as observed
+  assert.equal(O.resourceViews(null)[0].reason, 'not provided');
+});

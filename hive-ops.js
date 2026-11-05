@@ -119,11 +119,11 @@
     const mk = (key, label, os, extra) => {
       const p = pickMetric(os); const v = p.metric ? num(p.metric.value) : null;
       const unit = p.metric && p.metric.unit;
-      const view = { key, label, known: v !== null, value: v, unit: unit || null, pct: null, text: 'UNKNOWN', sub: null, from: p.from, title: p.metric ? `${p.metric.validity} · source ${p.metric.source || 'n/a'} · observed ${p.metric.observed_at || 'n/a'}` : `UNKNOWN · ${p.reason || 'not provided'}${os && os.source ? ' · source ' + os.source : ''}` };
+      const view = { key, label, known: v !== null, value: v, unit: unit || null, pct: null, text: 'UNKNOWN', sub: null, from: p.from, reason: p.metric ? null : (p.reason || 'not provided'), source: (os && os.source) || null, observed_at: p.metric ? (p.metric.observed_at || null) : null, title: p.metric ? `${p.metric.validity} · source ${p.metric.source || 'n/a'} · observed ${p.metric.observed_at || 'n/a'}` : `UNKNOWN · ${p.reason || 'not provided'}${os && os.source ? ' · source ' + os.source : ''}` };
       if (v !== null) {
-        if (unit === '%') { if (v < 0 || v > 100) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = v; view.text = Math.round(v) + ' %'; }
-        else if (unit === 'C') { if (v < -40 || v > 150) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = Math.max(0, Math.min(100, v)); view.text = Math.round(v) + ' °C'; }
-        else { view.known = false; view.text = 'UNKNOWN'; view.title = 'unrecognised unit'; return view; }
+        if (unit === '%') { if (v < 0 || v > 100) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; view.reason = 'out-of-range value rejected'; view.observed_at = null; return view; } view.pct = v; view.text = Math.round(v) + ' %'; }
+        else if (unit === 'C') { if (v < -40 || v > 150) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; view.reason = 'out-of-range value rejected'; view.observed_at = null; return view; } view.pct = Math.max(0, Math.min(100, v)); view.text = Math.round(v) + ' °C'; }
+        else { view.known = false; view.text = 'UNKNOWN'; view.title = 'unrecognised unit'; view.reason = 'unrecognised unit'; view.observed_at = null; return view; }
         if (extra) view.sub = extra(p.metric);
       }
       return view;

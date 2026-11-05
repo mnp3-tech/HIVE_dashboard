@@ -94,6 +94,7 @@ try {
           if (known) note(/^\d+(\.\d+)? ?%$/.test(x.ring), `[${tag}] ${x.k} ring shows a percentage (${x.ring})`);
         }
         note(g.filter(x => ['gpu', 'temp'].includes(x.k)).every(x => x.st === 'UNKNOWN' && x.glyph), `[${tag}] GPU and TEMP show the UNKNOWN ? glyph`);
+        note(g.filter(x => x.st === 'UNKNOWN').every(x => x.glyph) && g.filter(x => x.st === 'KNOWN').every(x => !x.glyph), `[${tag}] every UNKNOWN gauge shows the ? glyph and no KNOWN gauge does`);
         const apiPct = { cpu: items.cpu.value, ram: items.memory.value, disk: items.disk.value };
         if (!expectUnknown) for (const k of ['cpu', 'ram', 'disk']) { const shown = parseFloat(g.find(x => x.k === k).ring); note(Math.abs(shown - apiPct[k]) <= 15, `[${tag}] ${k} gauge ${shown}% is consistent with the API value ${apiPct[k]}% (live values move between polls)`); }
         const layout = await p.evaluate(() => { const out = []; const box = id => document.querySelector(id).getBoundingClientRect();

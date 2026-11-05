@@ -346,11 +346,12 @@ function providerObservation(snapshot, key){
 function gaugeMarkup(v){
   const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
   const inner=v.known?v.text:'?';
-  const compact=!v.known&&COMPACT_GAUGES.includes(v.key); // GPU/TEMP: neutral ? glyph instead of the UNKNOWN caption (status stays UNKNOWN)
-  const sub=compact?`<span class="g-sub g-glyph" role="img" tabindex="0" aria-label="${esc(UNKNOWN_TIP)}" data-tip="${esc(UNKNOWN_TIP)}">?</span>`:`<small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small>`;
+  const compact=!v.known; // every UNAVAILABLE gauge: neutral ? glyph instead of the UNKNOWN caption (status stays UNKNOWN; details in tooltip and aria-description)
+  const detail=compact?`Reason: ${v.reason||'not provided'}\nSource: ${v.source||'none reported'}\nObserved at: ${v.observed_at||'none (no valid observation)'}`:'';
+  const sub=compact?`<span class="g-sub g-glyph" role="img" tabindex="0" aria-label="${esc(UNKNOWN_TIP)}" aria-description="${esc(detail.replace(/\n/g,'; '))}" data-tip="${esc(UNKNOWN_TIP+'\n'+detail)}">?</span>`:`<small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small>`;
   return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" data-status="${v.known?'KNOWN':'UNKNOWN'}" title="${compact?'':esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${sub}</div>`;
 }
-const COMPACT_GAUGES=['gpu','temp'], UNKNOWN_TIP='UNKNOWN \u2014 no fresh telemetry';
+const UNKNOWN_TIP='UNKNOWN \u2014 no fresh telemetry';
 let gaugeTip=null;
 function showGaugeTip(el){ // tooltip lives on .stage (panels clip overflow); positioned in stage units
   const stage=document.querySelector('.stage'); if(!stage) return;
@@ -712,4 +713,6 @@ initComposer();
 $('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
 document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
+/* full text of truncated task-card lines on hover (display only; the text itself is unchanged) */
+(function(){ const sel='.task-card .tc-main, .task-card .tc-sub'; const sync=el=>{ if(el.title&&!el.dataset.autoTitle) return; /* never override an authored title (e.g. the Layout note) */ el.title=el.textContent||''; el.dataset.autoTitle='1'; }; const obs=new MutationObserver(ms=>ms.forEach(m=>{ const t=m.target.nodeType===1?m.target:m.target.parentElement; const hit=t&&t.closest&&t.closest(sel); if(hit) sync(hit); })); document.querySelectorAll(sel).forEach(el=>{ sync(el); obs.observe(el,{childList:true,characterData:true,subtree:true}); }); })();
 buildArtwork(); startCore(); load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);

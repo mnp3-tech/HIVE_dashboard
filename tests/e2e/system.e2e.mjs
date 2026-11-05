@@ -101,20 +101,20 @@ test('layout: resources and limits panels do not clip or overlap at 1280x720 and
 });
 
 const TIP = 'UNKNOWN \u2014 no fresh telemetry';
-test('compact GPU/TEMP gauges: neutral ? glyph, UNKNOWN kept in the DOM and accessibility tree, tooltip on hover and focus, 1280x720', async () => {
+test('GPU/TEMP gauges (UNKNOWN in the fixture): neutral ? glyph, UNKNOWN kept in the DOM and accessibility tree, tooltip on hover and focus, 1280x720', async () => {
   const { p, errors, ctx } = await open(FIX, { width: 1280, height: 720 });
   await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge text')?.textContent !== '?', null, { timeout: 8000 });
   const info = await p.$$eval('#resource-gauges .gauge', gs => gs.map(g => { const gl = g.querySelector('.g-glyph'); return { k: g.dataset.k, status: g.dataset.status, glyph: gl ? { text: gl.textContent, label: gl.getAttribute('aria-label'), role: gl.getAttribute('role'), tab: gl.tabIndex, tip: gl.dataset.tip, visibleUnknown: /UNKNOWN/.test(g.querySelector('.g-sub').textContent) } : null, ringLabel: g.querySelector('svg').getAttribute('aria-label') }; }));
-  for (const k of ['gpu', 'temp']) { const g = info.find(x => x.k === k); assert.equal(g.status, 'UNKNOWN'); assert.equal(g.glyph.text, '?'); assert.equal(g.glyph.label, TIP); assert.equal(g.glyph.tip, TIP); assert.equal(g.glyph.role, 'img'); assert.equal(g.glyph.tab, 0); assert.equal(g.glyph.visibleUnknown, false); assert.match(g.ringLabel, /UNKNOWN/); }
+  for (const k of ['gpu', 'temp']) { const g = info.find(x => x.k === k); assert.equal(g.status, 'UNKNOWN'); assert.equal(g.glyph.text, '?'); assert.equal(g.glyph.label, TIP); assert.ok(g.glyph.tip.startsWith(TIP + '\n')); assert.equal(g.glyph.role, 'img'); assert.equal(g.glyph.tab, 0); assert.equal(g.glyph.visibleUnknown, false); assert.match(g.ringLabel, /UNKNOWN/); }
   for (const k of ['cpu', 'ram', 'disk']) assert.equal(info.find(x => x.k === k).glyph, null, k + ' is known in the fixture and has no glyph');
   // accessibility tree exposes the UNKNOWN text
   const snap = await p.locator('#resource-gauges').ariaSnapshot(); assert.ok(snap.includes(TIP), snap);
   // hover shows the tooltip, leaving hides it
-  await p.hover('.gauge[data-k="gpu"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent)), TIP);
+  await p.hover('.gauge[data-k="gpu"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent.split('\n')[0])), TIP);
   const box = await p.$eval('#gauge-tip', e => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top }; }); assert.ok(box.l >= 0 && box.r <= 1280 && box.t >= 0, JSON.stringify(box));
   await p.mouse.move(5, 5); assert.equal(await p.$eval('#gauge-tip', e => e.hidden), true);
   // keyboard focus shows it, Escape hides it, focus survives a re-render cycle
-  await p.focus('.gauge[data-k="temp"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent)), TIP);
+  await p.focus('.gauge[data-k="temp"] .g-glyph'); assert.equal(await p.$eval('#gauge-tip', e => (e.hidden ? '' : e.textContent.split('\n')[0])), TIP);
   await p.keyboard.press('Escape'); assert.equal(await p.$eval('#gauge-tip', e => e.hidden), true);
   await p.focus('.gauge[data-k="temp"] .g-glyph'); await p.waitForTimeout(2500); assert.equal(await p.evaluate(() => document.activeElement?.className), 'g-sub g-glyph', 'polling must not drop keyboard focus');
   // the two glyphs no longer collide, and nothing overlaps or clips
@@ -125,13 +125,18 @@ test('compact GPU/TEMP gauges: neutral ? glyph, UNKNOWN kept in the DOM and acce
   assert.deepEqual(errors, []); await ctx.close();
 });
 
-test('live adapter: unknown gauges keep UNKNOWN (CPU/RAM/DISK as captions, GPU/TEMP as ? glyph); no glyph for any other state', async () => {
+test('live adapter: every UNKNOWN gauge is a ? glyph that keeps UNKNOWN in DOM/aria and carries reason, source and observed_at in the details; known gauges never get one', async () => {
   const { p, errors, ctx } = await open(LIVE, { width: 1280, height: 720 });
   await p.waitForTimeout(1200);
   const r = await p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ k: g.dataset.k, st: g.dataset.status, cap: g.querySelector('.g-sub').textContent, glyph: !!g.querySelector('.g-glyph') })));
-  assert.deepEqual(r.map(x => x.glyph), [false, false, false, true, true]); assert.ok(r.every(x => x.st === 'UNKNOWN'));
-  assert.deepEqual(r.slice(0, 3).map(x => x.cap), ['UNKNOWN', 'UNKNOWN', 'UNKNOWN']);
-  assert.equal(await p.$$eval('.g-glyph', e => e.length), 2, '? glyph only on the two compact UNKNOWN gauges (OFFLINE / UNVERIFIED / NOT CONNECTED never use it)');
+  assert.deepEqual(r.map(x => x.glyph), [true, true, true, true, true]); assert.ok(r.every(x => x.st === 'UNKNOWN' && x.cap === '?'));
+  assert.equal(await p.$$eval('.g-glyph', e => e.length), 5, '? glyph on every UNAVAILABLE gauge and nowhere else (OFFLINE / UNVERIFIED / NOT CONNECTED never use it)');
+  const meta = await p.$$eval('.g-glyph', es => es.map(e => ({ label: e.getAttribute('aria-label'), desc: e.getAttribute('aria-description'), tip: e.dataset.tip })));
+  for (const m of meta) { assert.equal(m.label, TIP); assert.match(m.desc, /Reason: .+; Source: .+; Observed at: none \(no valid observation\)/); assert.ok(m.tip.startsWith(TIP + '\n') && /Reason: /.test(m.tip) && /Source: /.test(m.tip) && /Observed at: none/.test(m.tip)); }
+  await p.hover('.gauge[data-k="cpu"] .g-glyph');
+  const tip = await p.$eval('#gauge-tip', e => ({ hidden: e.hidden, text: e.textContent, pre: getComputedStyle(e).whiteSpace })); assert.equal(tip.hidden, false); assert.match(tip.text, /^UNKNOWN \u2014 no fresh telemetry\nReason: .+\nSource: .+\nObserved at: none/); assert.equal(tip.pre, 'pre-line');
+  const box = await p.$eval('#gauge-tip', e => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top }; }); assert.ok(box.l >= 0 && box.r <= 1280 && box.t >= 0, JSON.stringify(box));
+  assert.equal(await p.$eval('.gauge[data-k="cpu"]', g => g.dataset.status), 'UNKNOWN', 'details never change the status');
   assert.match(await p.$eval('#system-evidence', e => e.textContent), /GPU UNKNOWN, TEMP UNKNOWN/);
   assert.deepEqual(errors, []); await ctx.close();
 });

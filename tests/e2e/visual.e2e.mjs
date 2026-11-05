@@ -218,3 +218,12 @@ test('reduced motion: vortex, ambient connectors and links do not animate; UNKNO
   const w = await open(FIX); await w.p.waitForFunction(() => document.querySelector('#core-stage')?.dataset.coreState === 'WORKING', null, { timeout: 8000 });
   const ow = await w.p.$eval('#core-canvas', e => parseFloat(getComputedStyle(e).opacity)); assert.ok(ow >= 0.95); await w.ctx.close();
 });
+
+test('hover titles: truncated task-card lines get their full text; authored titles are never overridden', async () => {
+  const { p, ctx } = await open(FIX);
+  await p.waitForFunction(() => /claude-subscription/.test(document.querySelector('#card-current-sub')?.textContent || ''), null, { timeout: 9000 });
+  const r = await p.evaluate(() => { const cur = document.querySelector('#card-current-sub'); const lay = document.querySelector('#card-layout .tc-sub, #card-layout [title]'); return { curTitle: cur.title, curText: cur.textContent, layTitle: lay && lay.title }; });
+  assert.equal(r.curTitle, r.curText); assert.ok(r.curTitle.length > 10);
+  assert.match(r.layTitle, /editor not available/i);
+  await ctx.close();
+});
