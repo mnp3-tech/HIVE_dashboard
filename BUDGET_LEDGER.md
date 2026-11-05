@@ -71,3 +71,9 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Rive evaluated and NOT adopted (needs an editor-authored .riv plus a JS/WASM runtime; criteria for adopting later are in VISUAL_SPEC.md 9). Implementation (wallpaper, canvas/SVG CORE, stage layout) deliberately not started: it is structural and needs a backup tag first.
 - Tests: no code changed; suites not re-run for this documentation-only step. GAP-1..GAP-8 unchanged; GAP-5 OPEN.
 - Effort ~$3; running total about $63 of $100 (rough, not observed spend).
+
+## Measured hybrid 2.5D implementation (GAP-5 stays OPEN)
+- One implementation pass plus one screenshot-diff QA pass (1280x720, 1920x1080, 2560x1440); affected tests during iteration, full suite once at the end. No Unity/Spline/Rive/Three.js/CDN/fonts evaluated or added.
+- Files: new assets/hive-wallpaper.jpg, tools/{make_wallpaper.py,make_stage.py,make_compare.mjs}, stage.css, stage-layout.css, tests/test_assets.py, measurements (stage-layout-final.json, ours-after-*.json), screenshots (hybrid-*, overlay-after-*); changed index.html, app.js, hive-core.js, hive-ops.js, tests (core, ops, e2e shell/chat/system/visual), docs (HANDOFF_REPORT s15, ACCEPTANCE GAP-5).
+- Tests: Python 280, ui_contract 20, Node 88, Playwright 7+10+11+5+15, all green on Linux.
+- Subagents: still 5 of 8 (none used). Effort ~$14 (rough, not observed spend); running total about $77 of $100. Not started: P1.2, P1.3, any further visual iteration.

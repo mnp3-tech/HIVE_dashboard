@@ -30,13 +30,15 @@ async function open(url, vp = { width: 1920, height: 1080 }, prep) {
 const txt = (p, sel) => p.$eval(sel, e => e.textContent.trim());
 const TARGET_ONLY = ['72 %', '64 %', '58 %', '84 %', '46 °C', '1.31 TB', '187K', '165K', 'Admin', 'AKTU', 'HIVE Context v4', 'Quantum', 'SECURITY: ACTIVE', 'Logs', 'Anomalies', 'Patterns'];
 
-test('artwork is present and decorative: stars, nebula, spiral arms, ring nodes, ambient connectors, role icons', async () => {
+test('artwork is local and decorative: wallpaper file, vortex canvas drawn, ring nodes, connectors, role icons (no procedural stars, no text in art)', async () => {
   const { p, errors, ctx } = await open(LIVE);
-  assert.ok((await p.$$eval('.space-bg .stars circle', c => c.length)) >= 300, 'starfield');
-  assert.ok((await p.$$eval('.space-bg .neb ellipse', c => c.length)) >= 6, 'nebula');
-  assert.equal(await p.$$eval('#core-arms path', c => c.length), 12, 'six spiral arms (glow + line)');
-  assert.ok((await p.$$eval('#ring-nodes circle', c => c.length)) >= 12);
-  assert.ok((await p.$$eval('#core-ambient path', c => c.length)) >= 4, 'connector curves');
+  const bg = await p.$eval('.space-bg', e => getComputedStyle(e).backgroundImage); assert.match(bg, /assets\/hive-wallpaper\.jpg/); assert.match(bg, /^url\("http:\/\/127\.0\.0\.1:\d+\/assets\/hive-wallpaper\.jpg"\)$/, 'same-origin (loopback) local file only');
+  const wp = await p.evaluate(async () => { const r = await fetch('assets/hive-wallpaper.jpg'); const b = await r.blob(); return { ok: r.ok, type: r.headers.get('content-type'), size: b.size }; });
+  assert.equal(wp.ok, true); assert.match(wp.type, /image\/jpeg/); assert.ok(wp.size > 50000 && wp.size <= 650 * 1024, `wallpaper size ${wp.size}`);
+  assert.equal(await p.$$eval('.space-bg *', c => c.length), 0, 'no procedural art inside the wallpaper layer');
+  const px = await p.$eval('#core-canvas', cv => { const g = cv.getContext('2d'), S = cv.width; const d = g.getImageData(0, 0, S, S).data; let lit = 0, colours = new Set(); for (let i = 0; i < d.length; i += 4 * 97) { if (d[i + 3] > 40) { lit++; colours.add((d[i] >> 5) + ',' + (d[i + 1] >> 5) + ',' + (d[i + 2] >> 5)); } } const c = g.getImageData(S / 2, S / 2, 1, 1).data; return { lit, colours: colours.size, centreAlpha: c[3], centreLum: c[0] + c[1] + c[2] }; });
+  assert.ok(px.lit > 500 && px.colours > 12, `vortex canvas looks empty: ${JSON.stringify(px)}`); assert.equal(px.centreLum, 0, 'the horizon is black');
+  assert.ok((await p.$$eval('#ring-nodes circle', c => c.length)) >= 12); assert.ok((await p.$$eval('#core-ambient path', c => c.length)) >= 4, 'connector curves');
   assert.deepEqual(await p.$$eval('#core-agents .core-agent', g => g.map(x => [x.dataset.agent, x.querySelector('use').getAttribute('href')])),
     [['FURY', '#ico-fury'], ['SHURI', '#ico-shuri'], ['THOR', '#ico-thor'], ['VISION', '#ico-vision'], ['FALCON', '#ico-falcon'], ['UATU', '#ico-uatu']]);
   assert.equal(await p.$$eval('#core-agents .ca-glyph', c => c.length), 0, 'letter placeholders are gone');
@@ -60,7 +62,7 @@ test('live: task cards say UNKNOWN / UNAVAILABLE, no progress bar, Layout contro
   assert.equal(await txt(p, '#card-external-main'), 'INTERNET'); assert.equal(await txt(p, '#card-external-sub'), 'NO ACTIVITY OBSERVED');
   assert.equal(await p.$eval('#card-current-progress', e => e.hidden), true);
   assert.equal(await p.$$eval('#card-layout .lay-btn', b => b.every(x => x.disabled && /not available/i.test(x.title))), true);
-  assert.match(await txt(p, '#card-layout .lay-note'), /editor not available/i);
+  assert.match(await txt(p, '#card-layout .lay-note'), /not available/i); assert.match(await p.$eval('#card-layout .lay-note', e => e.title), /editor not available/i);
   await ctx.close();
 });
 
@@ -133,11 +135,12 @@ test('identity colours never reuse status hues; unobserved roles show a hollow n
   for (const a of ring) assert.ok(!STATUS.includes(a), `approval accent ${a} equals a status colour`);
   const dots = await live.p.$$eval('#agent-roster .rail-row .dot', e => e.map(d => ({ hollow: d.classList.contains('hollow'), bg: getComputedStyle(d).backgroundColor })));
   assert.equal(dots.length, 6); assert.ok(dots.every(d => d.hollow && /rgba\(0, 0, 0, 0\)|transparent/.test(d.bg)), 'nothing observed => every dot is a hollow ring');
-  assert.equal(await live.p.$$eval('#agent-roster small.obs', e => e.length), 0, 'no observed-state text without an observation');
+  assert.deepEqual(await live.p.$$eval('#agent-roster .rail-row .state', e => e.map(x => x.textContent)), Array(6).fill('provider unknown'));
   await live.ctx.close();
-  const fx = await open(FIX); await fx.p.waitForFunction(() => document.querySelector('#agent-roster small.obs'), null, { timeout: 8000 });
-  const obs = await fx.p.$$eval('#agent-roster .rail-row', rows => rows.filter(r => r.querySelector('small.obs')).map(r => [r.querySelector('strong').textContent, r.querySelector('small.obs').textContent, r.querySelector('.state').textContent]));
-  assert.ok(obs.length >= 1); for (const [, state, prov] of obs) { assert.match(state, /· observed$/); assert.equal(prov, 'PROVIDER UNKNOWN', 'provider stays unknown even when the role state is observed'); }
+  const fx = await open(FIX); await fx.p.waitForFunction(() => [...document.querySelectorAll('#agent-roster .rail-row .dot')].some(d => !d.classList.contains('hollow')), null, { timeout: 8000 });
+  const obs = await fx.p.$$eval('#agent-roster .rail-row', rows => rows.filter(r => !r.querySelector('.dot').classList.contains('hollow')).map(r => [r.querySelector('strong').textContent, r.querySelector('.state').textContent, r.querySelector('.state').title]));
+  assert.ok(obs.length >= 1); for (const [, state, title] of obs) { assert.match(state, /^(WORKING|IDLE|WAITING APPROVAL|REVIEW|FAILED|SECURITY BLOCKED)$/); assert.match(title, /observed from an event; provider unknown/); }
+  assert.ok(!(await fx.p.$eval('#agent-roster', e => /claude|gpt|codex/i.test(e.textContent))), 'no provider is ever named next to a role');
   await fx.ctx.close();
 });
 
@@ -148,11 +151,70 @@ test('a travelling agent hides its caption (no label collisions) while its name 
   assert.equal(r.state, '0'); assert.equal(r.name, '1'); await ctx.close();
 });
 
-test('rails: bottom panels stay anchored to the composer line and nothing stretches into empty glass', async () => {
-  for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 720 }]) {
-    const { p, ctx } = await open(LIVE, vp); await p.waitForTimeout(1200);
-    const g = await p.evaluate(() => { const b = s => document.querySelector(s).getBoundingClientRect(); return { agents: b('#panel-agents').bottom, comp: b('#chat-draft-form').bottom, appr: b('#panel-approvals').bottom, chatsH: b('#panel-chats').height, vh: innerHeight }; });
-    assert.ok(Math.abs(g.agents - g.comp) <= 2 && Math.abs(g.appr - g.comp) <= 2, `bottom panels not aligned: ${JSON.stringify(g)}`);
-    assert.ok(g.chatsH <= vp.height * 0.5, 'CHATS must not stretch'); await ctx.close();
+test('the stage layout is the measured one: panel rectangles equal stage-layout-final.json x k, and stay within 1.5 pp of the target after the centring transform', async () => {
+  const { readFileSync } = await import('node:fs');
+  const fin = JSON.parse(readFileSync(join(root, 'docs/hive/measurements/stage-layout-final.json'), 'utf8')).panels_px;
+  const tgt = JSON.parse(readFileSync(join(root, 'docs/hive/measurements/target.json'), 'utf8')); const S = 0.985, ring = tgt.core.neon_ring;
+  const IDS = { chats: '#panel-chats', projects: '#panel-projects', agents: '#panel-agents', card_current: '#card-current', card_next: '#card-next', card_context: '#card-context', card_external: '#card-external', card_layout: '#card-layout', activity: '#panel-activity', approvals: '#panel-approvals', resources: '#panel-resources', limits: '#panel-limits', composer: '#chat-draft-form', topbar: '#topbar' };
+  for (const vp of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }, { width: 2560, height: 1440 }]) {
+    const { p, ctx } = await open(LIVE, vp); const k = await p.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--k')));
+    assert.ok(Math.abs(k - Math.min(vp.width / 1671, vp.height / 941)) < 1e-6, 'stage scale');
+    const ox = (vp.width - 1671 * k) / 2, oy = (vp.height - 941 * k) / 2;
+    for (const [key, sel] of Object.entries(IDS)) {
+      const r = await p.$eval(sel, e => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; }), f = fin[key];
+      assert.ok(Math.abs(r.x - (ox + f.x0 * k)) <= 1 && Math.abs(r.y - (oy + f.y0 * k)) <= 1 && Math.abs(r.w - f.w * k) <= 1 && Math.abs(r.h - f.h * k) <= 1, `${key} @${vp.width}: ${JSON.stringify(r)} vs final`);
+      if (key !== 'topbar' && tgt.panels[key]) { // deviation from the measured target after the centring transform (pp of the 1671x941 stage)
+        const t = tgt.panels[key], tx = x => 835.5 + (x - ring.cx) * S, ty = y => 470.5 + (y - 470.5) * S;
+        const dpp = [Math.abs(f.x0 - tx(t.x0)) / 1671, Math.abs(f.y0 - ty(t.y0)) / 941, Math.abs(f.w - (t.w * S)) / 1671, Math.abs(f.h - (t.h * S)) / 941].map(v => v * 100);
+        assert.ok(Math.max(...dpp) <= 1.5, `${key} deviates ${dpp.map(v => v.toFixed(2))} pp from the target`);
+      }
+    }
+    await ctx.close();
   }
+});
+
+test('agent homes are the measured polar positions (live: nothing observed => nobody moves); ring centre and radius match the spec', async () => {
+  const { readFileSync } = await import('node:fs');
+  const polar = JSON.parse(readFileSync(join(root, 'docs/hive/measurements/target.json'), 'utf8')).core.polar; const R = 233.1, C = { x: 835.5, y: 398.6 };
+  for (const vp of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
+    const { p, ctx } = await open(LIVE, vp); await p.waitForTimeout(1500);
+    const k = Math.min(vp.width / 1671, vp.height / 941), ox = (vp.width - 1671 * k) / 2, oy = (vp.height - 941 * k) / 2;
+    const ring = await p.$eval('#ultron-ring', e => { const b = e.getBoundingClientRect(); return { cx: b.left + b.width / 2, cy: b.top + b.height / 2, r: b.width / 2 }; });
+    assert.ok(Math.abs(ring.cx - vp.width / 2) <= 2 && Math.abs(ring.r - R * k) <= 2 && Math.abs(ring.cy - (oy + C.y * k)) <= 2, JSON.stringify(ring));
+    for (const [role, pol] of Object.entries(polar)) {
+      if (!['FURY', 'SHURI', 'THOR', 'VISION', 'FALCON', 'UATU'].includes(role)) continue;
+      const c = await p.$eval(`.core-agent[data-agent="${role}"] circle:not(.halo)`, e => { const b = e.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      const ex = ox + (C.x + R * pol.r_over_ring * Math.cos(pol.angle_deg * Math.PI / 180)) * k, ey = oy + (C.y + R * pol.r_over_ring * Math.sin(pol.angle_deg * Math.PI / 180)) * k;
+      assert.ok(Math.hypot(c.x - ex, c.y - ey) <= 1.5, `${role} home is ${Math.hypot(c.x - ex, c.y - ey).toFixed(1)}px from the measured position at ${vp.width}`);
+    }
+    await ctx.close();
+  }
+});
+
+test('text floor: no rendered text is smaller than 9.9 px on screen at 1280x720 (HTML and SVG text)', async () => {
+  const { p, ctx } = await open(FIX + '?scenario=approval', { width: 1280, height: 720 }); await p.waitForTimeout(2200);
+  const small = await p.evaluate(() => { const out = []; const k = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--k'));
+    for (const e of document.querySelectorAll('.stage *')) { const own = [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()); if (!own) continue; const r = e.getBoundingClientRect(); if (!r.width || !r.height) continue; const cs = getComputedStyle(e); if (cs.visibility === 'hidden' || cs.display === 'none' || e.classList.contains('visually-hidden')) continue; // screen-reader-only text is not visually rendered
+      let px = parseFloat(cs.fontSize); px *= e.ownerSVGElement ? e.ownerSVGElement.getScreenCTM().a : k; if (px < 9.9) out.push(`${e.tagName.toLowerCase()}.${(e.className.baseVal ?? e.className) || ''}: "${e.textContent.trim().slice(0, 24)}" ${px.toFixed(1)}px`); }
+    return out; });
+  assert.deepEqual(small, []); await ctx.close();
+});
+
+test('local-only: every request is same-origin or loopback; nothing fails; the wallpaper is fetched once as a local image', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 } }); const p = await ctx.newPage(); const urls = [], failed = [];
+  p.on('request', r => urls.push(r.url())); p.on('requestfailed', r => failed.push(r.url()));
+  await p.goto(FIX, { waitUntil: 'networkidle' }); await p.waitForTimeout(800);
+  const foreign = urls.filter(u => !/^http:\/\/127\.0\.0\.1:\d+\//.test(u) && !u.startsWith('data:') && !u.startsWith('blob:'));
+  assert.deepEqual(foreign, []); assert.deepEqual(failed.filter(u => !u.includes('/api/events/stream')), []);
+  assert.equal(urls.filter(u => u.endsWith('/assets/hive-wallpaper.jpg')).length, 1); await ctx.close();
+});
+
+test('reduced motion: vortex, ambient connectors and links do not animate; UNKNOWN vortex is dimmed, WORKING is bright', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, reducedMotion: 'reduce' }); const p = await ctx.newPage();
+  await p.goto(FIX); await p.waitForFunction(() => document.querySelector('#core-stage')?.dataset.coreState === 'WORKING', null, { timeout: 8000 });
+  assert.equal(await p.$eval('#core-canvas', e => getComputedStyle(e).animationName), 'none'); assert.equal(await p.$eval('#core-ambient path', e => getComputedStyle(e).animationName), 'none'); await ctx.close();
+  const live = await open(LIVE); await live.p.waitForTimeout(1500);
+  const o = await live.p.$eval('#core-canvas', e => ({ op: parseFloat(getComputedStyle(e).opacity), f: getComputedStyle(e).filter, a: getComputedStyle(e).animationName })); assert.ok(o.op <= 0.5 && /grayscale/.test(o.f) && o.a === 'none', JSON.stringify(o)); await live.ctx.close();
+  const w = await open(FIX); await w.p.waitForFunction(() => document.querySelector('#core-stage')?.dataset.coreState === 'WORKING', null, { timeout: 8000 });
+  const ow = await w.p.$eval('#core-canvas', e => parseFloat(getComputedStyle(e).opacity)); assert.ok(ow >= 0.95); await w.ctx.close();
 });

@@ -102,6 +102,12 @@
     const v = num(n); if (v === null || v < 0) return null;
     if (v >= 1e6) return (Math.round(v / 1e5) / 10) + 'M'; if (v >= 1e3) return (Math.round(v / 100) / 10) + 'K'; return String(Math.round(v));
   }
+  /* "7.52 / 17.18 GB": the unit is written once when both values use it */
+  function formatPair(a, b) {
+    const x = formatBytes(a), y = formatBytes(b); if (!x || !y) return null;
+    const ux = x.split(' ')[1], uy = y.split(' ')[1];
+    return ux === uy ? `${x.split(' ')[0]} / ${y}` : `${x} / ${y}`;
+  }
   const metricKnown = m => Boolean(m && TRUSTED.includes(m.validity) && num(m.value) !== null);
   /* OS value first; else HIVE Core's own host metric (percent only, valid only); else unknown. Never a default. */
   function pickMetric(osItem, coreMetric) {
@@ -125,7 +131,7 @@
     };
     return [
       mk('cpu', 'CPU', items.cpu, cm.cpu),
-      mk('ram', 'RAM', items.memory, cm.memory, m => (formatBytes(m.used_bytes) && formatBytes(m.total_bytes) ? `${formatBytes(m.used_bytes)} / ${formatBytes(m.total_bytes)}` : null)),
+      mk('ram', 'RAM', items.memory, cm.memory, m => formatPair(m.used_bytes, m.total_bytes)),
       mk('disk', 'DISK', items.disk, cm.disk, m => (formatBytes(m.free_bytes) ? `${m.drive ? m.drive + ' ' : ''}${formatBytes(m.free_bytes)} free` : null)),
       mk('gpu', 'GPU', items.gpu, null, null),
       mk('temp', 'TEMP', items.temperature, null, null),
@@ -133,19 +139,20 @@
   }
   /* One-line USB/external summary. Phones (MTP/PTP) are never counted as disks. An empty list from a probe
      that did not return that list is UNKNOWN, never "0". */
-  function deviceSummary(system) {
+  function deviceLines(system) {
     if (!system || !system.items || system.error) return null;
     const it = system.items; const usbKnown = it.usb_known === true, disksKnown = it.disks_known === true;
     if (!usbKnown && !disksKnown) return null;
     const disks = disksKnown && Array.isArray(it.disks) ? it.disks : []; const usb = usbKnown && Array.isArray(it.usb) ? it.usb : [];
     const ext = disks.filter(d => d.kind === 'external' || d.kind === 'removable');
     const phones = usb.filter(u => u.kind === 'phone_mtp_ptp');
-    const parts = [usbKnown ? `USB ${usb.length}` : 'USB UNKNOWN'];
-    ext.forEach(d => { const f = d.validity !== 'unavailable' ? formatBytes(d.free_bytes) : null; const t = d.validity !== 'unavailable' ? formatBytes(d.total_bytes) : null; parts.push(`${d.id} ${t && f ? `${t}, ${f} free` : 'size unavailable'}`); }); // access mode (Read/Write) is shown in the System console list
-    if (!disksKnown) parts.push('disks UNKNOWN');
-    phones.forEach(p => parts.push(`${p.name}: ${p.protocol || 'MTP/PTP'} · Storage metrics unavailable`));
-    return parts.join(' · ');
+    const lines = [usbKnown ? `USB ${usb.length}` : 'USB UNKNOWN'];
+    ext.forEach(d => { const f = d.validity !== 'unavailable' ? formatBytes(d.free_bytes) : null; const t = d.validity !== 'unavailable' ? formatBytes(d.total_bytes) : null; lines.push(`${d.id} ${t && f ? `${t}, ${f} free` : 'size unavailable'}`); }); // access mode (Read/Write) is shown in the System console list
+    if (!disksKnown) lines.push('disks UNKNOWN');
+    phones.forEach(p => lines.push(`${p.name}: ${p.protocol || 'MTP/PTP'} · Storage metrics unavailable`));
+    return lines;
   }
+  function deviceSummary(system) { const l = deviceLines(system); return l ? l.join(' · ') : null; }
   function devicesNodeText(system) {
     if (!system || !system.items || system.error) return 'UNKNOWN';
     const it = system.items; const usbKnown = it.usb_known === true, disksKnown = it.disks_known === true;
@@ -214,6 +221,6 @@
     return v.text === 'CONTEXT READABLE' ? 'CONTEXT READABLE' : v.text === 'UNKNOWN' ? 'UNKNOWN' : v.text;
   }
 
-  const api = { taskCardViews, contextCardView, obsidianNodeText, formatBytes, formatCount, metricKnown, pickMetric, resourceViews, deviceSummary, devicesNodeText, limitView, EMPTY_LIMITS, STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
+  const api = { formatPair, deviceLines, taskCardViews, contextCardView, obsidianNodeText, formatBytes, formatCount, metricKnown, pickMetric, resourceViews, deviceSummary, devicesNodeText, limitView, EMPTY_LIMITS, STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveOps = api;
 })(typeof window !== 'undefined' ? window : globalThis);

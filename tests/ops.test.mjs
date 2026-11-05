@@ -180,7 +180,7 @@ test('resourceViews: OS values with invalid validity/range/units are rejected; f
 });
 test('resourceViews: sublabels (disk free space, RAM used/total) only from real numbers', () => {
   const v = O.resourceViews({ items: { disk: { value: 60, unit: '%', validity: 'valid', drive: 'C:\\', free_bytes: 400e9 }, memory: { value: 75, unit: '%', validity: 'valid', used_bytes: 12e9, total_bytes: 16e9 } } }, null);
-  assert.equal(v[2].sub, 'C:\\ 400 GB free'); assert.equal(v[1].sub, '12 GB / 16 GB');
+  assert.equal(v[2].sub, 'C:\\ 400 GB free'); assert.equal(v[1].sub, '12 / 16 GB', 'unit written once');
   assert.equal(O.resourceViews({ items: { disk: { value: 60, unit: '%', validity: 'valid', free_bytes: 'lots' } } }, null)[2].sub, null);
 });
 test('deviceSummary: external disks with free space; MTP/PTP phone says Storage metrics unavailable and is not a disk', () => {
@@ -252,4 +252,13 @@ test('cards: shared context shows only real memory evidence (no vault, version o
   assert.equal(O.contextCardView({ project_count: 'many', record_count: -1, evidence: { validity: 'valid' } }).sub, 'read-only');
   assert.doesNotMatch(JSON.stringify(ok), /\bv\d|version|vault/i);
   assert.equal(O.obsidianNodeText(null), 'UNKNOWN'); assert.equal(O.obsidianNodeText({ evidence: { validity: 'unavailable' } }), 'UNAVAILABLE'); assert.equal(O.obsidianNodeText({ evidence: { validity: 'valid' } }), 'CONTEXT READABLE');
+});
+
+
+test('formatPair writes the unit once, and not at all for invalid input; deviceLines is one fact per line', () => {
+  assert.equal(O.formatPair(7.52e9, 17.18e9), '7.52 / 17.18 GB'); assert.equal(O.formatPair(900e6, 16e9), '900 MB / 16 GB'); assert.equal(O.formatPair(-1, 5), null); assert.equal(O.formatPair('x', 5), null);
+  const sys = { items: { usb_known: true, disks_known: true, disks: [{ id: 'E:\\', kind: 'external', validity: 'valid', total_bytes: 1e12, free_bytes: 6.2e11 }], usb: [{ name: 'Pixel 8', kind: 'phone_mtp_ptp', protocol: 'MTP/PTP' }] } };
+  assert.deepEqual(O.deviceLines(sys), ['USB 1', 'E:\\ 1 TB, 620 GB free', 'Pixel 8: MTP/PTP · Storage metrics unavailable']);
+  assert.equal(O.deviceLines(null), null); assert.equal(O.deviceLines({ items: { usb_known: false, disks_known: false } }), null);
+  assert.equal(O.deviceSummary(sys), O.deviceLines(sys).join(' · '));
 });

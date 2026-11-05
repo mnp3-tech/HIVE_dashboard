@@ -345,13 +345,14 @@ function providerObservation(snapshot, key){
 }
 function gaugeMarkup(v){
   const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
-  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(v.text)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${v.sub?`<small class="g-sub">${esc(v.sub)}</small>`:''}</div>`;
+  const inner=v.known?v.text:'?';
+  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label><small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small></div>`;
 }
 function renderResources(snapshot){
   const views=OPS.resourceViews(state.system, snapshot.metrics);
   const g=$('#resource-gauges'); if(g) g.innerHTML=views.map(gaugeMarkup).join('');
-  const sum=OPS.deviceSummary(state.system); const el=$('#sys-summary');
-  if(el){ const text=sum?sum:'USB / devices: UNKNOWN'+(state.system&&state.system.evidence&&state.system.evidence.reason?' · '+state.system.evidence.reason:''); el.textContent=text; el.title=text; }
+  const lines=OPS.deviceLines(state.system); const el=$('#sys-summary');
+  if(el){ const all=lines?lines:['USB / devices: UNKNOWN'].concat(state.system&&state.system.evidence&&state.system.evidence.reason?[state.system.evidence.reason]:[]); el.innerHTML=all.map(t=>`<div>${esc(t)}</div>`).join(''); el.title=all.join(' · '); }
   setSvgText('devices-state', OPS.devicesNodeText(state.system));
   renderSystemConsole();
 }
@@ -374,13 +375,13 @@ function renderLimits(snapshot){
     return `<div class="limit-row" title="${esc(v.title)}" data-status="${esc(v.status)}" data-p="${esc(it.provider||'')}"><i class="dot ${v.tone}"></i><strong>${esc(v.label)}</strong><div class="bar ${v.dashed?'est':''}"><span style="width:${fill}%"></span></div><span class="v">${esc(v.text)}</span></div>`; }).join('');
 }
 function renderShell(snapshot){
-  setText('env-tag', (snapshot.environment || 'UNVERIFIED') + ((snapshot.core && snapshot.core.observed_at) || demoMode || /FIXTURE|DEMO|UNVERIFIED/i.test(snapshot.environment||'') ? '' : ' · UNVERIFIED')); // a static server label must not read as a connection claim
+  { const full=(snapshot.environment || 'UNVERIFIED') + ((snapshot.core && snapshot.core.observed_at) || demoMode || /FIXTURE|DEMO|UNVERIFIED/i.test(snapshot.environment||'') ? '' : ' · UNVERIFIED'); const short=/FIXTURE/i.test(full)?'FIXTURE DATA':/DEMO/i.test(full)?'DEMO DATA':/UNVERIFIED/i.test(full)?'UNVERIFIED':full; setText('env-tag', short); const et=$('#env-tag'); if(et) et.title=full; } // a static server label must not read as a connection claim
   SHELL_PROVIDERS.forEach(([key])=>{ const chip=$(`.source-chip[data-provider="${key}"]`); if(!chip) return; const o=providerObservation(snapshot,key); chip.className=`source-chip ${o.tone}`; const em=chip.querySelector('em'); if(em) em.textContent=o.label; });
   const sessions=(state.chat&&state.chat.sessions)||[];
   const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><svg class="row-ico" aria-hidden="true"><use href="#ico-chat"/></svg><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';
   const projects=(snapshot.projects||[]).filter(item=>item&&(item.id||item.name)); const pr=$('#project-rail');
   if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map((item,i)=>`<div class="rail-row"><svg class="row-ico" style="--ic:${PROJECT_COLORS[i%PROJECT_COLORS.length]}" aria-hidden="true"><use href="#ico-folder"/></svg><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
-  const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>{ const rs=core.roleStates&&core.roleStates.get(role); const fresh=HC.roleFresh(core.roleStates,role,Date.now()); const t=fresh?HC.visualClass(rs.state).tone:'unknown'; return `<div class="rail-row">${roleIcon(role)}<div class="grow"><strong>${role}</strong>${fresh?`<small class="obs ${t==='unknown'?'':t}">${esc(stateLabel(rs.state))} · observed</small>`:''}</div><span class="state">PROVIDER UNKNOWN</span><i class="dot ${fresh&&t!=='unknown'?t:'hollow'}" title="${fresh?esc(stateLabel(rs.state)):'state not observed'}"></i></div>`; }).join('');
+  const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>{ const rs=core.roleStates&&core.roleStates.get(role); const fresh=HC.roleFresh(core.roleStates,role,Date.now()); const t=fresh?HC.visualClass(rs.state).tone:'unknown'; return `<div class="rail-row">${roleIcon(role)}<div class="grow"><strong>${role}</strong></div><span class="state ${fresh&&t!=='unknown'?t:''}" title="${fresh?'state observed from an event; provider unknown':'provider and state not observed'}">${fresh?esc(stateLabel(rs.state)):'provider unknown'}</span><i class="dot ${fresh&&t!=='unknown'?t:'hollow'}" title="${fresh?esc(stateLabel(rs.state)):'state not observed'}"></i></div>`; }).join('');
   ingestActivity(snapshot); renderActivity(); renderApprovals();
   renderResources(snapshot); renderLimits(snapshot);
 }
@@ -417,7 +418,7 @@ function applyCoreState(){
   const stage=$('#core-stage'); if(!stage) return;
   const s=core.view.state, vis=HC.visualClass(s), now=Date.now();
   stage.dataset.coreState=s; stage.dataset.tone=vis.tone; stage.className=`core-stage ${vis.cls}`;
-  const envEl=$('#env-tag'); if(envEl && core.tstate.sourceValidity==='fixture' && !/FIXTURE/i.test(envEl.textContent)) envEl.textContent='FIXTURE DATA'; // never show fixture-driven state unlabelled, even before the snapshot loads
+  const envEl=$('#env-tag'); if(envEl && core.tstate.sourceValidity==='fixture' && !/FIXTURE/i.test(envEl.textContent)) envEl.textContent='FIXTURE DATA'; envEl.title='Synthetic fixture data (not live)'; // never show fixture-driven state unlabelled, even before the snapshot loads
   setText('core-center-state', stateLabel(s)); setText('core-state', GLOBAL_LABEL[s]); setText('core-state-detail', core.view.reason);
   const chip=$('#activity-chip'); if(chip){ chip.textContent=GLOBAL_LABEL[s]; chip.className=`hp-chip ${vis.tone==='review'?'warn':vis.tone}`; }
   const dot=$('#core-dot'); if(dot) dot.className=`status-dot ${vis.tone==='review'?'warn':vis.tone}`;
@@ -437,17 +438,17 @@ function drawCoreFrame(){
   const t=Date.now(); const movers=core.movement.snapshot(t); const overlay=$('#core-overlay'); if(!overlay) return;
   const byRole=new Map(movers.map(m=>[m.role,m]));
   $$('#core-agents .core-agent').forEach(g=>{
-    const role=g.dataset.agent; const home=HC.HOME_ANGLES[role]; const m=byRole.get(role);
-    const p=m?{x:m.x,y:m.y}:{x:HC.CENTER.x+HC.ORBIT_R*Math.cos(home*Math.PI/180), y:HC.CENTER.y+HC.ORBIT_R*Math.sin(home*Math.PI/180)};
+    const role=g.dataset.agent; const m=byRole.get(role);
+    const p=m?{x:m.x,y:m.y}:HC.homePoint(role);
     g.setAttribute('transform',`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`); g.classList.toggle('moving',Boolean(m));
   });
-  const ringPoint=a=>({x:HC.CENTER.x+380*Math.cos(a*Math.PI/180), y:HC.CENTER.y+380*Math.sin(a*Math.PI/180)});
+  const ringPoint=a=>HC.pointAt(a,1); // the ULTRON ring
   overlay.innerHTML=movers.filter(m=>m.movement_state!=='returning').map(m=>{
     const kind=m.target_kind==='agent'?'handoff':m.target_id==='obsidian'||m.target_node==='obsidian'?'obsidian':'internet';
     let d;
     if(m.target_kind==='node'&&m.target_node==='internet'){ const r=ringPoint(m.target_angle), n=HC.NODES.internet; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${r.x.toFixed(1)} ${r.y.toFixed(1)} L${n.x} ${n.y}`; } // always passes through the ULTRON ring
     else if(m.target_kind==='node'){ const n=HC.NODES[m.target_node]; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${n.x} ${n.y}`; }
-    else { const tp=HC.HOME_ANGLES[m.target_node]; const q={x:HC.CENTER.x+HC.ORBIT_R*Math.cos(tp*Math.PI/180), y:HC.CENTER.y+HC.ORBIT_R*Math.sin(tp*Math.PI/180)}; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }
+    else { const q=HC.homePoint(m.target_node); d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }
     return `<path class="event-link ${kind}" d="${d}"><title>${esc(m.role)} → ${esc(m.target_node)} · ${esc(m.interaction_id)}</title></path>`;
   }).join('');
   const ctxOn=HC.activeContextNodes(core.buffer.list(), t, 20000, core.tstate.sourceValidity);
@@ -485,7 +486,7 @@ function ingestActivity(snapshot){ (snapshot.events||[]).forEach(raw=>{ const ev
 function renderActivity(){
   const el=$('#activity-rows'); if(!el) return;
   const rows=core.activity.list().map(HC.sanitizeActivityRow).filter(r=>r&&r.time).sort((a,b)=>Date.parse(b.time)-Date.parse(a.time)).slice(0,10);
-  el.innerHTML=rows.length?rows.map(r=>`<div class="act-row"><time>${esc(isoTime(r.time))}</time><div><div class="act-meta"><b style="${ROLE_COLORS[String(r.role||'').toUpperCase()]?`color:${ROLE_COLORS[String(r.role).toUpperCase()]}`:''}">${esc(r.role||'role n/a')}</b><span>${esc(r.provider||'provider n/a')}</span><span class="state ${tone(r.state)}">${esc(stateLabel(r.state))}</span></div><div class="act-action">${esc(r.action)}</div></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
+  el.innerHTML=rows.length?rows.map(r=>`<div class="act-row"><time>${esc(isoTime(r.time))}</time><div><div class="act-meta"><b style="${ROLE_COLORS[String(r.role||'').toUpperCase()]?`color:${ROLE_COLORS[String(r.role).toUpperCase()]}`:''}">${esc(r.role||'role n/a')}</b>${r.provider?`<span>${esc(r.provider)}</span>`:''}<span class="state ${tone(r.state)}">${esc(stateLabel(r.state))}</span></div><div class="act-action">${esc(r.action)}</div></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
 }
 const APPROVAL_KEY='hive.approvals.local.v1';
 function loadLocalDecisions(){ try{ const v=JSON.parse(localStorage.getItem(APPROVAL_KEY)||'{}'); return v&&typeof v==='object'?v:{}; }catch(_e){ return {}; } }
@@ -498,9 +499,9 @@ function renderApprovals(){
   const pending=OPS.pendingApprovals(core.activity.list(), Date.now());
   el.innerHTML=[['gpt','GPT'],['codex','CODEX'],['claude','CLAUDE']].map(([k,label])=>{
     const items=pending[k]; const item=items[0]; const dec=item&&core.localDecisions[item.key];
-    const status = item ? (dec ? `${dec.decision==='APPROVED'?'Approved':'Rejected'} locally, source not updated` : `${items.length} PENDING · ${esc(item.summary||'approval requested')}`) : (telemetryOk ? 'NO PENDING APPROVAL OBSERVED' : 'UNKNOWN · no fresh telemetry');
+    const status = item ? (dec ? `${dec.decision==='APPROVED'?'Approved':'Rejected'} locally, source not updated` : `${items.length} PENDING · ${esc(item.summary||'approval requested')}`) : (telemetryOk ? 'NONE OBSERVED' : 'UNKNOWN');
     const can=Boolean(item&&!dec);
-    return `<div class="approval-row" data-provider="${k}" style="--acc:${PROVIDER_ACCENT[k]}"><i class="ap-ring ${item&&!dec?'pending':''}"></i><strong>${label}</strong><span class="ap-state">${status}</span><span class="ap-actions"><button class="ap-btn approve" data-act="approve" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-ok"/></svg>Approve</button><button class="ap-btn" data-act="edit" ${OPS.editAvailable(item||{provider:k},approvalConnector)?'':'disabled'} title="${OPS.editAvailable(item||{provider:k},approvalConnector)?'Open source task':'No source adapter or deep link available'}"><svg aria-hidden="true"><use href="#ico-edit"/></svg>Edit</button><button class="ap-btn reject" data-act="reject" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-x"/></svg>Reject</button></span></div>`;
+    return `<div class="approval-row" data-provider="${k}" style="--acc:${PROVIDER_ACCENT[k]}" title="${item?'':telemetryOk?'No pending approval observed':'Unknown: no fresh trusted telemetry'}"><i class="ap-ring ${item&&!dec?'pending':''}"></i><strong>${label}</strong><span class="ap-state">${status}</span><span class="ap-actions"><button class="ap-btn approve" data-act="approve" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-ok"/></svg>Approve</button><button class="ap-btn" data-act="edit" ${OPS.editAvailable(item||{provider:k},approvalConnector)?'':'disabled'} title="${OPS.editAvailable(item||{provider:k},approvalConnector)?'Open source task':'No source adapter or deep link available'}"><svg aria-hidden="true"><use href="#ico-edit"/></svg>Edit</button><button class="ap-btn reject" data-act="reject" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-x"/></svg>Reject</button></span></div>`;
   }).join('');
 }
 document.addEventListener('click', async event=>{
@@ -551,37 +552,43 @@ function initComposer(){
 // ---- Visual parity A/B: procedural, static, decorative artwork (never data) ----
 function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
 function svgEl(name, attrs){ const el=document.createElementNS(SVGNS,name); Object.entries(attrs||{}).forEach(([k,v])=>el.setAttribute(k,v)); return el; }
-function buildArtwork(){
-  const arms=$('#core-arms');
-  if(arms && !arms.childElementCount){
-    for(let k=0;k<6;k++){
-      const th0=k*Math.PI/3; let d='';
-      for(let i=0;i<=44;i++){ const t=i/44, th=th0+t*Math.PI*1.45, r=78+t*t*26+t*88; d+=`${i?'L':'M'}${(800+r*Math.cos(th)).toFixed(1)} ${(450+r*Math.sin(th)).toFixed(1)} `; }
-      arms.appendChild(svgEl('path',{d,class:'arm-glow'})); arms.appendChild(svgEl('path',{d,class:'arm'}));
+function renderVortex(cv){
+  // Decorative accretion disk, drawn ONCE on a local canvas (additive blending). Never data; tint/spin come from CSS.
+  const S=cv.width, c=S/2, g=cv.getContext('2d'); if(!g) return; g.clearRect(0,0,S,S);
+  const base=g.createRadialGradient(c,c,0,c,c,c);
+  [[0,'rgba(0,0,0,1)'],[.22,'rgba(0,0,0,1)'],[.30,'rgba(40,12,90,.60)'],[.46,'rgba(90,40,170,.30)'],[.62,'rgba(220,100,40,.20)'],[.80,'rgba(40,110,255,.12)'],[1,'rgba(40,110,255,0)']].forEach(([o,col])=>base.addColorStop(o,col));
+  g.fillStyle=base; g.fillRect(0,0,S,S);
+  g.globalCompositeOperation='lighter'; g.lineCap='round'; g.lineJoin='round';
+  const rnd=mulberry32(20261105), gauss=()=>{ let u=0; for(let i=0;i<4;i++) u+=rnd(); return (u-2)/0.58; };
+  const colourAt=r=>{ // inner white-hot/orange -> mid magenta/violet -> outer blue/cyan
+    const k=Math.max(0,Math.min(1,(r/c-.24)/.62)); const stops=[[255,236,200],[255,168,84],[255,92,150],[160,100,255],[70,140,255],[70,215,255]];
+    const f=k*(stops.length-1), i=Math.min(stops.length-2,Math.floor(f)), t=f-i, a=stops[i], b=stops[i+1];
+    return [0,1,2].map(j=>Math.round(a[j]+(b[j]-a[j])*t)); };
+  const ARMS=6, WIND=2.5;
+  const armPoint=(arm,t,off)=>{ const th=arm*Math.PI*2/ARMS+t*WIND, r=c*(.25+.64*t)+off; return [c+r*Math.cos(th), c+r*Math.sin(th), r]; };
+  for(let pass=0;pass<2;pass++){
+    const n=pass?620:150; // pass 0: soft wide glow strokes; pass 1: fine bright streaks
+    for(let i=0;i<n;i++){
+      const arm=i%ARMS, t0=rnd()*.62, len=.12+rnd()*(pass?.42:.3), off=gauss()*c*(pass?.045:.07), w=pass?.7+rnd()*2.6:7+rnd()*9;
+      const [,,r0]=armPoint(arm,t0,off), col=colourAt(r0), alpha=pass?.14+rnd()*.5:.035+rnd()*.06;
+      g.strokeStyle=`rgba(${col[0]},${col[1]},${col[2]},${alpha.toFixed(3)})`; g.lineWidth=w; g.beginPath();
+      for(let j=0;j<=24;j++){ const [x,y]=armPoint(arm,t0+len*j/24,off+Math.sin(j*.7+i)*c*.006); j?g.lineTo(x,y):g.moveTo(x,y); }
+      g.stroke();
     }
   }
-  const nodes=$('#ring-nodes');
-  if(nodes && !nodes.childElementCount){
-    const cols=['#4fe3a1','#3fb8ff','#ff9b4a','#a77bff'];
-    [-120,-60,0,60,120,180].forEach((a,i)=>nodes.appendChild(svgEl('circle',{class:'ring-dot big',cx:(800+285*Math.cos(a*Math.PI/180)).toFixed(1),cy:(450+285*Math.sin(a*Math.PI/180)).toFixed(1),r:7,fill:cols[i%4]})));
-    for(let a=-165;a<180;a+=30) nodes.appendChild(svgEl('circle',{class:'ring-dot',cx:(800+335*Math.cos(a*Math.PI/180)).toFixed(1),cy:(450+335*Math.sin(a*Math.PI/180)).toFixed(1),r:3.5,fill:'#6fb4ff'}));
-  }
-  const space=$('.space-bg');
-  if(space && !space.querySelector('.stars')){
-    const rnd=mulberry32(20261104);
-    const neb=svgEl('svg',{class:'neb',viewBox:'0 0 1600 900',preserveAspectRatio:'xMidYMid slice','aria-hidden':'true'});
-    const defs=svgEl('defs'); const blobs=[[260,200,520,300,'#6a2fc4',.26],[1350,160,480,260,'#2b6fd8',.24],[1180,720,560,300,'#b23fa8',.20],[420,760,520,260,'#1aa6a6',.16],[800,430,700,380,'#3a2a9a',.16],[100,520,300,240,'#2b6fd8',.14]];
-    blobs.forEach((b,i)=>{ const g=svgEl('radialGradient',{id:'nb'+i}); g.appendChild(svgEl('stop',{offset:0,'stop-color':b[4],'stop-opacity':b[5]})); g.appendChild(svgEl('stop',{offset:1,'stop-color':b[4],'stop-opacity':0})); defs.appendChild(g); });
-    neb.appendChild(defs); blobs.forEach((b,i)=>neb.appendChild(svgEl('ellipse',{cx:b[0],cy:b[1],rx:b[2],ry:b[3],fill:`url(#nb${i})`,transform:`rotate(${(i*37)%60-30} ${b[0]} ${b[1]})`})));
-    for(let i=0;i<3;i++) neb.appendChild(svgEl('ellipse',{cx:200+i*600,cy:300+i*180,rx:700,ry:34,fill:'#8aa6ff',opacity:.05,transform:`rotate(${-18+i*14} ${200+i*600} ${300+i*180})`}));
-    const stars=svgEl('svg',{class:'stars',viewBox:'0 0 1600 900',preserveAspectRatio:'xMidYMid slice','aria-hidden':'true'});
-    const tint=['#ffffff','#cfe3ff','#ffe9c8','#bfd4ff'];
-    for(let i=0;i<340;i++){ const big=rnd()<.05; stars.appendChild(svgEl('circle',{cx:(rnd()*1600).toFixed(1),cy:(rnd()*900).toFixed(1),r:(big?1.5+rnd()*1.2:.35+rnd()*.9).toFixed(2),fill:tint[Math.floor(rnd()*4)],opacity:(.25+rnd()*.75).toFixed(2)})); }
-    for(let i=0;i<14;i++){ const x=(rnd()*1600).toFixed(1), y=(rnd()*900).toFixed(1); stars.appendChild(svgEl('circle',{cx:x,cy:y,r:5,fill:'#9fc4ff',opacity:.18,class:'glow-star'})); stars.appendChild(svgEl('circle',{cx:x,cy:y,r:1.6,fill:'#fff'})); }
-    space.insertBefore(stars,space.firstChild); space.insertBefore(neb,space.firstChild);
-  }
+  // bright inner disk hugging the horizon, then a faint lens glow
+  const ring=g.createRadialGradient(c,c,c*.22,c,c,c*.46);
+  [[0,'rgba(255,255,255,0)'],[.18,'rgba(255,240,215,.95)'],[.38,'rgba(255,170,90,.55)'],[.7,'rgba(255,110,70,.2)'],[1,'rgba(255,110,60,0)']].forEach(([o,col])=>ring.addColorStop(o,col));
+  g.fillStyle=ring; g.fillRect(0,0,S,S);
+  g.globalCompositeOperation='source-over'; g.fillStyle='#000'; g.beginPath(); g.arc(c,c,c*.235,0,Math.PI*2); g.fill();
 }
-
+function fitStage(){
+  const k=Math.min(innerWidth/1671, innerHeight/941); document.documentElement.style.setProperty('--k', String(k));
+}
+function buildArtwork(){
+  const cv=$('#core-canvas'); if(cv && !cv.dataset.drawn){ renderVortex(cv); cv.dataset.drawn='1'; }
+  fitStage(); window.addEventListener('resize', fitStage);
+}
 // ---- Visual parity C: top task-card row (truthful: snapshot / memory evidence only) ----
 function renderCards(snapshot){
   const v=OPS.taskCardViews(snapshot, state.memory, HC.redactSummary);

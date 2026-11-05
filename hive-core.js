@@ -155,12 +155,20 @@
   }
 
   /* ---- agent orbital movement ---- */
-  const CENTER = { x: 800, y: 450 }; const ORBIT_R = 285;
-  const HOME_ANGLES = { FURY: -90, SHURI: -150, THOR: -30, VISION: 150, FALCON: 30, UATU: 90 };
-  const NODES = { internet: { x: 1280, y: 130 }, obsidian: { x: 330, y: 300 } };
+  /* Geometry in the 1671x941 reference stage (docs/hive/VISUAL_SPEC.md, docs/hive/measurements/layout-spec.json).
+     CENTER/RING_R = the ULTRON ring after the CORE-centring transform. Home positions are the MEASURED target
+     polar coordinates (angle in degrees, radius as a fraction of RING_R): the target's agents are not on one circle. */
+  const CENTER = { x: 835.5, y: 398.6 }; const RING_R = 233.1;
+  const HOME = { FURY: { a: -88.9, r: 0.69 }, SHURI: { a: -135.5, r: 0.762 }, THOR: { a: -41.9, r: 0.777 }, VISION: { a: 154.6, r: 0.684 }, FALCON: { a: 25.5, r: 0.683 }, UATU: { a: 89.8, r: 0.525 } };
+  const HOME_ANGLES = {}; const HOME_RADIUS = {};
+  Object.keys(HOME).forEach(k => { HOME_ANGLES[k] = HOME[k].a; HOME_RADIUS[k] = HOME[k].r; });
+  const pointAt = (a, r) => ({ x: CENTER.x + RING_R * r * Math.cos(a * Math.PI / 180), y: CENTER.y + RING_R * r * Math.sin(a * Math.PI / 180) });
+  const homePoint = role => pointAt(HOME[role].a, HOME[role].r);
+  const NODE_POLAR = { internet: { a: -30.5, r: 1.674 }, obsidian: { a: -162.6, r: 1.30 } };
+  const NODES = { internet: pointAt(NODE_POLAR.internet.a, NODE_POLAR.internet.r), obsidian: pointAt(NODE_POLAR.obsidian.a, NODE_POLAR.obsidian.r) };
+  const NODE_TRAVEL_R = 0.82; // agents travelling to a node stop inside the ring, on the node's bearing
   const angleToNode = n => Math.atan2(n.y - CENTER.y, n.x - CENTER.x) * 180 / Math.PI;
   const norm180 = a => ((a + 540) % 360) - 180;
-  const pointAt = a => ({ x: CENTER.x + ORBIT_R * Math.cos(a * Math.PI / 180), y: CENTER.y + ORBIT_R * Math.sin(a * Math.PI / 180) });
   const ease = p => p < 0 ? 0 : p > 1 ? 1 : p * p * (3 - 2 * p);
   const TERMINAL_TYPE = /COMPLETED|FINISHED|DONE|FAILED|CANCELLED|TIMEOUT/i;
 
@@ -192,8 +200,9 @@
       for (const off of [30, 36, 42]) { const a = norm180(t + side * off); if (others.every(h => Math.abs(norm180(a - h)) >= 18)) return a; }
       return norm180(t + side * 30);
     }
+    function destinationRadius(m) { return m.target.kind === 'node' ? NODE_TRAVEL_R : HOME_RADIUS[m.target.id]; }
     function start(item, now) {
-      movers.set(item.id, { id: item.id, role: item.role, target: item.target, phase: 'traveling', phaseAt: now, startedAt: now, lastEventAt: now, completedAt: null, completing: false, fromAngle: HOME_ANGLES[item.role] });
+      movers.set(item.id, { id: item.id, role: item.role, target: item.target, phase: 'traveling', phaseAt: now, startedAt: now, lastEventAt: now, completedAt: null, completing: false, fromAngle: HOME_ANGLES[item.role], fromR: HOME_RADIUS[item.role] });
     }
     function terminal(ev) { return ev.state === 'IDLE' || ev.state === 'FAILED' || TERMINAL_TYPE.test(ev.event_type); }
     return {
@@ -221,23 +230,23 @@
       tick(now) {
         movers.forEach((m, id) => {
           if (m.phase === 'traveling' && now - m.phaseAt >= o.travelMs) { m.phase = 'at_target'; m.phaseAt = now; }
-          if (m.phase === 'at_target' && (m.completing || now - m.lastEventAt > o.timeoutMs)) { m.phase = 'returning'; m.phaseAt = now; m.completedAt = now; m.fromAngle = destinationAngle(m); m.timedOut = !m.completing; }
+          if (m.phase === 'at_target' && (m.completing || now - m.lastEventAt > o.timeoutMs)) { m.phase = 'returning'; m.phaseAt = now; m.completedAt = now; m.fromAngle = destinationAngle(m); m.fromR = destinationRadius(m); m.timedOut = !m.completing; }
           if (m.phase === 'returning' && now - m.phaseAt >= o.returnMs) movers.delete(id);
-          if (m.phase === 'traveling' && m.completing) { m.phase = 'returning'; m.phaseAt = now; m.completedAt = now; m.fromAngle = HOME_ANGLES[m.role]; }
+          if (m.phase === 'traveling' && m.completing) { m.phase = 'returning'; m.phaseAt = now; m.completedAt = now; m.fromAngle = HOME_ANGLES[m.role]; m.fromR = HOME_RADIUS[m.role]; }
         });
         while (queue.length && movers.size < o.maxMovers) start(queue.shift(), now);
       },
       snapshot(now) {
         return [...movers.values()].map(m => {
-          const home = HOME_ANGLES[m.role]; const dest = destinationAngle(m); let angle;
-          if (m.phase === 'traveling') angle = home + norm180(dest - home) * ease((now - m.phaseAt) / o.travelMs);
-          else if (m.phase === 'at_target') angle = dest;
-          else angle = m.fromAngle + norm180(home - m.fromAngle) * ease((now - m.phaseAt) / o.returnMs);
-          const p = pointAt(angle);
-          return { role: m.role, interaction_id: m.id, movement_state: m.phase, target_node: m.target.id, target_kind: m.target.kind, home_angle: home, target_angle: dest, angle, x: p.x, y: p.y, started_at: m.startedAt, completed_at: m.completedAt };
+          const home = HOME_ANGLES[m.role], homeR = HOME_RADIUS[m.role]; const dest = destinationAngle(m), destR = destinationRadius(m); let angle, rad;
+          if (m.phase === 'traveling') { const e = ease((now - m.phaseAt) / o.travelMs); angle = home + norm180(dest - home) * e; rad = homeR + (destR - homeR) * e; }
+          else if (m.phase === 'at_target') { angle = dest; rad = destR; }
+          else { const e = ease((now - m.phaseAt) / o.returnMs); angle = m.fromAngle + norm180(home - m.fromAngle) * e; rad = m.fromR + (homeR - m.fromR) * e; }
+          const p = pointAt(angle, rad);
+          return { role: m.role, interaction_id: m.id, movement_state: m.phase, target_node: m.target.id, target_kind: m.target.kind, home_angle: home, target_angle: dest, angle, radius: rad, x: p.x, y: p.y, started_at: m.startedAt, completed_at: m.completedAt };
         });
       },
-      positionFor(role, now) { const s = this.snapshot(now).find(m => m.role === role); const a = s ? s.angle : HOME_ANGLES[role]; return Object.assign({ angle: a }, pointAt(a)); },
+      positionFor(role, now) { const s = this.snapshot(now).find(m => m.role === role); const a = s ? s.angle : HOME_ANGLES[role]; const r = s ? s.radius : HOME_RADIUS[role]; return Object.assign({ angle: a, radius: r }, pointAt(a, r)); },
       size() { return movers.size; }, queued() { return queue.length; },
     };
   }
@@ -293,6 +302,6 @@
     };
   }
 
-  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, eventTrusted, activeContextNodes, CONTEXT_NODES, roleFresh, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
+  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, eventTrusted, activeContextNodes, CONTEXT_NODES, roleFresh, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, HOME_RADIUS, NODES, NODE_POLAR, CENTER, RING_R, pointAt, homePoint };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

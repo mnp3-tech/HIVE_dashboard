@@ -30,7 +30,7 @@ test.before(async () => {
 });
 test.after(async () => { await browser?.close(); server?.kill(); });
 
-const PANEL_SELECTOR = '#topbar, .hive-panel, #core-stage';
+const PANEL_SELECTOR = '#topbar, .hive-panel'; // the CORE art is a full-stage layer, not a panel: it is checked separately (ring centre, intrusion)
 async function open(res, query = '') {
   const page = await browser.newPage({ viewport: { width: res.w, height: res.h } });
   const errors = [];
@@ -44,7 +44,7 @@ for (const res of RES) {
     const { page, errors } = await open(res);
     const rects = await page.$$eval(PANEL_SELECTOR, els => els.filter(e => e.offsetParent !== null || e.id === 'core-stage')
       .map(e => { const r = e.getBoundingClientRect(); return { id: e.id || e.className, l: r.left, t: r.top, r: r.right, b: r.bottom }; }));
-    assert.ok(rects.length === 15, `expected 15 shell boxes, got ${rects.length}`);
+    assert.ok(rects.length === 14, `expected 14 shell boxes (top bar + 13 panels), got ${rects.length}`);
     // no overlap + minimum gutter between every pair
     let minSep = Infinity;
     for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
@@ -64,9 +64,9 @@ for (const res of RES) {
       .filter(e => { const p = e.closest('.hive-panel'); if (!p) return false; const a = e.getBoundingClientRect(), b = p.getBoundingClientRect(); return a.width > 0 && (a.right > b.right + 1 || a.left < b.left - 1) && getComputedStyle(e).position !== 'fixed' && !e.closest('.hp-body[id="activity-rows"]'); })
       .map(e => (e.id || e.className || e.tagName) + ':' + (e.textContent || '').trim().slice(0, 20)));
     assert.deepEqual(clipped, [], `content outside its panel: ${clipped.join(' | ')}`);
-    // CORE must stay the dominant element, and sibling text must not collide or overflow its own box
-    const coreBox = await page.$eval('#hive-core-art', e => { const r = e.getBoundingClientRect(); return { w: r.width, h: r.height }; });
-    assert.ok(coreBox.h >= res.h * 0.4, `CORE too small: ${coreBox.h}px high`);
+    // CORE must stay the dominant element: the ULTRON ring is measured (the art layer spans the whole stage)
+    const ringBox = await page.$eval('#ultron-ring', e => { const r = e.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, d: r.width, top: r.top, bottom: r.bottom, left: r.left, right: r.right }; });
+    assert.ok(ringBox.d >= res.h * 0.45, `CORE ring too small: ${ringBox.d}px`);
     const collisions = await page.evaluate(() => {
       const bad = [];
       document.querySelectorAll('.source-chip, .approval-row, .tb-ultron, .limit-row').forEach(box => {
@@ -80,9 +80,9 @@ for (const res of RES) {
       return bad;
     });
     assert.deepEqual(collisions, []);
-    // CORE centered +-2px (horizontal, against the viewport)
-    const core = await page.$eval('#hive-core-art', e => { const r = e.getBoundingClientRect(); return { cx: r.left + r.width / 2, w: r.width }; });
-    assert.ok(Math.abs(core.cx - res.w / 2) <= 2, `CORE centre ${core.cx} vs ${res.w / 2}`);
+    // CORE centred +-2px (ring centre vs viewport centre, horizontally) and not intruding into any panel (+-2 px, as measured in the target)
+    assert.ok(Math.abs(ringBox.cx - res.w / 2) <= 2, `CORE ring centre ${ringBox.cx} vs ${res.w / 2}`);
+    for (const r of rects) { const ix = Math.min(r.r, ringBox.right) - Math.max(r.l, ringBox.left), iy = Math.min(r.b, ringBox.bottom) - Math.max(r.t, ringBox.top); if (ix > 0 && iy > 0 && r.id !== 'topbar') { const cxr = (Math.max(r.l, Math.min(ringBox.cx, r.r)) - ringBox.cx), cyr = (Math.max(r.t, Math.min(ringBox.cy, r.b)) - ringBox.cy); assert.ok(Math.hypot(cxr, cyr) >= ringBox.d / 2 - 2.5, `ring intrudes into ${r.id}`); } }
     // forbidden visible text
     const text = await page.evaluate(() => document.body.innerText);
     assert.doesNotMatch(text, /\bDONE\b/i); assert.doesNotMatch(text, /\bLOGS?\b/i);
@@ -103,7 +103,7 @@ for (const res of RES) {
 test('panel material, equal provider chips, inactive JARVIS/VOICE', async () => {
   const { page } = await open(RES[1]);
   const mats = await page.$$eval('.hive-panel', els => els.map(e => { const s = getComputedStyle(e); return { id: e.id, bg: s.backgroundColor, bf: s.backdropFilter || s.webkitBackdropFilter, bc: s.borderTopColor }; }));
-  assert.equal(mats.length, 14);
+  assert.equal(mats.length, 13);
   for (const mat of mats) { assert.equal(mat.bg, 'rgba(4, 16, 29, 0.46)', mat.id); assert.match(mat.bf, /blur\(12px\)/, mat.id); assert.equal(mat.bc, 'rgba(90, 190, 255, 0.4)', mat.id); }
   const widths = await page.$$eval('.source-chip', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
   assert.equal(widths.length, 3); assert.equal(new Set(widths).size, 1, `provider chips unequal: ${widths}`);

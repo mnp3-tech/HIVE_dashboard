@@ -1,0 +1,185 @@
+{
+ "reference_stage_px": {
+  "w": 1671,
+  "h": 941
+ },
+ "panels_px": {
+  "chats": {
+   "x0": 66.3,
+   "y0": 83.9,
+   "x1": 321.4,
+   "y1": 354.8,
+   "w": 255.1,
+   "h": 270.9
+  },
+  "projects": {
+   "x0": 66.3,
+   "y0": 370.5,
+   "x1": 324.4,
+   "y1": 544.9,
+   "w": 258.1,
+   "h": 174.3
+  },
+  "agents": {
+   "x0": 66.3,
+   "y0": 561.6,
+   "x1": 323.4,
+   "y1": 785.2,
+   "w": 257.1,
+   "h": 223.6
+  },
+  "card_current": {
+   "x0": 357.9,
+   "y0": 80.9,
+   "x1": 585.4,
+   "y1": 146.9,
+   "w": 227.5,
+   "h": 66.0
+  },
+  "card_next": {
+   "x0": 599.9,
+   "y0": 80.9,
+   "x1": 764.4,
+   "y1": 146.9,
+   "w": 164.5,
+   "h": 66.0
+  },
+  "card_context": {
+   "x0": 778.9,
+   "y0": 80.9,
+   "x1": 967.0,
+   "y1": 146.9,
+   "w": 188.1,
+   "h": 66.0
+  },
+  "card_external": {
+   "x0": 981.5,
+   "y0": 80.9,
+   "x1": 1169.6,
+   "y1": 146.9,
+   "w": 188.1,
+   "h": 66.0
+  },
+  "card_layout": {
+   "x0": 1184.1,
+   "y0": 80.9,
+   "x1": 1291.5,
+   "y1": 146.9,
+   "w": 107.4,
+   "h": 66.0
+  },
+  "activity": {
+   "x0": 1325.1,
+   "y0": 83.9,
+   "x1": 1652.2,
+   "y1": 357.7,
+   "w": 327.0,
+   "h": 273.8
+  },
+  "approvals": {
+   "x0": 1325.1,
+   "y0": 378.4,
+   "x1": 1653.1,
+   "y1": 608.9,
+   "w": 328.0,
+   "h": 230.5
+  },
+  "resources": {
+   "x0": 356.9,
+   "y0": 631.5,
+   "x1": 848.4,
+   "y1": 784.3,
+   "w": 491.5,
+   "h": 152.8
+  },
+  "limits": {
+   "x0": 872.0,
+   "y0": 631.5,
+   "x1": 1324.2,
+   "y1": 784.3,
+   "w": 452.1,
+   "h": 152.8
+  },
+  "composer": {
+   "x0": 336.2,
+   "y0": 799.0,
+   "x1": 1436.4,
+   "y1": 873.9,
+   "w": 1100.2,
+   "h": 74.9
+  },
+  "topbar": {
+   "x0": 65.3,
+   "y0": 14.9,
+   "x1": 1648.2,
+   "y1": 54.3,
+   "w": 1582.9,
+   "h": 39.4
+  }
+ },
+ "gutters_px": {
+  "chats_projects": 15.7,
+  "projects_agents": 16.7,
+  "activity_approvals": 20.7,
+  "resources_limits": 23.6,
+  "cards_1_2": 14.5,
+  "cards_2_3": 14.5,
+  "cards_3_4": 14.5,
+  "cards_4_5": 14.5,
+  "left_rail_center": 36.5,
+  "center_right_rail": 33.6,
+  "resources_composer": 14.7,
+  "topbar_cards": 26.6
+ },
+ "deviations_from_plan": [
+  {
+   "panel": "card_next",
+   "what": "x0",
+   "planned": 599.2,
+   "final": 599.9,
+   "reason": "uniform 14.5 px card gap (minimum-gutter rule at 1280/1920/2560)"
+  },
+  {
+   "panel": "card_context",
+   "what": "x0",
+   "planned": 778.5,
+   "final": 778.9,
+   "reason": "uniform 14.5 px card gap (minimum-gutter rule at 1280/1920/2560)"
+  },
+  {
+   "panel": "card_external",
+   "what": "x0",
+   "planned": 981.4,
+   "final": 981.5,
+   "reason": "uniform 14.5 px card gap (minimum-gutter rule at 1280/1920/2560)"
+  },
+  {
+   "panel": "card_layout",
+   "what": "x0",
+   "planned": 1182.3,
+   "final": 1184.1,
+   "reason": "uniform 14.5 px card gap (minimum-gutter rule at 1280/1920/2560)"
+  },
+  {
+   "panel": "resources",
+   "what": "h",
+   "planned": 142.8,
+   "final": 152.8,
+   "reason": "device block / two-line captions need the height (+1.1 pp of H)"
+  },
+  {
+   "panel": "limits",
+   "what": "h",
+   "planned": 142.8,
+   "final": 152.8,
+   "reason": "device block / two-line captions need the height (+1.1 pp of H)"
+  },
+  {
+   "panel": "context group: internet categories",
+   "what": "y",
+   "planned": 0,
+   "final": 18.0,
+   "reason": "moved down to make room for the required INTERNET state caption under the planet"
+  }
+ ]
+}

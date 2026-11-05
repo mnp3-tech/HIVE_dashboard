@@ -1,0 +1,418 @@
+{
+ "viewport": {
+  "w": 1280,
+  "h": 720
+ },
+ "panels": {
+  "chats": {
+   "x0": 51.449275970458984,
+   "y0": 64.18836212158203,
+   "x1": 246.6325798034668,
+   "y1": 271.4585647583008,
+   "w": 195.1833038330078,
+   "h": 207.27020263671875
+  },
+  "projects": {
+   "x0": 51.449275970458984,
+   "y0": 283.48565673828125,
+   "x1": 248.92802047729492,
+   "y1": 416.8477478027344,
+   "w": 197.47874450683594,
+   "h": 133.36209106445312
+  },
+  "agents": {
+   "x0": 51.449275970458984,
+   "y0": 429.69976806640625,
+   "x1": 248.16286849975586,
+   "y1": 600.7810668945312,
+   "w": 196.71359252929688,
+   "h": 171.081298828125
+  },
+  "card_current": {
+   "x0": 274.5603332519531,
+   "y0": 61.8929328918457,
+   "x1": 448.6304626464844,
+   "y1": 112.39240264892578,
+   "w": 174.07012939453125,
+   "h": 50.49946975708008
+  },
+  "card_next": {
+   "x0": 459.72503662109375,
+   "y0": 61.8929328918457,
+   "x1": 585.5911254882812,
+   "y1": 112.39240264892578,
+   "w": 125.8660888671875,
+   "h": 50.49946975708008
+  },
+  "card_context": {
+   "x0": 596.6857299804688,
+   "y0": 61.8929328918457,
+   "x1": 740.6044311523438,
+   "y1": 112.39240264892578,
+   "w": 143.918701171875,
+   "h": 50.49946975708008
+  },
+  "card_external": {
+   "x0": 751.7109375,
+   "y0": 61.8929328918457,
+   "x1": 895.629638671875,
+   "y1": 112.39240264892578,
+   "w": 143.918701171875,
+   "h": 50.49946975708008
+  },
+  "card_layout": {
+   "x0": 906.7242431640625,
+   "y0": 61.8929328918457,
+   "x1": 988.8934936523438,
+   "y1": 112.39240264892578,
+   "w": 82.16925048828125,
+   "h": 50.49946975708008
+  },
+  "activity": {
+   "x0": 1014.6094360351562,
+   "y0": 64.18836212158203,
+   "x1": 1264.8114013671875,
+   "y1": 273.68225860595703,
+   "w": 250.20196533203125,
+   "h": 209.493896484375
+  },
+  "approvals": {
+   "x0": 1014.6094360351562,
+   "y0": 289.5231018066406,
+   "x1": 1265.5765380859375,
+   "y1": 465.888671875,
+   "w": 250.96710205078125,
+   "h": 176.36557006835938
+  },
+  "resources": {
+   "x0": 273.7951965332031,
+   "y0": 483.1880798339844,
+   "x1": 649.8631591796875,
+   "y1": 600.099609375,
+   "w": 376.0679626464844,
+   "h": 116.91152954101562
+  },
+  "limits": {
+   "x0": 667.927734375,
+   "y0": 483.1880798339844,
+   "x1": 1013.8442993164062,
+   "y1": 600.099609375,
+   "w": 345.91656494140625,
+   "h": 116.91152954101562
+  },
+  "composer": {
+   "x0": 257.9543151855469,
+   "y0": 611.349609375,
+   "x1": 1099.7555847167969,
+   "y1": 668.6516723632812,
+   "w": 841.80126953125,
+   "h": 57.30206298828125
+  }
+ },
+ "text": {
+  "panel_title": {
+   "font_px": 16.7,
+   "weight": "600",
+   "letter_spacing": "1.169px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "card_title": {
+   "font_px": 13.2,
+   "weight": "600",
+   "letter_spacing": "0.396px",
+   "family": "Inter",
+   "colour": "rgb(207, 227, 245)"
+  },
+  "card_main": {
+   "font_px": 15,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(234, 244, 255)"
+  },
+  "body_row": {
+   "font_px": 14.8,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "approval_label": {
+   "font_px": 14.6,
+   "weight": "700",
+   "letter_spacing": "1.168px",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "button": {
+   "font_px": 13.2,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(125, 240, 197)"
+  },
+  "gauge_label": {
+   "font_px": 13.2,
+   "weight": "400",
+   "letter_spacing": "0.528px",
+   "family": "Inter",
+   "colour": "rgb(120, 145, 162)"
+  },
+  "limit_label": {
+   "font_px": 14.5,
+   "weight": "700",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(156, 194, 255)"
+  },
+  "node_name": {
+   "font_px": 11.71,
+   "weight": "600",
+   "letter_spacing": "1.224px",
+   "family": "Inter",
+   "colour": "rgb(242, 248, 255)"
+  },
+  "node_caption": {
+   "font_px": 10.1,
+   "weight": "400",
+   "letter_spacing": "0.396px",
+   "family": "Inter",
+   "colour": "rgb(79, 240, 192)"
+  },
+  "ctx_label": {
+   "font_px": 11.09,
+   "weight": "400",
+   "letter_spacing": "0.29px",
+   "family": "Inter",
+   "colour": "rgb(169, 188, 205)"
+  },
+  "internet_label": {
+   "font_px": 11.71,
+   "weight": "600",
+   "letter_spacing": "1.224px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "composer_input": {
+   "font_px": 15,
+   "weight": "400",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "top_brand": {
+   "font_px": 22,
+   "weight": "650",
+   "letter_spacing": "3.08px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "chip": {
+   "font_px": 14,
+   "weight": "600",
+   "letter_spacing": "0.84px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  }
+ },
+ "colours": {
+  ".hive-panel": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(4, 16, 29, 0.46)",
+   "border": "rgba(90, 190, 255, 0.4)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.approve": {
+   "color": "rgb(125, 240, 197)",
+   "background": "rgba(79, 240, 192, 0.1)",
+   "border": "rgba(79, 240, 192, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-actions .ap-btn:nth-child(2)": {
+   "color": "rgb(140, 196, 255)",
+   "background": "rgba(90, 168, 255, 0.1)",
+   "border": "rgba(90, 168, 255, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.reject": {
+   "color": "rgb(255, 143, 155)",
+   "background": "rgba(255, 92, 108, 0.1)",
+   "border": "rgba(255, 92, 108, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".source-chip": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(242, 184, 75)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".hp-chip": {
+   "color": "rgb(79, 240, 192)",
+   "background": "rgba(79, 240, 192, 0.08)",
+   "border": "rgb(79, 240, 192)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".gauge[data-k=\"cpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(79, 227, 196)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"ram\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(90, 168, 255)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"gpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(181, 140, 255)",
+   "border_width": "0px"
+  },
+  ".limit-row .bar span": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgb(79, 240, 192)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "none",
+   "border_width": "0px"
+  },
+  ".ring-orbit": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "url(\"#ringGrad\")",
+   "border_width": "0px"
+  },
+  "#ultron-ring": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(127, 147, 163)",
+   "border_width": "0px"
+  },
+  ".photon": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(255, 179, 107)",
+   "border_width": "0px"
+  }
+ },
+ "core": {
+  "ultron_ring": {
+   "cx": 640,
+   "cy": 305,
+   "r": 178.4
+  },
+  "orbit_ring": {
+   "cx": 640,
+   "cy": 305,
+   "r": 162.4
+  },
+  "horizon": {
+   "cx": 640,
+   "cy": 305,
+   "r": 23.4
+  },
+  "planet": {
+   "cx": 897.3,
+   "cy": 153.4,
+   "r": 31.7
+  },
+  "nodes": {
+   "FURY": {
+    "cx": 642.4,
+    "cy": 182,
+    "r": 24.9
+   },
+   "SHURI": {
+    "cx": 543.1,
+    "cy": 209.7,
+    "r": 24.9
+   },
+   "THOR": {
+    "cx": 743.1,
+    "cy": 212.4,
+    "r": 24.9
+   },
+   "VISION": {
+    "cx": 529.8,
+    "cy": 357.3,
+    "r": 24.9
+   },
+   "FALCON": {
+    "cx": 750,
+    "cy": 357.4,
+    "r": 24.9
+   },
+   "UATU": {
+    "cx": 500.4,
+    "cy": 261.2,
+    "r": 24.9
+   },
+   "ULTRON": {
+    "cx": 644.6,
+    "cy": 131.1,
+    "r": 19.1
+   }
+  },
+  "polar": {
+   "FURY": {
+    "angle_deg": -88.9,
+    "r_over_ring": 0.69
+   },
+   "SHURI": {
+    "angle_deg": -135.5,
+    "r_over_ring": 0.762
+   },
+   "THOR": {
+    "angle_deg": -41.9,
+    "r_over_ring": 0.777
+   },
+   "VISION": {
+    "angle_deg": 154.6,
+    "r_over_ring": 0.684
+   },
+   "FALCON": {
+    "angle_deg": 25.5,
+    "r_over_ring": 0.683
+   },
+   "UATU": {
+    "angle_deg": -162.6,
+    "r_over_ring": 0.82
+   },
+   "ULTRON": {
+    "angle_deg": -88.5,
+    "r_over_ring": 0.975
+   },
+   "INTERNET_planet": {
+    "angle_deg": -30.5,
+    "r_over_ring": 1.674
+   }
+  }
+ },
+ "gutters": {
+  "chats_to_projects_y": 12,
+  "projects_to_agents_y": 12.9,
+  "activity_to_approvals_y": 15.8,
+  "resources_to_limits_x": 18.1,
+  "card_current_to_next_x": 11.1,
+  "card_next_to_context_x": 11.1,
+  "card_context_to_external_x": 11.1,
+  "card_external_to_layout_x": 11.1,
+  "left_rail_to_center_x": 27.9,
+  "center_to_right_rail_x": 25.7,
+  "resources_to_composer_y": 11.3
+ }
+}

@@ -127,8 +127,8 @@ test('composer with chips fits at 1280x720 without clipping or overlap; screensh
   await p.click('#chat-draft-input'); await p.keyboard.type('hello'); await p.keyboard.press('Enter'); await p.waitForSelector('.outbox-row');
   await p.setInputFiles('#attach-input', [join(dir, 'notes.txt'), join(dir, 'data.csv')]);
   const bad = await p.evaluate(() => { const out = []; const bx = e => e.getBoundingClientRect();
-    const comp = bx(document.querySelector('#chat-draft-form')), res = bx(document.querySelector('#res-row')), core = bx(document.querySelector('#core-stage'));
-    if (comp.top < res.bottom - 0.5) out.push('composer overlaps resources'); if (core.bottom > res.top + 0.5) out.push('core overlaps resources');
+    const comp = bx(document.querySelector('#chat-draft-form')), res = bx(document.querySelector('#panel-resources')), ring = bx(document.querySelector('#ultron-ring'));
+    if (comp.top < res.bottom - 0.5) out.push('composer overlaps resources'); if (ring.bottom > res.top + 2.5) out.push('core ring overlaps resources');
     if (comp.bottom > innerHeight || comp.right > innerWidth) out.push('composer off-screen');
     document.querySelectorAll('#chat-draft-form *').forEach(e => { const r = bx(e), c = bx(document.querySelector('#chat-draft-form')); if (r.width && (r.right > c.right + 1 || r.left < c.left - 1)) out.push('outside composer: ' + (e.id || e.className)); });
     const o = bx(document.querySelector('#panel-chats')); document.querySelectorAll('#panel-chats *').forEach(e => { const r = bx(e); if (r.width && r.right > o.right + 1) out.push('outside chats: ' + (e.className || e.tagName)); });
@@ -141,7 +141,7 @@ test('composer with chips fits at 1280x720 without clipping or overlap; screensh
     return { rowH: r.getBoundingClientRect().height, textW: t.getBoundingClientRect().width, stateScroll: st.scrollWidth <= st.clientWidth + 1, btns: [...r.querySelectorAll('.ap-btn')].every(b => b.getBoundingClientRect().width >= 40) }; });
   assert.ok(shape.textW >= 60, `outbox text squeezed to ${shape.textW}px`); assert.ok(shape.rowH <= 120, `outbox row too tall: ${shape.rowH}px`); assert.equal(shape.stateScroll, true); assert.equal(shape.btns, true);
   assert.ok(vis.panelH >= 140, `CHATS panel too small: ${vis.panelH}px`); assert.equal(vis.rowInside, true, 'outbox row clipped');
-  assert.ok((await p.$eval('#hive-core-art', e => e.getBoundingClientRect().height)) >= 720 * 0.35, 'CORE still dominant with chips visible');
+  assert.ok((await p.$eval('#ultron-ring', e => e.getBoundingClientRect().height)) >= 720 * 0.45, 'CORE still dominant with chips visible');
   await p.screenshot({ path: join(root, 'docs/hive/screenshots/composer-1280x720.png') }); await ctx.close();
 });
 

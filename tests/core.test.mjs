@@ -102,10 +102,10 @@ test('movement: events without an interaction target or from unknown roles do no
 test('movement: internet event -> travel to internet angle -> at target', () => {
   const m = mv(); assert.equal(m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', correlation_id: 'c1' }), NOW), true);
   assert.equal(m.snapshot(NOW)[0].movement_state, 'traveling');
-  const mid = m.snapshot(NOW + 500)[0]; assert.ok(mid.angle < H.HOME_ANGLES.THOR && mid.angle > -33.7, 'between home and internet angle');
+  const mid = m.snapshot(NOW + 500)[0]; const bearing = Math.atan2(H.NODES.internet.y - H.CENTER.y, H.NODES.internet.x - H.CENTER.x) * 180 / Math.PI; assert.ok(mid.angle > H.HOME_ANGLES.THOR && mid.angle < bearing, 'between home and internet bearing');
   m.tick(NOW + 1000); const s = m.snapshot(NOW + 1000)[0];
   assert.equal(s.movement_state, 'at_target'); assert.equal(s.target_node, 'internet'); assert.equal(s.interaction_id, 'c1');
-  assert.ok(Math.abs(s.angle - Math.atan2(130 - 450, 1280 - 800) * 180 / Math.PI) < 8, 'rests near the internet bearing');
+  assert.ok(Math.abs(s.angle - bearing) < 8, 'rests near the internet bearing'); assert.ok(s.radius > 0.7 && s.radius < 0.9, 'stops inside the ring, on the node bearing');
   assert.ok(Object.entries(H.HOME_ANGLES).filter(([r]) => r !== 'THOR').every(([, h]) => Math.abs(((s.angle - h + 540) % 360) - 180) >= 25.9), 'clear of other agents');
 });
 test('movement: obsidian read event targets obsidian', () => {
@@ -123,7 +123,7 @@ test('movement: handoff moves source toward destination agent, beside it', () =>
   const m = mv(); m.applyEvent(ev({ role_id: 'FURY', event_type: 'HANDOFF', target_role_id: 'THOR', correlation_id: 'c3' }), NOW);
   m.tick(NOW + 1000); const s = m.snapshot(NOW + 1000)[0];
   assert.equal(s.target_kind, 'agent'); assert.notEqual(s.angle, H.HOME_ANGLES.THOR, 'does not sit on top of the partner');
-  assert.ok(Math.abs(s.angle - H.HOME_ANGLES.THOR) >= 30 && Math.abs(s.angle - H.HOME_ANGLES.THOR) <= 42, 'beside, not on, the partner');
+  assert.ok(Math.abs(s.angle - H.HOME_ANGLES.THOR) >= 29.9 && Math.abs(s.angle - H.HOME_ANGLES.THOR) <= 42, 'beside, not on, the partner'); assert.ok(Math.abs(s.radius - H.HOME_RADIUS.THOR) < 1e-9, 'at the partner radius');
   assert.equal(m.applyEvent(ev({ role_id: 'FURY', event_type: 'HANDOFF', target_role_id: 'FURY', correlation_id: 'c3b' }), NOW), false, 'cannot hand off to self');
 });
 test('movement: completion event returns the agent home', () => {
@@ -234,7 +234,7 @@ test('movement: completion while still travelling turns around; queued trip drop
   for (let t = 300; t < 6000; t += 100) q.tick(NOW + t);
   assert.equal(q.size(), 0); assert.equal(q.snapshot(NOW + 6000).length, 0);
 });
-test('movement: exactly one finite, on-orbit entry per active role at every 100ms', () => {
+test('movement: exactly one finite, in-band entry per active role at every 100ms', () => {
   const m = mv({ maxMovers: 2 });
   m.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'x1' }), NOW);
   m.applyEvent(ev({ role_id: 'UATU', event_type: 'WONG_READ', correlation_id: 'x2' }), NOW);
@@ -242,7 +242,7 @@ test('movement: exactly one finite, on-orbit entry per active role at every 100m
     if (t === 2500) { m.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'x1', state: 'completed' }), NOW + t); m.applyEvent(ev({ role_id: 'UATU', event_type: 'WONG_READ', correlation_id: 'x2', state: 'completed' }), NOW + t); }
     m.tick(NOW + t); const snap = m.snapshot(NOW + t);
     if (t < 3400) assert.equal(snap.length, 2, `both agents visible at +${t}`); // travel, rest, and the whole return leg
-    for (const sn of snap) { assert.ok(Number.isFinite(sn.x) && Number.isFinite(sn.y) && Number.isFinite(sn.angle)); assert.ok(Math.abs(Math.hypot(sn.x - H.CENTER.x, sn.y - H.CENTER.y) - H.ORBIT_R) < 0.01, 'stays on the orbit'); }
+    for (const sn of snap) { assert.ok(Number.isFinite(sn.x) && Number.isFinite(sn.y) && Number.isFinite(sn.angle) && Number.isFinite(sn.radius)); assert.ok(sn.radius >= 0.5 && sn.radius <= 0.85, 'radius stays in the measured band: ' + sn.radius); assert.ok(Math.abs(Math.hypot(sn.x - H.CENTER.x, sn.y - H.CENTER.y) - sn.radius * H.RING_R) < 0.01, 'point matches angle+radius'); }
     assert.equal(new Set(snap.map(x => x.role)).size, snap.length);
   }
   assert.equal(m.size(), 0, 'both back home afterwards');
@@ -370,4 +370,21 @@ test('context labels: only a fresh trusted event naming a known node activates i
 test('context labels: the spec forbids a LOGS section, so no logs/patterns/anomalies label exists', () => {
   for (const bad of ['logs', 'log', 'patterns', 'anomalies']) assert.ok(!H.CONTEXT_NODES.includes(bad), bad);
   assert.equal(H.CONTEXT_NODES.length, 16); assert.equal(new Set(H.CONTEXT_NODES).size, 16);
+});
+
+
+/* ======== visual spec geometry contract (docs/hive/VISUAL_SPEC.md, measured target) ======== */
+test('geometry: homes are the measured target polar coordinates; agents are NOT on one circle', () => {
+  assert.deepEqual(H.HOME_ANGLES, { FURY: -88.9, SHURI: -135.5, THOR: -41.9, VISION: 154.6, FALCON: 25.5, UATU: 89.8 });
+  assert.deepEqual(H.HOME_RADIUS, { FURY: 0.69, SHURI: 0.762, THOR: 0.777, VISION: 0.684, FALCON: 0.683, UATU: 0.525 });
+  assert.ok(new Set(Object.values(H.HOME_RADIUS)).size >= 5, 'distinct radii (target is not a circle)');
+  assert.equal(H.CENTER.x, 835.5, 'CORE is centred in the 1671-wide reference stage'); assert.ok(Math.abs(H.RING_R - 233.1) < 0.01);
+  const m = H.createMovementModel(); const p = m.positionFor('UATU', 0);
+  assert.ok(Math.abs(p.x - (H.CENTER.x + H.RING_R * 0.525 * Math.cos(89.8 * Math.PI / 180))) < 1e-6); assert.equal(p.radius, 0.525);
+  for (const k of Object.keys(H.HOME_ANGLES)) { const hp = H.homePoint(k); assert.ok(Math.abs(Math.hypot(hp.x - H.CENTER.x, hp.y - H.CENTER.y) - H.RING_R * H.HOME_RADIUS[k]) < 1e-6, k); }
+});
+test('geometry: node positions lie outside the ring at their measured bearings', () => {
+  const polar = n => ({ a: Math.atan2(n.y - H.CENTER.y, n.x - H.CENTER.x) * 180 / Math.PI, r: Math.hypot(n.x - H.CENTER.x, n.y - H.CENTER.y) / H.RING_R });
+  const i = polar(H.NODES.internet); assert.ok(Math.abs(i.a - -30.5) < 0.01 && Math.abs(i.r - 1.674) < 0.001);
+  const o = polar(H.NODES.obsidian); assert.ok(o.r > 1.2 && o.a < -150 && o.a > -175);
 });

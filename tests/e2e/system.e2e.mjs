@@ -26,7 +26,7 @@ async function open(url, vp = { width: 1920, height: 1080 }) {
   await p.waitForFunction(() => document.querySelectorAll('#resource-gauges .gauge').length === 5 && document.querySelectorAll('#limit-rows .limit-row').length === 4);
   return { p, errors, ctx };
 }
-const gauges = p => p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ label: g.querySelector('label').textContent, text: g.querySelector('text').textContent, unknown: g.classList.contains('unknown'), sub: g.querySelector('.g-sub')?.textContent || null })));
+const gauges = p => p.$$eval('#resource-gauges .gauge', gs => gs.map(g => ({ label: g.querySelector('label').textContent, text: g.classList.contains('unknown') ? g.querySelector('.g-sub').textContent : g.querySelector('text').textContent, ring: g.querySelector('text').textContent, unknown: g.classList.contains('unknown'), sub: g.classList.contains('unknown') ? null : (g.querySelector('.g-sub')?.textContent || null) })));
 const limits = p => p.$$eval('#limit-rows .limit-row', rs => rs.map(r => ({ label: r.querySelector('strong').textContent, status: r.dataset.status, text: r.querySelector('.v').textContent, fill: r.querySelector('.bar span').style.width })));
 
 test('fixture: OS gauges show real fixture values, GPU/TEMP stay UNKNOWN, disk shows free space', async () => {
@@ -35,7 +35,7 @@ test('fixture: OS gauges show real fixture values, GPU/TEMP stay UNKNOWN, disk s
   const g = await gauges(p);
   assert.deepEqual(g.map(x => x.text), ['17 %', '44 %', '63 %', 'UNKNOWN', 'UNKNOWN']);
   assert.deepEqual(g.map(x => x.unknown), [false, false, false, true, true]);
-  assert.match(g[2].sub, /C:\\ 370 GB free/); assert.match(g[1].sub, /GB \/ .* GB/);
+  assert.match(g[2].sub, /C:\\ 370 GB free/); assert.match(g[1].sub, /^\d+(\.\d+)? \/ \d+(\.\d+)? GB$/); assert.ok(g.filter(x => x.unknown).every(x => x.ring === '?'), 'unknown rings show ? and the caption says UNKNOWN');
   assert.match(await p.$eval('#env-tag', e => e.textContent), /FIXTURE/i, 'synthetic values are labelled');
   assert.deepEqual(errors, []); await ctx.close();
 });

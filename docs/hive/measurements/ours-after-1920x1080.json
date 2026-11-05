@@ -1,0 +1,418 @@
+{
+ "viewport": {
+  "w": 1920,
+  "h": 1080
+ },
+ "panels": {
+  "chats": {
+   "x0": 77.17385864257812,
+   "y0": 96.28254699707031,
+   "x1": 369.9488220214844,
+   "y1": 407.1878204345703,
+   "w": 292.77496337890625,
+   "h": 310.9052734375
+  },
+  "projects": {
+   "x0": 77.17385864257812,
+   "y0": 425.2284851074219,
+   "x1": 373.3919677734375,
+   "y1": 625.2716674804688,
+   "w": 296.2181091308594,
+   "h": 200.04318237304688
+  },
+  "agents": {
+   "x0": 77.17385864257812,
+   "y0": 644.5496826171875,
+   "x1": 372.2442626953125,
+   "y1": 901.171630859375,
+   "w": 295.0704040527344,
+   "h": 256.6219482421875
+  },
+  "card_current": {
+   "x0": 411.8404235839844,
+   "y0": 92.83940124511719,
+   "x1": 672.9456176757812,
+   "y1": 168.58860778808594,
+   "w": 261.1051940917969,
+   "h": 75.74920654296875
+  },
+  "card_next": {
+   "x0": 689.5875244140625,
+   "y0": 92.83940124511719,
+   "x1": 878.3866577148438,
+   "y1": 168.58860778808594,
+   "w": 188.79913330078125,
+   "h": 75.74920654296875
+  },
+  "card_context": {
+   "x0": 895.028564453125,
+   "y0": 92.83940124511719,
+   "x1": 1110.906494140625,
+   "y1": 168.58860778808594,
+   "w": 215.8779296875,
+   "h": 75.74920654296875
+  },
+  "card_external": {
+   "x0": 1127.56640625,
+   "y0": 92.83940124511719,
+   "x1": 1343.444580078125,
+   "y1": 168.58860778808594,
+   "w": 215.878173828125,
+   "h": 75.74920654296875
+  },
+  "card_layout": {
+   "x0": 1360.08642578125,
+   "y0": 92.83940124511719,
+   "x1": 1483.340087890625,
+   "y1": 168.58860778808594,
+   "w": 123.253662109375,
+   "h": 75.74920654296875
+  },
+  "activity": {
+   "x0": 1521.9140625,
+   "y0": 96.28254699707031,
+   "x1": 1897.217041015625,
+   "y1": 410.5233917236328,
+   "w": 375.302978515625,
+   "h": 314.2408447265625
+  },
+  "approvals": {
+   "x0": 1521.9140625,
+   "y0": 434.28466796875,
+   "x1": 1898.36474609375,
+   "y1": 698.8330078125,
+   "w": 376.45068359375,
+   "h": 264.54833984375
+  },
+  "resources": {
+   "x0": 410.6927185058594,
+   "y0": 724.7821655273438,
+   "x1": 974.7947692871094,
+   "y1": 900.1494750976562,
+   "w": 564.10205078125,
+   "h": 175.3673095703125
+  },
+  "limits": {
+   "x0": 1001.8916015625,
+   "y0": 724.7821655273438,
+   "x1": 1520.766357421875,
+   "y1": 900.1494750976562,
+   "w": 518.874755859375,
+   "h": 175.3673095703125
+  },
+  "composer": {
+   "x0": 386.9314270019531,
+   "y0": 917.0244750976562,
+   "x1": 1649.6333312988281,
+   "y1": 1002.9775390625,
+   "w": 1262.701904296875,
+   "h": 85.95306396484375
+  }
+ },
+ "text": {
+  "panel_title": {
+   "font_px": 16.7,
+   "weight": "600",
+   "letter_spacing": "1.169px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "card_title": {
+   "font_px": 13.2,
+   "weight": "600",
+   "letter_spacing": "0.396px",
+   "family": "Inter",
+   "colour": "rgb(207, 227, 245)"
+  },
+  "card_main": {
+   "font_px": 15,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(234, 244, 255)"
+  },
+  "body_row": {
+   "font_px": 14.8,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "approval_label": {
+   "font_px": 14.6,
+   "weight": "700",
+   "letter_spacing": "1.168px",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "button": {
+   "font_px": 13.2,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(125, 240, 197)"
+  },
+  "gauge_label": {
+   "font_px": 13.2,
+   "weight": "400",
+   "letter_spacing": "0.528px",
+   "family": "Inter",
+   "colour": "rgb(120, 145, 162)"
+  },
+  "limit_label": {
+   "font_px": 14.5,
+   "weight": "700",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(156, 194, 255)"
+  },
+  "node_name": {
+   "font_px": 17.56,
+   "weight": "600",
+   "letter_spacing": "1.224px",
+   "family": "Inter",
+   "colour": "rgb(242, 248, 255)"
+  },
+  "node_caption": {
+   "font_px": 15.15,
+   "weight": "400",
+   "letter_spacing": "0.396px",
+   "family": "Inter",
+   "colour": "rgb(79, 240, 192)"
+  },
+  "ctx_label": {
+   "font_px": 16.64,
+   "weight": "400",
+   "letter_spacing": "0.29px",
+   "family": "Inter",
+   "colour": "rgb(169, 188, 205)"
+  },
+  "internet_label": {
+   "font_px": 17.56,
+   "weight": "600",
+   "letter_spacing": "1.224px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "composer_input": {
+   "font_px": 15,
+   "weight": "400",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "top_brand": {
+   "font_px": 22,
+   "weight": "650",
+   "letter_spacing": "3.08px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "chip": {
+   "font_px": 14,
+   "weight": "600",
+   "letter_spacing": "0.84px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  }
+ },
+ "colours": {
+  ".hive-panel": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(4, 16, 29, 0.46)",
+   "border": "rgba(90, 190, 255, 0.4)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.approve": {
+   "color": "rgb(125, 240, 197)",
+   "background": "rgba(79, 240, 192, 0.1)",
+   "border": "rgba(79, 240, 192, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-actions .ap-btn:nth-child(2)": {
+   "color": "rgb(140, 196, 255)",
+   "background": "rgba(90, 168, 255, 0.1)",
+   "border": "rgba(90, 168, 255, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.reject": {
+   "color": "rgb(255, 143, 155)",
+   "background": "rgba(255, 92, 108, 0.1)",
+   "border": "rgba(255, 92, 108, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".source-chip": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(242, 184, 75)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".hp-chip": {
+   "color": "rgb(79, 240, 192)",
+   "background": "rgba(79, 240, 192, 0.08)",
+   "border": "rgb(79, 240, 192)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".gauge[data-k=\"cpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(79, 227, 196)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"ram\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(90, 168, 255)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"gpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(181, 140, 255)",
+   "border_width": "0px"
+  },
+  ".limit-row .bar span": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgb(79, 240, 192)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "none",
+   "border_width": "0px"
+  },
+  ".ring-orbit": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "url(\"#ringGrad\")",
+   "border_width": "0px"
+  },
+  "#ultron-ring": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(127, 147, 163)",
+   "border_width": "0px"
+  },
+  ".photon": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(255, 179, 107)",
+   "border_width": "0px"
+  }
+ },
+ "core": {
+  "ultron_ring": {
+   "cx": 960,
+   "cy": 457.5,
+   "r": 267.5
+  },
+  "orbit_ring": {
+   "cx": 960,
+   "cy": 457.5,
+   "r": 243.5
+  },
+  "horizon": {
+   "cx": 960,
+   "cy": 457.5,
+   "r": 35.1
+  },
+  "planet": {
+   "cx": 1346,
+   "cy": 230.1,
+   "r": 47.5
+  },
+  "nodes": {
+   "FURY": {
+    "cx": 963.6,
+    "cy": 272.9,
+    "r": 37.3
+   },
+   "SHURI": {
+    "cx": 814.6,
+    "cy": 314.6,
+    "r": 37.3
+   },
+   "THOR": {
+    "cx": 1114.7,
+    "cy": 318.6,
+    "r": 37.3
+   },
+   "VISION": {
+    "cx": 794.7,
+    "cy": 536,
+    "r": 37.3
+   },
+   "FALCON": {
+    "cx": 1124.9,
+    "cy": 536.1,
+    "r": 37.3
+   },
+   "UATU": {
+    "cx": 750.7,
+    "cy": 391.8,
+    "r": 37.3
+   },
+   "ULTRON": {
+    "cx": 966.9,
+    "cy": 196.7,
+    "r": 28.7
+   }
+  },
+  "polar": {
+   "FURY": {
+    "angle_deg": -88.9,
+    "r_over_ring": 0.69
+   },
+   "SHURI": {
+    "angle_deg": -135.5,
+    "r_over_ring": 0.762
+   },
+   "THOR": {
+    "angle_deg": -41.9,
+    "r_over_ring": 0.777
+   },
+   "VISION": {
+    "angle_deg": 154.6,
+    "r_over_ring": 0.684
+   },
+   "FALCON": {
+    "angle_deg": 25.5,
+    "r_over_ring": 0.683
+   },
+   "UATU": {
+    "angle_deg": -162.6,
+    "r_over_ring": 0.82
+   },
+   "ULTRON": {
+    "angle_deg": -88.5,
+    "r_over_ring": 0.975
+   },
+   "INTERNET_planet": {
+    "angle_deg": -30.5,
+    "r_over_ring": 1.675
+   }
+  }
+ },
+ "gutters": {
+  "chats_to_projects_y": 18,
+  "projects_to_agents_y": 19.3,
+  "activity_to_approvals_y": 23.8,
+  "resources_to_limits_x": 27.1,
+  "card_current_to_next_x": 16.6,
+  "card_next_to_context_x": 16.6,
+  "card_context_to_external_x": 16.7,
+  "card_external_to_layout_x": 16.6,
+  "left_rail_to_center_x": 41.9,
+  "center_to_right_rail_x": 38.6,
+  "resources_to_composer_y": 16.9
+ }
+}
