@@ -185,10 +185,131 @@ class TierTests(unittest.TestCase):
         s = tiered(run, clock=clock)
         for _ in range(5):
             s.snapshot()
-        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 1)
+        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 2, "first attempt plus exactly one immediate retry, however many requests")
         clock.t += hs.FAST_REFRESH_S + 0.1
         s.snapshot()
-        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 2)
+        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 3, "after that only the backoff interval allows another attempt")
+
+    def test_after_a_first_observation_a_failure_waits_for_the_backoff_and_keeps_the_old_value_honest(self):
+        clock = Clock()
+        outcomes = iter([RAW, OSError("boom"), OSError("boom")])
+
+        def fast(argv):
+            o = next(outcomes)
+            if isinstance(o, BaseException):
+                raise o
+            return 0, json.dumps(o)
+        run = runner_for(fast=fast)
+        s = tiered(run, clock=clock)
+        s.snapshot()
+        clock.t += hs.FAST_REFRESH_S + 0.1
+        snap = s.snapshot()
+        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 2, "no immediate retry once an observation exists")
+        self.assertEqual(snap["items"]["cpu"]["validity"], "valid"); self.assertIn("latest attempt failed", snap["tiers"]["fast"]["reason"])
+
+
+    def test_slow_probe_waits_for_the_immediate_retry_of_a_failed_first_fast_probe(self):
+        gate, calls = threading.Event(), {"fast": 0}
+
+        def fast(argv):
+            calls["fast"] += 1
+            if calls["fast"] == 1:
+                raise OSError("cold start failed")
+            gate.wait(5)
+            return 0, json.dumps(RAW)
+        run = runner_for(fast=fast)
+        s = hs.TieredSystem(runner=run, platform_name="nt")
+        s.snapshot(source="warmup")
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and calls["fast"] < 2:
+            time.sleep(0.01)
+        for _ in range(10):
+            snap = s.snapshot()
+        self.assertEqual((snap["tiers"]["fast"]["state"], snap["tiers"]["fast"]["refreshing"]), ("failed", True))
+        self.assertEqual(snap["tiers"]["slow"]["state"], "not_started", "no second PowerShell while the fast retry runs")
+        self.assertNotIn(hs.SLOW_SCRIPT, run.calls)
+        gate.set()
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and s.snapshot()["tiers"]["slow"]["state"] != "fresh":
+            time.sleep(0.02)
+        self.assertEqual(s.snapshot()["tiers"]["slow"]["state"], "fresh")
+
+    def test_slow_tier_is_not_starved_by_fast_refreshes_once_warm(self):
+        class DeferredExecutor:  # like the real pool: a submitted refresh is still running when snapshot() decides about the slow tier
+            def __init__(self):
+                self.q = []
+
+            def submit(self, fn, *a):
+                self.q.append((fn, a))
+
+            def run_all(self):
+                while self.q:
+                    fn, a = self.q.pop(0)
+                    fn(*a)
+        clock, ex, run = Clock(), DeferredExecutor(), runner_for()
+        s = tiered(run, clock=clock, executor=ex)
+        s.snapshot(); ex.run_all()  # cold start: the fast tier alone
+        self.assertEqual(run.calls.count(hs.SLOW_SCRIPT), 0)
+        for _ in range(8):  # a request every 15 s: each one starts a fast refresh first
+            clock.t += 15.0
+            s.snapshot(); ex.run_all()
+        self.assertEqual(run.calls.count(hs.FAST_SCRIPT), 9, "every request refreshed the fast tier")
+        self.assertEqual(run.calls.count(hs.SLOW_SCRIPT), 2, "slow started at the first warm request and again 60 s later: not starved")
+
+
+class TimingEvidenceTests(unittest.TestCase):
+    """Reproduces the Windows cold start (5476a76: CPU/RAM/disk valid only after ~15.5 s although a warm fast probe takes ~2.5 s):
+    first fast probe hits the 8 s timeout, then waited for the 5 s failure backoff and a request before the ~2.5 s retry."""
+
+    def _cold_start(self, retries):
+        clock = Clock()
+        fast_outcomes = iter(["timeout", "ok"])
+
+        def fast(argv):
+            if next(fast_outcomes) == "timeout":
+                clock.t += hs.PROBE_TIMEOUT_S
+                raise subprocess.TimeoutExpired("powershell", hs.PROBE_TIMEOUT_S, stderr="HIVE_T startup 2400\n")
+            clock.t += 2.5
+            return 0, json.dumps(RAW)
+        old = hs.FIRST_OBSERVATION_RETRIES
+        hs.FIRST_OBSERVATION_RETRIES = retries
+        try:
+            s = tiered(runner_for(fast=fast), clock=clock)
+            s.snapshot(source="warmup")
+            snap = None
+            for _ in range(80):  # a client polling every 250 ms, like tools/live_check_windows.mjs
+                snap = s.snapshot()
+                if all(snap["items"][k]["validity"] == "valid" for k in hs.FAST_KEYS):
+                    break
+                clock.t += 0.25
+            return snap
+        finally:
+            hs.FIRST_OBSERVATION_RETRIES = old
+
+    def test_old_schedule_reproduces_the_windows_15_5_s_and_the_retry_removes_the_backoff(self):
+        before = self._cold_start(retries=0)["diagnostics"]
+        self.assertEqual(before["first_valid_published_ms"], 15500, "8 s timeout + 5 s backoff + 2.5 s probe")
+        after = self._cold_start(retries=1)
+        d, attempts = after["diagnostics"], after["tiers"]["fast"]["attempts"]
+        self.assertEqual(d["first_valid_published_ms"], 10500, "8 s timeout + 2.5 s retry started at once")
+        self.assertEqual([(a["trigger"], a["outcome"]) for a in attempts], [("warmup", "timeout"), ("retry", "ok")])
+        self.assertEqual(attempts[0]["finished_ms"], 8000); self.assertEqual(attempts[1]["requested_ms"], 8000, "retry requested the moment the timeout was seen")
+        self.assertEqual((attempts[1]["started_ms"], attempts[1]["finished_ms"], attempts[1]["published_ms"]), (8000, 10500, 10500))
+        self.assertIn("PowerShell started after 2400 ms", attempts[0]["detail"]); self.assertIn("stalled in: cpu", attempts[0]["detail"])
+        self.assertEqual(d["first_request_ms"], 10500, "the warm-up is not counted as a request"); self.assertEqual(d["first_valid_served_ms"], 10500)
+
+    def test_attempt_records_and_request_log_are_bounded(self):
+        clock = Clock()
+        s = tiered(runner_for(), clock=clock)
+        for _ in range(60):
+            clock.t += hs.FAST_REFRESH_S + 0.1
+            snap = s.snapshot()
+        self.assertLessEqual(len(snap["tiers"]["fast"]["attempts"]), hs.ATTEMPT_HISTORY)
+        self.assertEqual(len(snap["diagnostics"]["first_requests"]), hs.REQUEST_LOG_MAX); self.assertEqual(snap["diagnostics"]["requests"], 60)
+        a = snap["tiers"]["fast"]["attempts"][-1]
+        self.assertEqual(a["outcome"], "ok"); self.assertTrue({"requested_ms", "started_ms", "finished_ms", "published_ms", "probe_ms", "timings_ms"} <= set(a))
+        self.assertNotIn("startup", hs.parse_progress("HIVE_T startup 5\nHIVE_T cpu 7")); self.assertEqual(hs.parse_startup(b"HIVE_T startup 512\n"), 512)
+        self.assertIn("HIVE_T startup", hs.FAST_SCRIPT); self.assertIn("HIVE_T startup", hs.POWERSHELL_SCRIPT)
 
     def test_nvidia_is_part_of_the_slow_tier_only(self):
         run = runner_for(nvidia="Mock RTX, 12, 40")

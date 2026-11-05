@@ -36,6 +36,19 @@ const get = (url, timeoutMs = 10000) => new Promise((resolve, reject) => {
   req.on('error', e => reject(new Error(`${url}: ${e.code || ''} ${e.message}`.trim())));
 });
 const getJson = async (url, timeoutMs) => { const r = await get(url, timeoutMs); if (r.status !== 200) throw new Error(`${url}: HTTP ${r.status}`); try { return JSON.parse(r.text); } catch { throw new Error(`${url}: response was not JSON`); } };
+// Timing evidence from the server (ms since server start, server monotonic clock): every probe attempt with when it was
+// requested, started by a worker, finished (process returned or timed out) and published to the cache, plus when CPU/RAM/disk
+// were first published valid and first served valid, and the first requests with the fast state served.
+const printTimeline = b => {
+  if (!b || !b.tiers) { console.log('timeline: not available (no tier block in this response; non-Windows host)'); return; }
+  const d = b.diagnostics || {}; const v = x => (x === null || x === undefined ? '-' : x);
+  console.log('timeline (ms since server start):');
+  for (const t of ['fast', 'slow']) for (const a of (b.tiers[t].attempts || []))
+    console.log(`  ${t} #${a.n} ${a.trigger}: requested ${v(a.requested_ms)}, started ${v(a.started_ms)}, finished ${v(a.finished_ms)}, published ${v(a.published_ms)} -> ${a.outcome}`
+      + (a.probe_ms !== undefined ? ` (probe ${a.probe_ms} ms; timings ${JSON.stringify(a.timings_ms || {})})` : '') + (a.detail ? ` [${a.detail}]` : ''));
+  console.log(`  CPU/RAM/disk first published valid at ${v(d.first_valid_published_ms)}; first served valid at ${v(d.first_valid_served_ms)}; first request at ${v(d.first_request_ms)}; requests so far ${v(d.requests)}`);
+  if (Array.isArray(d.first_requests) && d.first_requests.length) console.log('  first requests [ms:fast state]: ' + d.first_requests.map(([ms, st]) => `${ms}:${st}`).join(' '));
+};
 const fails = []; const note = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails.push(msg); };
 const env = { ...process.env, HIVE_API_TOKEN: '' }; // no token: this check never uses or prints one
 const server = baseArg ? null : spawn(process.platform === 'win32' ? 'python' : 'python3', ['server.py', '--port', String(PORT)], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env });
@@ -59,19 +72,22 @@ try {
   console.log(`cold first system answer: ${coldMs} ms (${tierState(cold)})`);
   note(coldMs <= COLD_FIRST_MAX_MS, `cold first answer within ${COLD_FIRST_MAX_MS} ms (not blocked by any probe): ${coldMs} ms`);
   const fastValid = b => ['cpu', 'memory', 'disk'].every(k => b.items[k].validity === 'valid');
-  let sys = cold, validAt = null, slowAtValid = null;
+  let sys = cold, validAt = null, slowAtValid = null, polls = 0;
   if (!expectUnknown) {
     const tStart = Date.now();
     while (Date.now() - tStart < 20000) {
       if (fastValid(sys)) { validAt = Date.now() - tStart + coldMs; slowAtValid = sys.tiers ? sys.tiers.slow.state : null; break; }
-      await new Promise(r => setTimeout(r, 250)); [sys] = await timed();
+      await new Promise(r => setTimeout(r, 250)); [sys] = await timed(); polls += 1;
     }
     console.log(`time until CPU/RAM/disk valid (cold): ${validAt === null ? 'not within 20 s' : validAt + ' ms'}; slow inventory at that moment: ${slowAtValid}`);
+    const dc = cold.diagnostics || {}, dv = sys.diagnostics || {};
+    console.log(`checker polling: ${polls} polls every 250 ms after the cold request; cold request at server ${dc.now_ms ?? '?'} ms; ${validAt === null ? 'last' : 'first valid'} response at server ${dv.now_ms ?? '?'} ms`);
     note(validAt !== null && validAt <= FAST_VALID_MAX_MS, `CPU/RAM/disk valid within ${FAST_VALID_MAX_MS} ms of the cold start: ${validAt === null ? 'never' : validAt + ' ms'}`);
     if (slowAtValid && slowAtValid !== 'fresh') console.log('  -> the fast gauges were valid while the slow device inventory was still ' + slowAtValid + ' (slow inventory did not delay them)');
   }
   const [warm, warmMs] = await timed();
   console.log(`warm system answer: ${warmMs} ms (${tierState(warm)})`);
+  printTimeline(warm);
   note(warmMs <= WARM_MAX_MS, `warm answer within ${WARM_MAX_MS} ms: ${warmMs} ms`);
   sys = warm;
   const items = sys.items, ev = sys.evidence;
@@ -110,6 +126,8 @@ try {
         await p.waitForFunction(() => document.querySelectorAll('#resource-gauges .gauge').length === 5 && document.querySelectorAll('#limit-rows .limit-row').length === 4, null, { timeout: 75000 });
         console.log(`[${tag}] gauges and limit rows rendered ${Date.now() - tg} ms after load`);
         await p.waitForTimeout(2500);
+        const polls = await p.evaluate(() => (window.__hiveSystemPolls || []).slice(0, 40));
+        console.log(`[${tag}] browser system polls [ms after navigation:request ms:fast state:CPU/RAM/disk valid]: ` + (polls.length ? polls.map(x => `${x.at_ms}:${x.request_ms}:${x.fast}:${x.valid ? 'valid' : 'no'}`).join(' ') : 'none recorded'));
         const g = await p.$$eval('#resource-gauges .gauge', gs => gs.map(x => ({ k: x.dataset.k, st: x.dataset.status, ring: x.querySelector('text').textContent, glyph: !!x.querySelector('.g-glyph'), cap: x.querySelector('.g-sub').textContent })));
         console.log(`[${tag}] gauges: ` + g.map(x => `${x.k}=${x.st}(${x.ring}${x.glyph ? ',?glyph' : ''})`).join(' '));
         for (const x of g) {

@@ -305,3 +305,19 @@ Gate (VERIFIED): HEAD = remote `hive/dashboard-v1` = 07717544caeec3c6ed99cbb960f
 - Phase B (visual finalization) NOT started: the estimated budget is at or below the reserve (BUDGET_LEDGER). GAP-5 stays OPEN; GAP-1 to GAP-7, GAP-10 and ASSET-1 unchanged.
 
 **Tests (Linux, on the final code):** Python 400 (new tier tests 13); UI contract OK; Node core 49, ops 39, html_ids 3, live_check 7; Playwright shell 7, core 10, chat 11, system 11, visual 16, registry 6, control 4; `node tools/live_check_windows.mjs --expect-unknown` PASS (checker only, Linux); py_compile; `git diff --check` clean; content scan: no secret-shaped strings or user-specific paths added.
+
+## Phase A follow-up: Windows cold check at 5476a76 (USER-REPORTED) and the cold-start schedule fix
+Owner ran `node tools/live_check_windows.mjs` at 5476a76: cold first answer 2 ms PASS; warm answer 2 ms PASS; "OS probe did not time out" PASS (that check reads the warm response only); **CPU/RAM/disk valid only after 15,557 ms: FAIL** against the 12,000 ms target; browser phase skipped. Reported fast timings cpu 525 / memory 913 / volumes 2114 ms (cumulative from the script start) and probe_ms 2554 came from the warm response, i.e. the latest fast attempt, not the first.
+
+**Cause (deduced from the code; the Windows timeline is not observed yet):** a successful first attempt ends within the 8 s timeout, so valid data at ~15.6 s means the first attempt failed. After any failure the 5476a76 code waited the full fast backoff (5 s) and then the next request before retrying, and the retry took ~2.5 s: 8 + 5 + 2.5 ≈ 15.5 s. A successful retry cleared the error, so the response kept no trace of the failed attempt. Reproduced on a simulated clock (`TimingEvidenceTests`): old schedule 15,500 ms, new schedule 10,500 ms. **NOT_VERIFIED:** why the first Windows attempt failed (a cold-start timeout, as in earlier runs that stalled in `cpu`, or an error); the new timeline will show it.
+
+**Fixed (each with a test that fails on the 5476a76 behaviour):**
+1. A tier with no observation yet retries once at once after a failure (bounded to one; later failures keep the 5 s / 60 s backoff; once an observation exists a failure keeps the old value and marks it STALE in time).
+2. During the cold phase the slow probe no longer starts while the fast retry runs (5476a76 started it as soon as the fast tier had failed, competing with the retry). Once warm the slow tier keeps its own schedule and is not starved by fast refreshes.
+3. The browser re-checks every second while a FAILED tier's retry is running (5476a76 did so only for pending, not_started or stale-and-refreshing tiers; in practice the slow tier's pending state usually hid this).
+
+**Timing evidence added:** per attempt `requested_ms`, `started_ms`, `finished_ms`, `published_ms`, outcome and detail (a timeout names the PowerShell start-up time and the finished/stalled sections); `first_valid_published_ms`, `first_valid_served_ms`, the first 40 requests with the fast state served; the browser's first 40 system answers. `tools/live_check_windows.mjs` prints the server timeline, its own polling and the browser polls. Verified on Linux against the real server with a simulated Windows runner (scratch harness, not committed).
+
+**Not changed:** the 8 s probe timeout, the 12 s live-check target, the fresh windows, the CPU/RAM/disk sources and meaning.
+
+**Tests (Linux, on the final code):** see HANDOFF_REPORT section 34. **Windows rerun: NOT_RUN** (pending owner). GAP-8 residual (5) unchanged until that run.

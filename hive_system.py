@@ -26,6 +26,7 @@ import os
 import subprocess
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -36,11 +37,13 @@ CACHE_TTL_S = 5.0
 # Fixed script: no request-derived text is ever interpolated into it.
 # Fixed script, assembled from constant sections: no request-derived text is ever interpolated into it.
 # After each section it records the cumulative elapsed milliseconds (JSON `timings_ms`) and writes `HIVE_T <name> <ms>`
-# to stderr, so a timed-out probe still reveals which section finished and which one stalled.
+# to stderr, so a timed-out probe still reveals which section finished and which one stalled. `startup` (ms from the
+# PowerShell process start to the first script line) separates interpreter start-up from the sections.
 _PS_HEADER = r"""$ErrorActionPreference = 'Stop'
 $r = [ordered]@{ errors = [ordered]@{}; timings_ms = [ordered]@{} }
 $sw = [Diagnostics.Stopwatch]::StartNew()
 function Mark($n) { $r.timings_ms[$n] = $sw.ElapsedMilliseconds; [Console]::Error.WriteLine("HIVE_T $n $($sw.ElapsedMilliseconds)") }
+try { $r.timings_ms['startup'] = [int64]((Get-Date) - [Diagnostics.Process]::GetCurrentProcess().StartTime).TotalMilliseconds; [Console]::Error.WriteLine("HIVE_T startup $($r.timings_ms['startup'])") } catch { }
 """
 _PS_SECTIONS = (
     ("cpu", r"""try { $r.cpu_percent = [double](Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime } catch { $r.errors.cpu = $_.Exception.Message }"""),
@@ -119,6 +122,17 @@ def parse_progress(stderr):
         if len(parts) == 3 and parts[0] == "HIVE_T" and parts[1] in KNOWN_SECTIONS and parts[2].isdigit():
             out[parts[1]] = int(parts[2])
     return out
+
+
+def parse_startup(stderr):
+    """The `HIVE_T startup <ms>` line (PowerShell start-up before the script ran) -> int ms, or None."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", "replace")
+    for line in str(stderr or "").splitlines()[:50]:
+        parts = line.strip().split()
+        if len(parts) == 3 and parts[0] == "HIVE_T" and parts[1] == "startup" and parts[2].isdigit():
+            return int(parts[2])
+    return None
 
 
 def _classify_volume(v):
@@ -352,6 +366,11 @@ SLOW_REFRESH_S, SLOW_FRESH_S = 60.0, 180.0
 _TIER_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="hive-system")
 
 
+FIRST_OBSERVATION_RETRIES = 1  # a tier with no observation yet retries once at once after a failure (no backoff, no request needed)
+ATTEMPT_HISTORY = 6             # per-tier attempt records kept for timing evidence
+REQUEST_LOG_MAX = 40            # first requests after start-up kept with the fast state served (cold-start evidence)
+
+
 class _Tier:
     def __init__(self, name, sections, argv, refresh_s, fresh_s):
         self.name, self.sections, self.argv, self.refresh_s, self.fresh_s = name, sections, argv, refresh_s, fresh_s
@@ -363,13 +382,20 @@ class _Tier:
         self.error_t = None
         self.running = False
         self.started_t = None
+        self.quick_retries = 0
+        self.attempt_no = 0
+        self.attempts = deque(maxlen=ATTEMPT_HISTORY)  # timing evidence: requested/started/finished/published per attempt
+        self.first_valid_t = None   # fast tier: when CPU, RAM and disk were first published valid
 
 
 class TieredSystem:
     """Non-blocking system resources. snapshot() always answers immediately from the latest observations; each tier refreshes
     in the background (one probe at a time per tier, bounded by PROBE_TIMEOUT_S, retried after its refresh interval).
     A value older than its fresh window becomes STALE; a tier without any observation yet reports UNKNOWN with the reason.
-    Nothing is estimated: a failed probe never produces a value, it keeps the reason."""
+    Nothing is estimated: a failed probe never produces a value, it keeps the reason.
+    Timing evidence (milliseconds since this object was created, i.e. server start, monotonic clock): every attempt records
+    when it was requested, started by a worker, finished (process returned or timed out) and published to the cache; the
+    response also carries when CPU/RAM/disk were first published valid and first served valid, and the first requests."""
 
     def __init__(self, runner=None, platform_name=None, clock=time.monotonic, now=None, executor=None):
         self.runner, self.platform, self.clock, self.now = runner, platform_name, clock, now or _now
@@ -377,38 +403,76 @@ class TieredSystem:
         self.lock = threading.RLock()  # re-entrant: a synchronous executor (tests) refreshes while snapshot() holds it
         self.fast = _Tier("fast", FAST_SECTIONS, FAST_ARGV, FAST_REFRESH_S, FAST_FRESH_S)
         self.slow = _Tier("slow", SLOW_SECTIONS, SLOW_ARGV, SLOW_REFRESH_S, SLOW_FRESH_S)
+        self._reset_diagnostics()
+
+    def _reset_diagnostics(self):
+        self.t_origin = self.clock()
+        self.requests, self.first_request_t, self.first_valid_served_t, self.request_log = 0, None, None, []
 
     def reset(self):
         with self.lock:
             self.fast.reset()
             self.slow.reset()
+            self._reset_diagnostics()
+
+    def _ms(self, t):
+        return None if t is None else round((t - self.t_origin) * 1000)
 
     def _run_cmd(self, argv):
         return (self.runner or default_runner)(argv)  # module-level default_runner looked up at call time
 
-    def snapshot(self):
+    def snapshot(self, source="request"):
         plat = self.platform or os.name
         if plat != "nt":
             return collect_system(platform_name=plat)  # immediate and honest: no probe exists on this platform
         with self.lock:
-            self._maybe_start(self.fast)
-            if self.fast.result is not None or self.fast.error is not None:
-                self._maybe_start(self.slow)  # cold start: the first fast probe gets the machine to itself (two PowerShells compete for CPU)
-            return self._compose()
+            t = self.clock()
+            self._maybe_start(self.fast, source)
+            if not self._slow_waits_for_fast():
+                self._maybe_start(self.slow, source)
+            out = self._compose()
+            if source == "request":
+                self.requests += 1
+                if self.first_request_t is None:
+                    self.first_request_t = t
+                if self.first_valid_served_t is None and all(out["items"][k]["validity"] == "valid" for k in FAST_KEYS):
+                    self.first_valid_served_t = t
+                if len(self.request_log) < REQUEST_LOG_MAX:
+                    self.request_log.append([self._ms(t), out["tiers"]["fast"]["state"]])
+            out["diagnostics"] = {"clock": "ms since the dashboard server started (monotonic)", "now_ms": self._ms(t), "requests": self.requests,
+                                  "first_request_ms": self._ms(self.first_request_t), "first_valid_published_ms": self._ms(self.fast.first_valid_t),
+                                  "first_valid_served_ms": self._ms(self.first_valid_served_t), "first_requests": [list(x) for x in self.request_log]}
+            return out
 
-    def _maybe_start(self, tier):
+    def _slow_waits_for_fast(self):
+        """Cold start only: until the fast tier has its first observation, the slow probe does not start while a fast attempt (first
+        try or its immediate retry) is running, because two PowerShell cold starts compete for CPU. Once the fast tier has an
+        observation, or it failed and is idle, the slow tier refreshes on its own schedule (never starved by fast refreshes)."""
+        return self.fast.result is None and (self.fast.error is None or self.fast.running)
+
+    def _maybe_start(self, tier, trigger="request"):
         t = self.clock()
         due = tier.result is None or t - tier.result["t"] >= tier.refresh_s
         backing_off = tier.error_t is not None and t - tier.error_t < tier.refresh_s
         if tier.running or not due or backing_off:
             return
         tier.running, tier.started_t = True, t
-        self.executor.submit(self._refresh, tier)
+        self._submit(tier, trigger, t)
 
-    def _refresh(self, tier):
+    def _submit(self, tier, trigger, t):
+        tier.attempt_no += 1
+        rec = {"n": tier.attempt_no, "trigger": trigger, "requested_ms": self._ms(t), "started_ms": None, "finished_ms": None,
+               "published_ms": None, "outcome": "queued", "detail": None}
+        tier.attempts.append(rec)
+        self.executor.submit(self._refresh, tier, rec)
+
+    def _refresh(self, tier, rec=None):
+        rec = rec if rec is not None else {}
         t0 = self.clock()
+        rec["started_ms"], rec["outcome"] = self._ms(t0), "running"
         try:
             code, out = self._run_cmd(tier.argv)
+            rec["finished_ms"] = self._ms(self.clock())
             try:
                 raw = json.loads(out)
                 if not isinstance(raw, dict) or code != 0:
@@ -428,25 +492,42 @@ class TieredSystem:
                 except (OSError, subprocess.TimeoutExpired, ValueError):
                     pass
             tm = raw.get("timings_ms") if isinstance(raw.get("timings_ms"), dict) else {}
-            timings = {k: int(v) for k, v in tm.items() if k in KNOWN_SECTIONS and _num(v) is not None and 0 <= v < 3_600_000}
+            timings = {k: int(v) for k, v in tm.items() if (k in KNOWN_SECTIONS or k == "startup") and _num(v) is not None and 0 <= v < 3_600_000}
             with self.lock:
-                tier.result = {"items": items, "observed_at": observed, "t": self.clock(), "probe_ms": round((self.clock() - t0) * 1000), "timings": timings}
+                t_pub = self.clock()
+                tier.result = {"items": items, "observed_at": observed, "t": t_pub, "probe_ms": round((t_pub - t0) * 1000), "timings": timings}
                 tier.error, tier.error_t = None, None
+                rec["published_ms"], rec["outcome"], rec["probe_ms"], rec["timings_ms"] = self._ms(t_pub), "ok", tier.result["probe_ms"], timings
+                if tier is self.fast and tier.first_valid_t is None and all(items[k].get("validity") == "valid" for k in FAST_KEYS):
+                    tier.first_valid_t = t_pub
         except subprocess.TimeoutExpired as e:
-            done = parse_progress(getattr(e, "stderr", None))
+            err = getattr(e, "stderr", None)
+            done, startup = parse_progress(err), parse_startup(err)
             stalled = next((n for n in tier.sections if n not in done), None)
-            self._fail(tier, f"{tier.name} probe timed out after {PROBE_TIMEOUT_S} s (finished: {', '.join(done) or 'nothing'}; stalled in: {stalled or 'unknown'})")
+            started = f"PowerShell started after {startup} ms; " if startup is not None else "PowerShell start not reported; "
+            self._fail(tier, f"{tier.name} probe timed out after {PROBE_TIMEOUT_S} s ({started}finished: {', '.join(done) or 'nothing'}; stalled in: {stalled or 'unknown'})", rec, "timeout")
         except (OSError, ValueError, RuntimeError) as e:
-            self._fail(tier, f"{tier.name} probe failed: {str(e)[:140]}")
+            self._fail(tier, f"{tier.name} probe failed: {str(e)[:140]}", rec, "error")
         except Exception as e:  # a parser bug must not leave the tier stuck in "running"
-            self._fail(tier, f"{tier.name} probe error: {type(e).__name__}: {str(e)[:120]}")
+            self._fail(tier, f"{tier.name} probe error: {type(e).__name__}: {str(e)[:120]}", rec, "error")
         finally:
             with self.lock:
-                tier.running = False
+                again = tier.result is None and tier.error is not None and tier.quick_retries < FIRST_OBSERVATION_RETRIES
+                if again:  # no observation at all yet: retry at once instead of waiting for the backoff and the next request
+                    tier.quick_retries += 1
+                    tier.started_t = self.clock()
+                    self._submit(tier, "retry", tier.started_t)
+                else:
+                    tier.running = False
 
-    def _fail(self, tier, text):
+    def _fail(self, tier, text, rec=None, outcome="error"):
         with self.lock:
-            tier.error, tier.error_t = text, self.clock()
+            t = self.clock()
+            tier.error, tier.error_t = text, t
+            if rec is not None:
+                if rec.get("finished_ms") is None:
+                    rec["finished_ms"] = self._ms(t)
+                rec["outcome"], rec["detail"] = outcome, text[:240]
 
     def _tier_meta(self, tier, t):
         r = tier.result
@@ -460,16 +541,17 @@ class TieredSystem:
         if state == "pending":
             reason = f"first {tier.name} probe in progress (started {round(t - tier.started_t, 1)} s ago)"
         elif state == "not_started":
-            reason = f"{tier.name} probe not started yet" + ("; it starts after the first fast probe" if tier is self.slow and self.fast.result is None and self.fast.error is None else "")
+            reason = f"{tier.name} probe not started yet" + ("; it starts after the first fast probe" if tier is self.slow and self._slow_waits_for_fast() else "")
         elif state == "failed":
-            reason = f"no {tier.name} observation yet: {tier.error}"
+            reason = f"no {tier.name} observation yet: {tier.error}" + ("; retrying now" if tier.running else "")
         elif state == "stale":
             reason = f"last {tier.name} observation is {age} s old (fresh window {int(tier.fresh_s)} s)" + (f"; latest attempt: {tier.error}" if tier.error else "") + ("; refreshing" if tier.running else "")
         else:
             reason = f"{tier.name} observation {age} s old" + ("; refreshing" if tier.running else "") + (f"; latest attempt failed: {tier.error}" if tier.error else "")
         return {"sections": list(tier.sections), "state": state, "observed_at": None if r is None else r["observed_at"], "age_s": age,
                 "refreshing": tier.running, "probe_ms": None if r is None else r["probe_ms"], "timings_ms": {} if r is None else r["timings"],
-                "last_error": tier.error, "fresh_window_s": tier.fresh_s, "refresh_after_s": tier.refresh_s, "reason": reason}
+                "last_error": tier.error, "fresh_window_s": tier.fresh_s, "refresh_after_s": tier.refresh_s, "reason": reason,
+                "attempts": [dict(a) for a in tier.attempts]}
 
     def _compose(self):
         t = self.clock()

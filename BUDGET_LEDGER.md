@@ -140,3 +140,7 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Basis: USER-REPORTED ~$70 remaining at Gate A. ESTIMATED effort since then (rough, not observed): read-only foundation ~$12-15, Registry v2 ~$18-22, follow-ups ~$3, P1.3 ~$20-24, this phase ~$10-14. Estimated remaining on the user-reported basis: about -$8 to +$7, i.e. at or below any reserve. The historical ESTIMATED running total (~$97) stays unchanged above; the bases remain unreconciled.
 - Decision: Phase B (visual finalization) is NOT started; it needs a fresh budget figure from the owner.
 - Files: see HANDOFF_REPORT section 33. Tests on the final code: Python 400, UI contract OK, Node 98, Playwright 7+10+11+11+16+6+4, all green. Subagents 5 of 8 (none used). No execution path, external write or PROD/WONG/ROCKET access.
+
+## Phase A follow-up: cold-start schedule fix and timing evidence
+- ESTIMATED effort (rough, not observed): ~$5-7. Estimated remaining on the USER-REPORTED basis: about -$15 to +$2 (at or below any reserve). Phase B still NOT started.
+- Files: see HANDOFF_REPORT section 34. No execution path, external write or PROD/WONG/ROCKET access.

@@ -203,6 +203,32 @@ test('a STALE tier that is already refreshing is re-checked quickly (gauges retu
   assert.equal(idle, 1, 'no 1 s polling while the tier is not refreshing (e.g. backing off after a failure)'); await b.ctx.close();
 });
 
+test('a FAILED first fast probe whose immediate retry is running is re-checked quickly; the browser keeps a bounded poll timeline', async () => {
+  const failed = r => ({ value: null, unit: '%', validity: 'unavailable', source: 'windows:powershell (fast tier)', observed_at: null, reason: r, freshness: 'failed' });
+  const why = 'no fast observation yet: fast probe timed out after 8 s (PowerShell started after 2400 ms; finished: nothing; stalled in: cpu); retrying now';
+  let calls = 0;
+  const { p, ctx, errors, t0 } = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/system/resources', async route => {
+    calls += 1;
+    const res = await route.fetch(); const body = await res.json();
+    if (calls > 1) {  // the retry has published: live-shaped valid values (the fixture labels its own values 'fixture')
+      for (const k of ['cpu', 'memory', 'disk']) body.items[k] = Object.assign({}, body.items[k], { validity: 'valid', source: 'windows:powershell/x', freshness: 'fresh' });
+      body.tiers = { fast: { state: 'fresh', refreshing: false }, slow: { state: 'pending', refreshing: true } };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    }
+    for (const k of ['cpu', 'memory', 'disk']) body.items[k] = failed(why);
+    body.tiers = { fast: { state: 'failed', refreshing: true }, slow: { state: 'fresh', refreshing: false } };  // only the failed fast tier can justify a re-check
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  }]]);
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'UNKNOWN', null, { timeout: 3000 });
+  assert.match(await p.$eval('.gauge[data-k="cpu"] .g-glyph', e => e.dataset.tip), /stalled in: cpu/);
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'KNOWN', null, { timeout: 4000 });
+  assert.ok(Date.now() - t0 < 6000, 'filled in by the quick re-check, not the 15 s cycle');
+  const log = await p.evaluate(() => window.__hiveSystemPolls);
+  assert.ok(log.length >= 2 && log.length <= 40); assert.equal(log[0].fast, 'failed'); assert.equal(log[0].valid, false); assert.equal(log.at(-1).fast, 'fresh'); assert.equal(log.at(-1).valid, true);
+  assert.ok(log.every(x => Object.keys(x).sort().join() === 'at_ms,fast,request_ms,valid'), 'timing evidence only, no values');
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
 test('a STALE cached metric is shown as ? with the STALE label and its old observation time, never as a value', async () => {
   const { p, ctx } = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/system/resources', async route => {
     const res = await route.fetch(); const body = await res.json();

@@ -2228,7 +2228,7 @@ def main():
     if not CORE_URL_IS_LOOPBACK:
         parser.error(f"HIVE_CORE_URL must target a loopback address; got {CORE_URL!r}")
     server = ThreadingHTTPServer((args.bind, args.port), Handler)
-    hive_system.SYSTEM.snapshot()  # warm-up: starts the first fast/slow probes in the background (returns immediately)
+    hive_system.SYSTEM.snapshot(source="warmup")  # starts the first fast probe in the background (returns immediately)
     print(f"Unified dashboard adapter listening on http://{args.bind}:{args.port}/", flush=True)
     server.serve_forever()
 

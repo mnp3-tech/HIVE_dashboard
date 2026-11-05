@@ -90,15 +90,22 @@ let renderQueued = false;
 function scheduleRender(){ if(renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); }
 
 // System resources: the server answers immediately from cached fast/slow observations. While a tier has no observation yet,
-// or its observation is STALE and a refresh is already running (e.g. after the tab was hidden), re-check every second (bounded)
-// so the gauges fill in as soon as that probe completes; otherwise the 15 s cycle applies (a failing tier is not re-polled faster).
+// or its observation is STALE/FAILED and a new attempt is already running (after the tab was hidden, or the server's immediate
+// retry after a failed first probe), re-check every second (bounded) so the gauges fill in as soon as that probe completes;
+// otherwise the 15 s cycle applies (a failing tier that is backing off is not re-polled faster).
+// window.__hiveSystemPolls keeps the first 40 answers (ms after navigation, request ms, fast state, CPU/RAM/disk valid) as
+// timing evidence for tools/live_check_windows.mjs; it holds no values.
 let systemTimer = null, systemPolls = 0;
+const systemPollLog = (window.__hiveSystemPolls = []);
 async function loadSystem(){
+  const sent = performance.now();
   try { const response = await fetch('/api/system/resources', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(4000)}); state.system = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
   catch(error){ state.system = {error:String(error.message||error)}; }
   renderResources(state.snapshot || normalize(null));
   const tiers = (state.system && state.system.tiers) || {};
-  const waiting = ['fast','slow'].some(t => { const m = tiers[t]; return !!m && (['pending','not_started'].includes(m.state) || (m.state === 'stale' && m.refreshing === true)); });
+  const items = (state.system && state.system.items) || {};
+  if(systemPollLog.length < 40) systemPollLog.push({at_ms: Math.round(performance.now()), request_ms: Math.round(performance.now() - sent), fast: tiers.fast ? tiers.fast.state : (state.system && state.system.error ? 'error' : 'none'), valid: ['cpu','memory','disk'].every(k => items[k] && items[k].validity === 'valid')});
+  const waiting = ['fast','slow'].some(t => { const m = tiers[t]; return !!m && (['pending','not_started'].includes(m.state) || (['stale','failed'].includes(m.state) && m.refreshing === true)); });
   clearTimeout(systemTimer);
   if(waiting && systemPolls < 20){ systemPolls += 1; systemTimer = setTimeout(loadSystem, 1000); } else if(!waiting) systemPolls = 0;
 }
