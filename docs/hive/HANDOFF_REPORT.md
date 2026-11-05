@@ -21,7 +21,7 @@ All estimates of effort are rough; dollar spend is not observable from the sessi
 | Playwright `tests/e2e/core.e2e.mjs` | PASS 10/10 (repeated 5+ times after fixing races) |
 | Playwright `tests/e2e/chat.e2e.mjs` | PASS 11/11 |
 | `python -m py_compile ...`, `git diff --check` | PASS |
-FAIL: 0. NOT_RUN: everything on Windows (see section 8). Baseline "211 Python + 20 Node": 211 `test_server` + 12 `test_fixture_server` + 20 UI-contract all pass; one baseline test was made platform-independent (not weakened).
+FAIL: 0. Linux container results above. Windows: only the Python suite (242/242) was run, user-reported - see section 12; everything else on Windows is NOT_RUN. Baseline "211 Python + 20 Node": 211 `test_server` + 12 `test_fixture_server` + 20 UI-contract all pass; one baseline test was made platform-independent (not weakened).
 
 ## 3. Verified integrations (what was actually exercised)
 - Local fixture server SSE and the live adapter's SSE endpoint with mocked upstream evidence (`tests/test_events.py`): contract shape, validity propagation, dedupe.
@@ -33,7 +33,7 @@ That is all. Nothing below is verified.
 - **Live HIVE Core**: unreachable from the container; the live adapter was only observed returning honest UNKNOWN. No live event, task or worker data was seen.
 - **Internet events**: no fixture or live source produced one; the Internet-active path through the ULTRON ring is untested.
 - **GPT/Claude/Codex providers, AO send, approval sources, Obsidian, WONG**: no connector exercised. SENT exists only against a mock; Approve/Reject are local-only; Edit is disabled.
-- **Windows behavior**: launchers, `wsl.exe`/OpenCode, real `C:\` paths, Windows browsers, MTP/USB: NOT VERIFIED IN CLOUD.
+- **Windows behavior**: partially verified by the owner (user-reported, section 12): Python suite, fixture launcher lifecycle, `start.ps1` launch and the live SSE status frame. NOT verified: Node tests, any browser/UI at real resolution, real `wsl.exe`/OpenCode execution, MTP/USB, and every live-Core behavior.
 - **Production readiness**: not claimed. **Full visual parity with the target image**: not claimed.
 - P1.x (system resources, model limits, profiles/avatars, Obsidian projection, ULTRON guard, EVOLVE, layout editor): not built. Those panels read UNKNOWN / NOT_PROVIDED / NOT CONNECTED.
 
@@ -41,7 +41,7 @@ That is all. Nothing below is verified.
 1. GAP-1 `correlation_id`: event links render with a fallback id (run/task/event id) when `correlation_id` is missing; spec says pulses need an observed correlation id. Pinned by a test, not resolved.
 2. GAP-2 no authenticated provider send route (browser holds no token by design); UI can only reach NOT_CONNECTED/FAILED.
 3. GAP-3 no approval source connector; decisions are local and labelled so.
-4. GAP-4 live HIVE Core, Internet path, CORE-with-events at 1280/2560, Windows unverified.
+4. GAP-4 live HIVE Core, Internet path, CORE-with-events at 1280/2560 unverified; Windows only partially verified (section 12). OPEN.
 5. GAP-5 visual parity not achieved (no galaxy art, connectors, list icons, top task-card row, Layout card; rails sparse when data is absent).
 6. GAP-6 redaction is best-effort regex (secrets under 32 opaque chars without a known prefix/key are not caught); JS/Python twins held identical by a shared fixture.
 7. GAP-7 movement is only exercised on fixture events at 1920x1080; P0.2 PARTIAL statuses deliberately unchanged.
@@ -68,3 +68,13 @@ A fresh-context reviewer re-ran every suite (counts matched this report), read t
 
 ## 11. Is P1.1 justified?
 Conditionally. For: SYSTEM RESOURCES and AI MODELS / LIMITS are the most visible all-UNKNOWN panels and S15.12 depends on them; the work needs no credentials. Against: it can only be tested here with mocked OS output (real Windows CPU/RAM/GPU/USB/MTP behavior is NOT VERIFIED IN CLOUD), and its data would come through the same unverified live HIVE Core path. Default recommendation: do the Windows smoke test in section 9 first; if the P0 checkpoint behaves on the real machine, P1.1 is justified as a narrow phase (OS metrics + KNOWN/UNKNOWN/NOT_PROVIDED limits, mocked tests, no connectors). If the live path misbehaves, fix that (and GAP-1/GAP-2) before adding more panels. `backup/pre-p1.1` has not been created and no P1 work has started.
+
+## 12. Windows smoke test (user-reported, partial) - commit 7dc6f70
+Run by the project owner; the agent has not seen logs or screenshots and cannot independently confirm these results. No secrets were shared or used. Python/Node versions, browser, resolution and DPI were not reported.
+- PASS: worktree at 7dc6f70, clean.
+- PASS: `py_compile`; Python suite 242/242 OK (first native Windows run, including the OpenCode workspace test on real drive paths).
+- PASS: `start-fixture.ps1` / `status-fixture.ps1` (RUNNING) / `stop-fixture.ps1`.
+- PASS: live adapter with no token: after the owner verified and stopped a stale `server.py` on port 4173, `start.ps1` started it; `/api/events/stream` returned `validity: unavailable`, `event_count: 0` with HIVE Core refusing the connection; clean stop. This is the honest-unavailable behaviour, not evidence of a working Core.
+- NOT_RUN: Node tests; fixture UI (home, `?scenario=approval`, `?scenario=secrets`); live UI and chat checks; live adapter with a token; visual comparison with the target; Playwright.
+- Not reported: whether `start.ps1` auto-enabled AO session listing.
+Consequences: GAP-1 through GAP-7 all remain OPEN. GAP-4 has partial progress only. The P1.1 recommendation in section 11 is unchanged: the browser-level Windows checks (steps 2-3 UI, and 5) that it depends on have not been run. `backup/pre-p1.1` has not been created and no P1 work has started.
