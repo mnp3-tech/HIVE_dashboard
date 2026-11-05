@@ -109,18 +109,17 @@
     return ux === uy ? `${x.split(' ')[0]} / ${y}` : `${x} / ${y}`;
   }
   const metricKnown = m => Boolean(m && TRUSTED.includes(m.validity) && num(m.value) !== null);
-  /* OS value first; else HIVE Core's own host metric (percent only, valid only); else unknown. Never a default. */
-  function pickMetric(osItem, coreMetric) {
+  /* One path only: the /api/system/resources item (hive_system.py). Valid-and-trusted or UNKNOWN; never a default or another source. */
+  function pickMetric(osItem) {
     if (metricKnown(osItem)) return { metric: osItem, from: 'os' };
-    if (coreMetric && coreMetric.validity === 'valid' && num(coreMetric.value) !== null && coreMetric.unit === '%') return { metric: coreMetric, from: 'hive-core' };
-    return { metric: null, from: null, reason: (osItem && osItem.reason) || (coreMetric && coreMetric.reason) || 'not provided' };
+    return { metric: null, from: null, reason: (osItem && osItem.reason) || 'not provided' };
   }
-  function resourceViews(system, coreMetrics) {
-    const items = (system && system.items) || {}; const cm = coreMetrics || {};
-    const mk = (key, label, os, core, extra) => {
-      const p = pickMetric(os, core); const v = p.metric ? num(p.metric.value) : null;
+  function resourceViews(system) {
+    const items = (system && system.items) || {};
+    const mk = (key, label, os, extra) => {
+      const p = pickMetric(os); const v = p.metric ? num(p.metric.value) : null;
       const unit = p.metric && p.metric.unit;
-      const view = { key, label, known: v !== null, value: v, unit: unit || null, pct: null, text: 'UNKNOWN', sub: null, from: p.from, title: p.metric ? `${p.from} · ${p.metric.source || 'source n/a'}` : (p.reason || 'not provided') };
+      const view = { key, label, known: v !== null, value: v, unit: unit || null, pct: null, text: 'UNKNOWN', sub: null, from: p.from, title: p.metric ? `${p.metric.validity} · source ${p.metric.source || 'n/a'} · observed ${p.metric.observed_at || 'n/a'}` : `UNKNOWN · ${p.reason || 'not provided'}${os && os.source ? ' · source ' + os.source : ''}` };
       if (v !== null) {
         if (unit === '%') { if (v < 0 || v > 100) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = v; view.text = Math.round(v) + ' %'; }
         else if (unit === 'C') { if (v < -40 || v > 150) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = Math.max(0, Math.min(100, v)); view.text = Math.round(v) + ' °C'; }
@@ -130,11 +129,11 @@
       return view;
     };
     return [
-      mk('cpu', 'CPU', items.cpu, cm.cpu),
-      mk('ram', 'RAM', items.memory, cm.memory, m => formatPair(m.used_bytes, m.total_bytes)),
-      mk('disk', 'DISK', items.disk, cm.disk, m => (formatBytes(m.free_bytes) ? `${m.drive ? m.drive + ' ' : ''}${formatBytes(m.free_bytes)} free` : null)),
-      mk('gpu', 'GPU', items.gpu, null, null),
-      mk('temp', 'TEMP', items.temperature, null, null),
+      mk('cpu', 'CPU', items.cpu),
+      mk('ram', 'RAM', items.memory, m => formatPair(m.used_bytes, m.total_bytes)),
+      mk('disk', 'DISK', items.disk, m => (formatBytes(m.free_bytes) ? `${m.drive ? m.drive + ' ' : ''}${formatBytes(m.free_bytes)} free` : null)),
+      mk('gpu', 'GPU', items.gpu),
+      mk('temp', 'TEMP', items.temperature),
     ];
   }
   /* One-line USB/external summary. Phones (MTP/PTP) are never counted as disks. An empty list from a probe

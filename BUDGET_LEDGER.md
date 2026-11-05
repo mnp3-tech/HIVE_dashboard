@@ -87,3 +87,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## P1.1 data-source confirmation and adapter tightening (GAP-8 stays OPEN)
 - hive_system.py (adapter interface, perf-counter CPU, ACPI temperature removed, hardware_present), fixture_server.py (field rename), tests/test_system.py (+7), docs. Full suite once: Python 289, ui_contract 20, Node 88, Playwright 7+10+11+7+15 green. Windows path NOT verified. Effort ~$2 (rough); running total about $82.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## P1.1 single data path (GAP-8 stays OPEN)
+- hive-ops.js (no Core-metric fallback, richer hover), app.js (call), tests/ops.test.mjs (1 replaced, 1 added), docs. Full suite once: Python 292, ui_contract 20, Node 89, Playwright 7+10+11+7+15 green. Effort ~$1.5 (rough); running total about $84 of $100 (tool-building and docs included). Subagents 5 of 8. P1.2/P1.3 not started.

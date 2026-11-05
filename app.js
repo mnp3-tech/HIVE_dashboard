@@ -366,7 +366,7 @@ document.addEventListener('focusin',e=>{ const t=e.target.closest&&e.target.clos
 document.addEventListener('focusout',e=>{ if(e.target.closest&&e.target.closest('.g-glyph')) hideGaugeTip(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') hideGaugeTip(); });
 function renderResources(snapshot){
-  const views=OPS.resourceViews(state.system, snapshot.metrics);
+  const views=OPS.resourceViews(state.system);
   const g=$('#resource-gauges'); if(g){ const html=views.map(gaugeMarkup).join(''); if(g.dataset.sig!==html){ g.dataset.sig=html; g.innerHTML=html; } } // unchanged markup is not re-rendered, so keyboard focus survives polling
   state.unknownGauges=views.filter(v=>!v.known).map(v=>v.label);
   const lines=OPS.deviceLines(state.system); const el=$('#sys-summary');

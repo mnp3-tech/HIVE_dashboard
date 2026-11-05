@@ -163,13 +163,18 @@ test('resourceViews: nothing known => five UNKNOWN gauges, never zero', () => {
   for (const v of O.resourceViews(null, null)) { assert.equal(v.known, false); assert.equal(v.text, 'UNKNOWN'); assert.equal(v.pct, null); }
   assert.deepEqual(O.resourceViews(null, null).map(v => v.label), ['CPU', 'RAM', 'DISK', 'GPU', 'TEMP']);
 });
-test('resourceViews: OS value preferred; Core metric only if valid percent; stale/other rejected', () => {
-  const os = { items: { cpu: { value: 17, unit: '%', validity: 'valid', source: 'windows:powershell' } } };
-  assert.equal(O.resourceViews(os, { cpu: { value: 90, unit: '%', validity: 'valid' } })[0].from, 'os');
-  assert.equal(O.resourceViews(os, null)[0].text, '17 %');
-  const core = O.resourceViews(null, { cpu: { value: 55, unit: '%', validity: 'valid', source: 'hive' } })[0]; assert.equal(core.from, 'hive-core'); assert.equal(core.text, '55 %');
-  for (const m of [{ value: 55, unit: '%', validity: 'stale' }, { value: 55, unit: '%', validity: 'unavailable' }, { value: 55, unit: '%', validity: 'unknown' }, { value: 55, unit: 'GB', validity: 'valid' }, { value: null, unit: '%', validity: 'valid' }, { value: '55', unit: '%', validity: 'valid' }])
-    assert.equal(O.resourceViews(null, { cpu: m })[0].known, false, JSON.stringify(m));
+test('resourceViews: one path only - the system item; a HIVE Core metric is never used, even when valid', () => {
+  const os = { items: { cpu: { value: 17, unit: '%', validity: 'valid', source: 'windows:powershell', observed_at: '2026-11-05T00:00:00Z' } } };
+  const v = O.resourceViews(os, { cpu: { value: 90, unit: '%', validity: 'valid' } })[0];
+  assert.equal(v.from, 'os'); assert.equal(v.text, '17 %');
+  assert.match(v.title, /valid · source windows:powershell · observed 2026-11-05T00:00:00Z/);
+  const core = O.resourceViews(null, { cpu: { value: 55, unit: '%', validity: 'valid', source: 'hive' } })[0];
+  assert.equal(core.known, false); assert.equal(core.text, 'UNKNOWN'); assert.equal(core.from, null);
+  const unk = O.resourceViews({ items: { cpu: { value: null, unit: '%', validity: 'unavailable', source: 'local:os-probe', reason: 'not on this host' } } })[0];
+  assert.match(unk.title, /UNKNOWN · not on this host · source local:os-probe/);
+  for (const m of [{ value: 55, unit: '%', validity: 'stale' }, { value: 55, unit: '%', validity: 'unavailable' }, { value: 55, unit: '%', validity: 'unknown' }, { value: 55, unit: 'GB', validity: 'valid' }, { value: null, unit: '%', validity: 'valid' }, { value: '55', unit: '%', validity: 'valid' }]) {
+    assert.equal(O.resourceViews({ items: { cpu: m } })[0].known, false, JSON.stringify(m));
+  }
 });
 test('resourceViews: OS values with invalid validity/range/units are rejected; fixture is accepted', () => {
   const mk = (cpu, extra) => O.resourceViews({ items: { cpu: Object.assign({ unit: '%', validity: 'valid' }, cpu) } }, null)[0];
@@ -261,4 +266,16 @@ test('formatPair writes the unit once, and not at all for invalid input; deviceL
   assert.deepEqual(O.deviceLines(sys), ['USB 1', 'E:\\ 1 TB, 620 GB free', 'Pixel 8: MTP/PTP · Storage metrics unavailable']);
   assert.equal(O.deviceLines(null), null); assert.equal(O.deviceLines({ items: { usb_known: false, disks_known: false } }), null);
   assert.equal(O.deviceSummary(sys), O.deviceLines(sys).join(' · '));
+});
+
+test('browser is display-only: no hardware/browser telemetry APIs, and /api/system/resources is the only system data fetch', () => {
+  const fs = require('node:fs');
+  for (const f of ['app.js', 'hive-ops.js', 'hive-core.js', 'index.html']) {
+    const src = fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
+    for (const banned of ['hardwareConcurrency', 'deviceMemory', 'getBattery', 'storage.estimate', 'performance.memory', 'navigator.gpu', 'getContext(\'webgl', 'getContext("webgl'])
+      assert.ok(!src.includes(banned), `${f} uses ${banned}`);
+  }
+  const app = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8');
+  const sysFetches = [...app.matchAll(/fetch\('(\/api\/system[^']*)'/g)].map(m => m[1]);
+  assert.deepEqual(sysFetches, ['/api/system/resources']);
 });
