@@ -249,6 +249,15 @@ class ProbeTimeoutTests(unittest.TestCase):
         self.assertIn("Windows", buf.getvalue())
 
 
+class SnapshotDiagnosticTests(unittest.TestCase):
+    def test_snapshot_timing_tool_names_every_probe_and_the_whole_snapshot(self):
+        from pathlib import Path
+        r = subprocess.run([sys.executable, str(Path(hs.__file__).parent / "tools/diagnose_snapshot.py")], capture_output=True, text=True, timeout=120, env={**__import__("os").environ, "HIVE_API_TOKEN": ""})
+        self.assertEqual(r.returncode, 0, r.stderr[-300:])
+        for label in ("health_probe()", "ready_probe()", "task_queue()", "local_worker_status()", "ao_capabilities()", "whole snapshot()", "raw TCP connect"):
+            self.assertIn(label, r.stdout)
+
+
 class SmokeToolTests(unittest.TestCase):
     """The Windows smoke checker must pass honest data and fail every dishonest shape (logic only; Windows path is run by the owner)."""
 

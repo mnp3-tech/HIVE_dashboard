@@ -96,3 +96,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Live-check timeout investigation (GAP-8 stays OPEN)
 - hive_system.py (section progress markers, timings, stdin/console hygiene, timeout detail), tools/diagnose_system_probe.py (new), tools/live_check_windows.mjs (timings, timeout FAIL, skip browser), tests (+8 Python, +1 Node), docs. Root cause not established without Windows data; no timeout increase. Full suite once: Python 300, ui_contract 20, Node 94, Playwright 7+10+11+7+15 green. Effort ~$3 (rough); running total about $88.5 of $100. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## Windows diagnostic follow-up: snapshot latency finding (GAP-8 open, GAP-9 added)
+- tools/diagnose_snapshot.py (new), tools/live_check_windows.mjs (snapshot latency separated, exit 6, --skip-browser), tests (+1 Python, +1 Node), docs. No product timeout changed. Full suite once: Python 301, ui_contract 20, Node 95, Playwright 7+10+11+7+15 green. Effort ~$2 (rough); running total about $90.5 of $100 - remaining budget is small, so further Windows iterations should be run-then-fix with minimal tooling. Subagents 5 of 8. P1.2/P1.3 not started.

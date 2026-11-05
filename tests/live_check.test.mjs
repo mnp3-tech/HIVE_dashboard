@@ -51,3 +51,15 @@ test('a probe timeout reported by the API is a FAIL naming the timeout (not a va
   assert.equal(r.code, 1); assert.match(r.out, /FAIL .*OS probe did not time out \(a timeout is a FAILURE of the probe, never a valid UNKNOWN\)/);
   assert.match(r.out, /stalled_in=memory/); assert.match(r.out, /browser checks skipped/); assert.match(last(r.out), /^FAIL:/); assert.doesNotMatch(r.out, /^PASS$/m);
 });
+
+test('a slow /api/dashboard/snapshot with valid system metrics is reported as SNAPSHOT SLOW (exit 6), not as a System Resources FAIL and not as PASS', async () => {
+  const http = await import('node:http');
+  const ok = { value: 41, unit: '%', validity: 'valid', source: 'windows:powershell/x', observed_at: '2026-11-05T00:00:00Z', reason: null };
+  const unk = { value: null, unit: '%', validity: 'unavailable', source: 'none', observed_at: null, reason: 'no reliable local source' };
+  const body = JSON.stringify({ items: { cpu: ok, memory: ok, disk: ok, gpu: unk, temperature: unk }, evidence: { source: 'windows:powershell', validity: 'valid', observed_at: '2026-11-05T00:00:00Z', reason: null, probe_ms: 4500, probe_timings_ms: { cpu: 500 } } });
+  const srv = http.createServer((req, res) => { const send = () => { res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }); res.end(req.url.startsWith('/api/system/resources') ? body : '{}'); }; if (req.url.startsWith('/api/dashboard/snapshot')) setTimeout(send, 700); else send(); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const r = await run([TOOL, '--base', `http://127.0.0.1:${srv.address().port}`, '--skip-browser', '--snapshot-warn-ms', '300']); srv.close();
+  assert.equal(r.code, 6, r.out); assert.match(last(r.out), /^SYSTEM PASS but SNAPSHOT SLOW \(\d+ ms > 300 ms\).*separate finding/); assert.match(r.out, /SLOW .*diagnose_snapshot/);
+  assert.doesNotMatch(r.out, /^PASS$/m); assert.doesNotMatch(r.out, /^FAIL/m);
+});

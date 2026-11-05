@@ -2,9 +2,11 @@
 //   node tools/live_check_windows.mjs                 # Windows: expects CPU/RAM/DISK known, GPU/TEMP UNKNOWN
 //   node tools/live_check_windows.mjs --expect-unknown  # non-Windows host: expects everything UNKNOWN (checks the checker only)
 // Needs Playwright (npm i -g playwright / already installed); if it is missing the browser part is reported NOT_RUN.
+//   --skip-browser                  API checks only (browser part reported NOT_RUN)
+//   --snapshot-warn-ms N            snapshot latency above this is reported as SLOW (default 10000); the checker waits up to 60 s for it
 //   --ready-timeout-ms N            how long to wait for the server (default 15000)
 //   --base http://127.0.0.1:PORT   use an already running server instead of starting one (used to test failure handling)
-// Prints values only; no tokens, no environment. Exit 0 = PASS, 1 = FAIL (incl. request failure/crash), 3 = browser part NOT_RUN, 4 = NOT_RUN (server did not start).
+// Prints values only; no tokens, no environment. Exit 0 = PASS, 1 = FAIL (incl. request failure/crash), 3 = browser part NOT_RUN, 4 = NOT_RUN (server did not start), 6 = everything checked PASSED but /api/dashboard/snapshot was SLOW (a separate finding, not a System Resources failure).
 // HTTP uses node:http with Connection: close (not the global fetch/undici, whose parser can assert on Node 24); every failure is reported, never an uncaught crash.
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -21,8 +23,8 @@ const finish = (code, line) => { if (finished) return; finished = true; if (code
 process.on('uncaughtException', e => finish(1, `FAIL: uncaught ${e && e.name}: ${String(e && e.message).split('\n')[0]} (checker error, no hardware result is claimed)`));
 process.on('unhandledRejection', e => finish(1, `FAIL: unhandled rejection: ${String(e && e.message || e).split('\n')[0]} (no hardware result is claimed)`));
 /** GET a loopback URL with node:http, Connection: close, 10 s timeout, 2 MB cap. Rejects with a plain Error on any failure. */
-const get = (url) => new Promise((resolve, reject) => {
-  const req = http.get(url, { agent: false, headers: { Connection: 'close', Accept: 'application/json' }, timeout: 10000 }, res => {
+const get = (url, timeoutMs = 10000) => new Promise((resolve, reject) => {
+  const req = http.get(url, { agent: false, headers: { Connection: 'close', Accept: 'application/json' }, timeout: timeoutMs }, res => {
     let size = 0; const chunks = [];
     res.on('data', c => { size += c.length; if (size > 2e6) { req.destroy(new Error('response too large')); return; } chunks.push(c); });
     res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
@@ -31,7 +33,7 @@ const get = (url) => new Promise((resolve, reject) => {
   req.on('timeout', () => req.destroy(new Error('request timed out')));
   req.on('error', e => reject(new Error(`${url}: ${e.code || ''} ${e.message}`.trim())));
 });
-const getJson = async url => { const r = await get(url); if (r.status !== 200) throw new Error(`${url}: HTTP ${r.status}`); try { return JSON.parse(r.text); } catch { throw new Error(`${url}: response was not JSON`); } };
+const getJson = async (url, timeoutMs) => { const r = await get(url, timeoutMs); if (r.status !== 200) throw new Error(`${url}: HTTP ${r.status}`); try { return JSON.parse(r.text); } catch { throw new Error(`${url}: response was not JSON`); } };
 const fails = []; const note = (ok, msg) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}`); if (!ok) fails.push(msg); };
 const env = { ...process.env, HIVE_API_TOKEN: '' }; // no token: this check never uses or prints one
 const server = baseArg ? null : spawn(process.platform === 'win32' ? 'python' : 'python3', ['server.py', '--port', String(PORT)], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'], env });
@@ -43,7 +45,8 @@ const waitMs = process.argv.includes('--ready-timeout-ms') ? Number(process.argv
 for (let i = 0; i < Math.max(1, Math.round(waitMs / 150)) && !ready; i++) { try { ready = (await get(BASE + '/')).status === 200; } catch { /* retry */ } if (!ready) await new Promise(r => setTimeout(r, 150)); }
 if (!ready) finish(4, `NOT_RUN: the dashboard server did not answer at ${BASE} within ${Math.round(waitMs / 1000)} s`);
 
-let exit = 0;
+let exit = 0; let snapMs = 0;
+const warnMs = process.argv.includes('--snapshot-warn-ms') ? (Number.isFinite(Number(process.argv[process.argv.indexOf('--snapshot-warn-ms') + 1])) ? Number(process.argv[process.argv.indexOf('--snapshot-warn-ms') + 1]) : 10000) : 10000;
 try {
   // --- API: the data the dashboard receives
   const t0 = Date.now(); const sys = await getJson(BASE + '/api/system/resources');
@@ -62,13 +65,14 @@ try {
   if (fails.length) { exit = 1; console.log('browser checks skipped: the API checks above already failed, so gauge/layout results would be meaningless'); }
   else {
   const t1 = Date.now(); let snap;
-  try { snap = await getJson(BASE + '/api/dashboard/snapshot'); console.log(`snapshot request took ${Date.now() - t1} ms`); }
-  catch (e) { throw new Error(`snapshot did not answer within 10 s (server slow): ${String(e.message).split('\n')[0]}`); }
+  try { snap = await getJson(BASE + '/api/dashboard/snapshot', 60000); snapMs = Date.now() - t1; console.log(`snapshot request took ${snapMs} ms${snapMs > warnMs ? ` -> SLOW (> ${warnMs} ms): separate finding; run tools/diagnose_snapshot.py` : ''}`); }
+  catch (e) { throw new Error(`snapshot did not answer within 60 s (server slow): ${String(e.message).split('\n')[0]}`); }
 
   // --- Browser
   let chromium;
   try { ({ chromium } = createRequire(import.meta.url)('playwright')); } catch { chromium = null; }
-  if (!chromium) { console.log('NOT_RUN: Playwright is not installed; browser checks skipped'); exit = fails.length ? 1 : 3; }
+  if (process.argv.includes('--skip-browser')) chromium = null;
+  if (!chromium) { console.log(process.argv.includes('--skip-browser') ? 'NOT_RUN: browser checks skipped by --skip-browser' : 'NOT_RUN: Playwright is not installed; browser checks skipped'); exit = fails.length ? 1 : 3; }
   else {
     const browser = await chromium.launch();
     try {
@@ -76,7 +80,9 @@ try {
         const tag = `${vp.width}x${vp.height}`; const ctx = await browser.newContext({ viewport: vp }); const p = await ctx.newPage();
         const errors = []; p.on('pageerror', e => errors.push('pageerror: ' + e)); p.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); }); p.on('requestfailed', r => { if (r.url().startsWith(BASE) && !r.url().endsWith('/api/events/stream')) errors.push('requestfailed: ' + r.url()); });
         await p.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
-        await p.waitForFunction(() => document.querySelectorAll('#resource-gauges .gauge').length === 5 && document.querySelectorAll('#limit-rows .limit-row').length === 4, null, { timeout: 15000 });
+        const tg = Date.now();
+        await p.waitForFunction(() => document.querySelectorAll('#resource-gauges .gauge').length === 5 && document.querySelectorAll('#limit-rows .limit-row').length === 4, null, { timeout: 75000 });
+        console.log(`[${tag}] gauges and limit rows rendered ${Date.now() - tg} ms after load`);
         await p.waitForTimeout(2500);
         const g = await p.$$eval('#resource-gauges .gauge', gs => gs.map(x => ({ k: x.dataset.k, st: x.dataset.status, ring: x.querySelector('text').textContent, glyph: !!x.querySelector('.g-glyph'), cap: x.querySelector('.g-sub').textContent })));
         console.log(`[${tag}] gauges: ` + g.map(x => `${x.k}=${x.st}(${x.ring}${x.glyph ? ',?glyph' : ''})`).join(' '));
@@ -113,4 +119,5 @@ try {
 } catch (e) {
   fails.push('request/runtime failure: ' + String(e && e.message).split('\n')[0]); exit = 1;
 } finally { stop(); }
-finish(exit, exit === 0 ? 'PASS' : exit === 3 ? 'API PASS; browser NOT_RUN' : 'FAIL: ' + fails.join('; ') + (exit === 1 ? ' (a FAIL is never a hardware PASS)' : ''));
+if ((exit === 0 || exit === 3) && snapMs > warnMs) exit = 6;
+finish(exit, exit === 0 ? 'PASS' : exit === 3 ? 'API PASS; browser NOT_RUN' : exit === 6 ? `SYSTEM PASS but SNAPSHOT SLOW (${snapMs} ms > ${warnMs} ms)${process.argv.includes('--skip-browser') || !chromium ? '; browser NOT_RUN' : ''}: separate finding, not a System Resources failure` : 'FAIL: ' + fails.join('; ') + (exit === 1 ? ' (a FAIL is never a hardware PASS)' : ''));
