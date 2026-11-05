@@ -51,7 +51,7 @@ Other: top-bar text "ULTRON SECURITY: ACTIVE" from the spec is shown as NOT CONN
 PASS_AUTOMATED 39 | PASS_MANUAL 1 | PARTIAL 12 | NOT_VERIFIED 1 | NOT_RUN 22. All 22 NOT_RUN items and most of the 12 PARTIAL items belong to P1.x or to Windows/live checks; the spec section 15 summary rows are S15.1-S15.16 in that file.
 
 ## 7. Budget ledger summary
-Rough effort, not observed spend: baseline ~1, P0.1 ~8 of 10, P0.2 ~11 of 18, P0.3 ~15 of 18, final QA so far ~3 of 9. Total about $38 of the $100 ceiling; P1.x allocations (~$45) and the unspent QA reserve remain. Subagents used: PM, UX, Test Engineer (+ the final independent reviewer, if listed in BUDGET_LEDGER.md). See `BUDGET_LEDGER.md`.
+Rough effort, not observed spend: baseline ~1, P0.1 ~8 of 10, P0.2 ~11 of 18, P0.3 ~15 of 18, final QA so far ~3 of 9. Total about $38 of the $100 ceiling; P1.x allocations (~$45) and the unspent QA reserve remain. Subagents used: 4 of the 8 allowed (PM, UX, Test Engineer, independent final reviewer). See `BUDGET_LEDGER.md`.
 
 ## 8. Rollback
 Branch `hive/dashboard-v1`. Remote tags (verified with `git ls-remote`): `backup/pre-p0.1` (ba0ad1e), `backup/pre-p0.2` (c9f38eb), `backup/pre-p0.3` (28fa51b). `backup/pre-p1.1` has deliberately NOT been created. P0 checkpoint commit: `11439e5`. `git checkout -B hive/dashboard-v1 <tag>` restores any earlier phase.
@@ -63,5 +63,8 @@ Branch `hive/dashboard-v1`. Remote tags (verified with `git ls-remote`): `backup
 4. Check 1280x720, 1920x1080, 2560x1440 on the real monitor; compare against `docs/assets/hive-dashboard-target.png` yourself - parity is not claimed.
 5. Attach files, send with no provider: expect NOT_CONNECTED; confirm no network write in DevTools.
 
-## 10. Is P1.1 justified?
-See the final QA message in the conversation and the last section of `BUDGET_LEDGER.md`.
+## 10. Independent final review
+A fresh-context reviewer re-ran every suite (counts matched this report), read the code behind claims (a)-(h) (UNKNOWN-not-WORKING, untrusted events dropped, movement gating, strict SENT gate, local-only approvals, no provider POSTs, nothing invented, provider symmetry), spot-checked acceptance rows and the diff file list, and reported no problems. It did not read `hive_events.py`/the server events code line by line, did not diff the OpenCode test against baseline, and did not scan file contents for secrets. The author's own content scan found secret-shaped strings only in redaction test inputs (`tests/ops.test.mjs`, `tests/redaction_cases.json`, `tests/test_events.py`, `tests/test_server.py`), all synthetic. Demo mode shows a visible DEMO banner (asserted in `tests/e2e/shell.e2e.mjs`).
+
+## 11. Is P1.1 justified?
+Conditionally. For: SYSTEM RESOURCES and AI MODELS / LIMITS are the most visible all-UNKNOWN panels and S15.12 depends on them; the work needs no credentials. Against: it can only be tested here with mocked OS output (real Windows CPU/RAM/GPU/USB/MTP behavior is NOT VERIFIED IN CLOUD), and its data would come through the same unverified live HIVE Core path. Default recommendation: do the Windows smoke test in section 9 first; if the P0 checkpoint behaves on the real machine, P1.1 is justified as a narrow phase (OS metrics + KNOWN/UNKNOWN/NOT_PROVIDED limits, mocked tests, no connectors). If the live path misbehaves, fix that (and GAP-1/GAP-2) before adding more panels. `backup/pre-p1.1` has not been created and no P1 work has started.
