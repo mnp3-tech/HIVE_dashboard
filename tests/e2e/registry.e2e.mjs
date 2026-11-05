@@ -53,7 +53,7 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }, {
     assert.ok(q.length > 5 && q.every(x => x.t === '?' && /not provided/.test(x.label) && /NOT_PROVIDED by/.test(x.title)), 'compact unknowns carry their meaning');
     const chips = await p.$$eval('#registry-body .reg-chip', es => es.map(e => e.getAttribute('aria-label') || ''));
     assert.ok(chips.every(c => c.length > 0) && chips.some(c => /source .* observed /.test(c)), 'chips expose state, reason, source and observed_at');
-    for (const agg of ['connectors', 'capabilities', 'skills', 'prompts', 'bots']) {
+    for (const agg of ['connectors', 'capabilities', 'skills', 'prompts', 'bots', 'providers', 'roles']) {
       assert.equal(await p.$eval(`[data-section="${agg}"] > summary`, e => e.querySelectorAll('.reg-chip').length), 0, `${agg} aggregate has no state chip`);
     }
     const ultron = await p.$eval('[data-section="ultron"]', e => e.textContent);

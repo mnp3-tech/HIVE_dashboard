@@ -247,3 +247,13 @@ Gate (VERIFIED): HEAD = origin/hive/dashboard-v1 = bb9f00a; `backup/pre-readonly
 **Tests (Linux, once on the final code):** Python 356 OK (`tests/test_registry.py` 46); UI contract 20; Node core/ops/html_ids/live_check 97/97; Playwright shell 7, core 10, chat 11, system 7, visual 16, registry 6; py_compile OK; `git diff --check` clean; content scan: no secret-shaped strings outside the labelled synthetic fixtures, no user-specific path in code (owner-authored README/handoff text still describes the owner's machine layout). Registry screenshots: `docs/hive/screenshots/registry-fixture-{1280x720,1920x1080,2560x1440}.png`, `registry-live-1920x1080.png`.
 
 - GAP-10 stays OPEN (Windows run of `tools/registry_summary.py` and the Registry view not done for v2). GAP-1 to GAP-7, GAP-5 and ASSET-1 unchanged. P1.2 work is limited to this read-only registry; P1.3 and any execution or write path are not started.
+
+## Windows registry_summary.py at ece0e43 (USER-REPORTED)
+Owner ran `python tools/registry_summary.py` on the Windows PC at ece0e43: **PASS** (schema valid, read-only invariants held; no execution or write path used). Reported states:
+- HIVE Core **OFFLINE** (transport unavailable); ULTRON **OFFLINE** on the same evidence. Agents, workers, tasks and capabilities: 0 (Core offline; nothing invented).
+- Creator Ops **NOT_CONNECTED** (`CREATOR_OPS_DB_PATH` not configured). Obsidian **NOT_CONNECTED / NOT_VERIFIED** (`ORCHESTRATOR_VAULT_ROOT` not configured).
+- Skills: `~/.codex/skills` 8 catalogued, `~/.agents/skills` 2 catalogued (USER-REPORTED; real roots, read-only, all `enabled=false`); **1 file not catalogued**, NOT_VERIFIED. Its identity and reason were not printed by that version of the tool; `--uncatalogued` (next commit) lists them safely.
+- Tool manifests: 6 observed, all manifest-only and disabled.
+- Providers: 4 catalog entries. **These are not evidence of provider connectivity**: no worker record named any provider (Core offline), so each provider is UNKNOWN at runtime. The ece0e43 summary printed `providers 4 section=OBSERVED`, which referred to reading the catalog definition and could be misread; the next commit removes that section chip (provider and role lists now have no state of their own) and prints the runtime breakdown instead.
+- Proposals: 3, all PENDING_HUMAN_REVIEW.
+**Not changed by this report:** HIVE Core, Creator Ops, Obsidian and ULTRON are **not** connected or verified. The Registry view in the browser on Windows was not reported (NOT_VERIFIED). **GAP-10 stays OPEN** (skill roots now user-verified; Obsidian, Creator Ops and live Core remain NOT_VERIFIED, and the uncatalogued file is unidentified).

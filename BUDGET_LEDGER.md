@@ -124,3 +124,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 ## Registry v2 and read-only operational integrations
 - Basis: USER-REPORTED ~$70 remaining at Gate A (before the read-only foundation). ESTIMATED effort (rough, not observed): read-only foundation ~$12-15; this phase ~$18-22; estimated remaining on the user-reported basis ~$33-40. The historical ESTIMATED running total (~$97) is left unchanged above; the two bases are recorded side by side and remain unreconciled.
 - Files: see HANDOFF_REPORT section 29. Tests once on the final code: Python 356, UI contract 20, Node 97, Playwright 7+10+11+7+16+6, all green. Subagents: 5 of 8 (none used). No execution path, no external write, no PROD/WONG/ROCKET access. P1.3 not started.
+
+## Windows registry evidence recorded; summary-tool clarity fix
+- Docs (ACCEPTANCE, HANDOFF section 30, INTEGRATION_PLAN), hive_registry.py (provider/role lists without a section chip), tools/registry_summary.py (`--uncatalogued`, provider runtime breakdown, path masking), tests (+2 Python, registry E2E updated). Effort ~$2 (rough, not observed); estimated remaining on the USER-REPORTED basis ~$31-38. No execution or write path.

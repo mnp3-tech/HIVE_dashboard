@@ -490,6 +490,9 @@ class IsolationTests(TempDir):
         self.assertIsNone(reg["catalogs"]["skills"]["evidence"]["display"])
         self.assertIsNone(reg["capabilities"]["evidence"]["display"])
         self.assertEqual(reg["catalogs"]["prompts"]["evidence"]["display"], "NOT_CONNECTED")
+        for key in ("providers", "roles"):  # catalog lists: listing an entry is not evidence of connectivity
+            self.assertIsNone(reg[key]["evidence"]["display"], key)
+        self.assertTrue(all(p["display"] == "UNKNOWN" for p in reg["providers"]["items"]), "with no worker naming them, providers stay UNKNOWN")
 
     def test_evidence_log_is_bounded(self):
         for _ in range(250):
@@ -533,6 +536,34 @@ class RouteAndSafetyTests(unittest.TestCase):
             self.assertNotIn(banned, body, banned)
         for word in ("PROD", "WONG", "ROCKET", "HIVE_API_TOKEN", "Authorization"):
             self.assertNotIn(word, src, word)
+
+    def test_summary_tool_lists_uncatalogued_files_safely(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            shutil.copytree(FIX / "skills" / "alpha-reviewer", tmp / "skills" / "alpha-reviewer")
+            big = tmp / "skills" / "too-big"; big.mkdir()
+            (big / "SKILL.md").write_text("---\nname: too-big\n---\nSECRET-BODY-MUST-NOT-PRINT " + "x" * (hr.FILE_MAX + 1), encoding="utf-8")
+            env = dict(os.environ, HIVE_API_TOKEN="", HIVE_SKILLS_ROOTS=str(tmp / "skills"), HIVE_BOTS_ROOTS=str(FIX / "bots"), ORCHESTRATOR_VAULT_ROOT="", CREATOR_OPS_DB_PATH="")
+            r = subprocess.run([sys.executable, str(ROOT / "tools" / "registry_summary.py"), "--uncatalogued"], capture_output=True, text=True, timeout=60, env=env, cwd=ROOT)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        self.assertEqual(r.returncode, 0, r.stdout[-500:])
+        self.assertIn("catalog files not catalogued or in conflict: 2", r.stdout)
+        self.assertRegex(r.stdout, r"NOT_VERIFIED\s+skill:\S+/too-big\s+path=too-big/SKILL.md\s+reason=not catalogued: file larger than")
+        self.assertRegex(r.stdout, r"NOT_VERIFIED\s+bot:\S+/broken.bot.json")
+        self.assertNotIn("SECRET-BODY-MUST-NOT-PRINT", r.stdout); self.assertNotIn(str(tmp), r.stdout)
+        self.assertIn("4 UNKNOWN (a catalog entry is not evidence of connectivity)", r.stdout)
+
+    def test_summary_tool_masks_absolute_paths_in_reasons(self):
+        sys.path.insert(0, str(ROOT / "tools"))
+        try:
+            from registry_summary import mask_paths
+        finally:
+            sys.path.remove(str(ROOT / "tools"))
+        self.assertEqual(mask_paths("denied: 'C:\\Users\\x\\a\\SKILL.md'"), "denied: '<path>'")
+        self.assertEqual(mask_paths("denied: C:\\Users\\x\\SKILL.md"), "denied: <path>")
+        self.assertEqual(mask_paths("denied: '/home/x/a.md'"), "denied: '<path>'")
+        self.assertEqual(mask_paths("file larger than 262144 bytes"), "file larger than 262144 bytes")
 
     def test_summary_tool_passes_on_this_host_without_printing_descriptions(self):
         env = dict(os.environ, HIVE_API_TOKEN="", HIVE_SKILLS_ROOTS=str(FIX / "skills"), ORCHESTRATOR_VAULT_ROOT="", CREATOR_OPS_DB_PATH="")
