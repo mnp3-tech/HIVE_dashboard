@@ -43,6 +43,19 @@ class ContractTests(unittest.TestCase):
             self.assertNotIn(leaked, ev["redacted_summary"])
         self.assertLessEqual(len(ev["redacted_summary"]), 160)
 
+    def test_prompt_like_events_withhold_summary_and_extra_redactions(self):
+        for t in ("PROMPT_SENT", "LLM_COMPLETION", "CHAIN_OF_THOUGHT", "REASONING_TRACE", "TRANSCRIPT_UPDATE"):
+            ev = hive_events.contract_event({"event_id": t, "event_type": t, "title": "private tax return"})
+            self.assertIsNone(ev["redacted_summary"], t)
+        text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY----- cookie: sid=abc123 ghp_abcdefghijklmnop xoxb-1234567890-abcdef " + "A" * 48
+        out = hive_events.redact_summary(text, 400)
+        for leaked in ("MIIEabc", "abc123", "ghp_abcdefghijklmnop", "xoxb-1234567890", "A" * 40):
+            self.assertNotIn(leaked, out)
+
+    def test_raw_prompt_fields_are_never_copied_into_the_contract(self):
+        ev = hive_events.contract_event({"event_id": "1", "event_type": "X", "prompt": "RAW PROMPT", "chain_of_thought": "THOUGHT", "messages": [{"content": "m"}]})
+        self.assertNotIn("RAW PROMPT", json.dumps(ev)); self.assertNotIn("THOUGHT", json.dumps(ev))
+
     def test_movement_hints_only_when_supplied(self):
         self.assertNotIn("target_node", hive_events.contract_event({"event_id": "1"}))
         self.assertEqual(hive_events.contract_event({"event_id": "1", "target_node": "obsidian"})["target_node"], "obsidian")

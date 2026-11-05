@@ -76,19 +76,19 @@ Note on P0.1.6: the e2e asserts every listed label; the bottom ASK HIVE input, a
 
 | ID | Requirement | Phase | Verification | Status |
 |----|-------------|-------|--------------|--------|
-| P0.3.1 | Attach one or more local files; chips shown before send; chips removable | P0.3 | tests/e2e/chat.e2e.mjs (planned) | NOT_RUN |
-| P0.3.2 | Enter sends; Shift+Enter inserts newline | P0.3 | tests/e2e/chat.e2e.mjs (planned) | NOT_RUN |
-| P0.3.3 | Send state QUEUED shown while pending | P0.3 | tests/chat.test.mjs (planned) | NOT_RUN |
-| P0.3.4 | SENT only after a real provider response; never on adapter-configured alone | P0.3 | tests/chat.test.mjs (planned) | NOT_RUN |
-| P0.3.5 | FAILED shown on provider error/timeout | P0.3 | tests/chat.test.mjs (planned) | NOT_RUN |
-| P0.3.6 | NOT_CONNECTED shown when no provider adapter connected; no fabricated replies | P0.3 | tests/chat.test.mjs (planned) | NOT_RUN |
+| P0.3.1 | Attach one or more local files; chips shown before send; chips removable | P0.3 | tests/e2e/chat.e2e.mjs (3 files, chips, remove, "not uploaded"); tests/ops.test.mjs (limits, name sanitising, contents never read) | PASS_AUTOMATED |
+| P0.3.2 | Enter sends; Shift+Enter inserts newline | P0.3 | tests/e2e/chat.e2e.mjs (Shift+Enter keeps text, Enter sends, empty Enter sends nothing) | PASS_AUTOMATED |
+| P0.3.3 | Send state QUEUED shown while pending | P0.3 | tests/ops.test.mjs (QUEUED observed before resolution; onChange). Not visually asserted in E2E: it is transient | PASS_AUTOMATED |
+| P0.3.4 | SENT only after a real provider response; never on adapter-configured alone | P0.3 | tests/ops.test.mjs with a MOCK connector only (delivered + provider_response_id required). No real provider send route exists, so the browser UI cannot reach SENT today | PASS_AUTOMATED |
+| P0.3.5 | FAILED shown on provider error/timeout | P0.3 | tests/ops.test.mjs (error, timeout, unconfirmed, malformed response) - mock connector only | PASS_AUTOMATED |
+| P0.3.6 | NOT_CONNECTED shown when no provider adapter connected; no fabricated replies | P0.3 | tests/ops.test.mjs + tests/e2e/chat.e2e.mjs (live adapter, no provider => NOT_CONNECTED, zero non-GET requests, no reply objects) | PASS_AUTOMATED |
 | P0.3.7 | VOICE remains a disabled future control | P0.3 | tests/e2e/shell.e2e.mjs (disabled asserted) | PASS_AUTOMATED |
-| P0.3.8 | Activity rows are `time / role / provider / action / state`, sanitized (no raw prompts, chain-of-thought, secrets, private logs) | P0.3 | tests/activity_sanitize.test.mjs (planned) | NOT_RUN |
-| P0.3.9 | Approvals show source-only rows GPT / CODEX / CLAUDE with Approve / Edit / Reject | P0.3 | tests/e2e/approvals.e2e.mjs (planned); shell.e2e.mjs only asserts buttons disabled in current state | NOT_RUN |
-| P0.3.10 | Approve without connector support shows local label "Approved locally, source not updated" | P0.3 | tests/e2e/approvals.e2e.mjs (planned) | NOT_RUN |
-| P0.3.11 | Edit/Reject act on source only when valid adapter/deep link exists; otherwise disabled or labelled local | P0.3 | tests/e2e/approvals.e2e.mjs (planned) | NOT_RUN |
-| P0.3.12 | Never claim an external source changed when only local state changed | P0.3 | tests/e2e/approvals.e2e.mjs (planned) | NOT_RUN |
-| P0.3.13 | Attachment path/size handling: no upload of unapproved paths; ULTRON file-attachment check hook | P0.3 | tests/chat.test.mjs (planned) | NOT_RUN |
+| P0.3.8 | Activity rows are `time / role / provider / action / state`, sanitized (no raw prompts, chain-of-thought, secrets, private logs) | P0.3 | tests/ops.test.mjs + tests/test_events.py + tests/e2e/chat.e2e.mjs (secrets, prompts, chain-of-thought fields never reach DOM). Redaction is best-effort regex, not a guarantee | PASS_AUTOMATED |
+| P0.3.9 | Approvals show source-only rows GPT / CODEX / CLAUDE with Approve / Edit / Reject | P0.3 | tests/e2e/chat.e2e.mjs (3 provider rows, 3 buttons each) | PASS_AUTOMATED |
+| P0.3.10 | Approve without connector support shows local label "Approved locally, source not updated" | P0.3 | tests/e2e/chat.e2e.mjs (fixture approval scenario: label shown, persists across reload, no non-GET request) + tests/ops.test.mjs | PASS_AUTOMATED |
+| P0.3.11 | Edit/Reject act on source only when valid adapter/deep link exists; otherwise disabled or labelled local | P0.3 | tests/ops.test.mjs (remote path with MOCK connector; unsupported => local) + E2E (Edit disabled; Reject local). No real source connector exists/verified | PASS_AUTOMATED |
+| P0.3.12 | Never claim an external source changed when only local state changed | P0.3 | tests/e2e/chat.e2e.mjs + tests/ops.test.mjs (local label never says "at source") | PASS_AUTOMATED |
+| P0.3.13 | Attachment path/size handling: no upload of unapproved paths; ULTRON file-attachment check hook | P0.3 | tests/ops.test.mjs (metadata only; no upload). ULTRON file-attachment check hook NOT built (P1.3) | PARTIAL |
 | P0.3.14 | End-to-end check with a real connected provider on the Windows PC (only if one is configured) | P0.3 | MANUAL: send one message, confirm SENT appears only after the provider reply; otherwise record NOT_CONNECTED as expected | NOT_RUN |
 
 ### P1.1 System and provider data
@@ -133,3 +133,14 @@ Each item was verified against `HIVE_DASHBOARD_CLAUDE_HANDOFF.md` (line numbers)
 7. **Gutter ranges.** Section 12 gives 10-12px at 1280 and 16-20px at 1920; the gate here (10/16/20) and the e2e assert only minima, and use 20px at 2560 though section 12 gives no number for 2560+ ("expand negative space").
 8. **Approvals local fallback vs acceptance.** Section 10 allows marking a proposal "approved" locally; S15.16 and section 2 forbid claiming external change. The label "Approved locally, source not updated" is the only safeguard; it is not in the spec text and was set by the user's phase definition.
 9. **E2E coverage gap.** shell.e2e.mjs checks CORE centering horizontally only and uses `#hive-core-art`, not the full CORE composition; it cannot establish S15.1 (visual match) or S15.4 (primary animation).
+
+## Tracked gaps (carry forward; do not close without a test)
+
+| ID | Gap | Origin | Status |
+|---|---|---|---|
+| GAP-1 | `correlation_id` contract: spec requires event-linked pulses to carry an observed correlation id. The movement model falls back to `run_id`, `task_id`, then `event_id` when `correlation_id` is missing, and event links render regardless. Needs: (a) decide whether pulses without a real correlation_id must be suppressed or labelled, (b) enforce in `hive-core.js` `applyEvent`, (c) test. | P0.2 (P0.2.9 PARTIAL) | OPEN |
+| GAP-2 | No authenticated provider send route exists: the browser holds no caller token by design, so Chat can only reach NOT_CONNECTED/FAILED today; SENT is exercised with a mock connector only. A real path needs a server-side, authenticated, explicitly-scoped route. | P0.3 | OPEN |
+| GAP-3 | No approval source connector exists: Approve/Reject are always local; Edit is always disabled. | P0.3 | OPEN |
+| GAP-4 | Live HIVE Core events, Internet-active path through the ULTRON ring, CORE-with-events at 1280/2560, and Windows behavior were not verified. | P0.2 | OPEN |
+| GAP-5 | Visual parity with the target image is not claimed (UX review: skeleton matches; art, connectors, icons, task-card row, Layout card absent). | P0.1 | OPEN |
+

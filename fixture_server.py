@@ -324,7 +324,7 @@ def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = N
     return {"detail": "Unknown fixture endpoint"}, 404
 
 
-def fixture_event_batch():
+def fixture_event_batch(scenario=None):
     """Deterministic, clearly synthetic events in the section 9 contract (never live data)."""
     now = datetime.now(timezone.utc)
     prov = {"source": "fixture:events", "validity": "fixture", "observed_at": now.isoformat()}
@@ -332,6 +332,11 @@ def fixture_event_batch():
         {"event_id": "fx-1", "timestamp": _observed(now, 5), "role_id": "FURY", "provider": "claude", "event_type": "TASK_ROUTED", "state": "working", "task_id": "fx-task-1", "correlation_id": "fx-corr-1", "source": "fixture event bus", "title": "Task routed (fixture)"},
         {"event_id": "fx-2", "timestamp": _observed(now, 42), "role_id": "UATU", "provider": "local", "event_type": "WONG_READ", "state": "working", "task_id": "fx-task-2", "correlation_id": "fx-corr-2", "target_node": "obsidian", "source": "fixture memory bridge", "title": "WONG projection read (fixture)"},
     ]
+    if scenario == "approval":  # opt-in: exercises the Approvals fallback; changes CORE state to WAITING_APPROVAL
+        raw.append({"event_id": "fx-3", "timestamp": _observed(now, 3), "role_id": "VISION", "provider": "gpt", "event_type": "APPROVAL_REQUESTED", "state": "waiting_approval", "task_id": "fx-task-3", "correlation_id": "fx-corr-3", "source": "fixture approvals", "title": "Approval requested (fixture)"})
+    if scenario == "secrets":  # opt-in: synthetic secret-shaped values to prove sanitisation (not real credentials)
+        raw.append({"event_id": "fx-4", "timestamp": _observed(now, 3), "role_id": "SHURI", "provider": "claude", "event_type": "TASK_STARTED", "state": "working", "task_id": "fx-task-4", "source": "fixture", "title": "call with Bearer abcdef1234567890 password=hunter2", "prompt": "RAW PROMPT TEXT", "chain_of_thought": "SECRET THOUGHT"})
+        raw.append({"event_id": "fx-5", "timestamp": _observed(now, 2), "role_id": "THOR", "provider": "gpt", "event_type": "PROMPT_SENT", "state": "working", "task_id": "fx-task-5", "source": "fixture", "title": "my private tax return details"})
     events = [hive_events.contract_event(r, prov) for r in raw]
     status = {"schema_version": hive_events.SCHEMA_VERSION, "validity": "fixture", "source": "fixture:events", "observed_at": now.isoformat(), "reason": "Synthetic fixture stream; not live telemetry", "event_count": len(events)}
     return events, status
@@ -383,7 +388,8 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.close_connection = True
         try:
-            for frame in hive_events.stream_frames(fixture_event_batch, 15.0, cycles, time.sleep):
+            scenario = (query.get("scenario") or [None])[0]
+            for frame in hive_events.stream_frames(lambda: fixture_event_batch(scenario), 15.0, cycles, time.sleep):
                 self.wfile.write(frame)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):

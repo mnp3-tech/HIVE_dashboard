@@ -26,8 +26,14 @@ _STATE_WORDS = {
 STATE_MAP = {word: state for state, words in _STATE_WORDS.items() for word in words}
 
 _SECRET = re.compile(
-    r"(?i)(bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|AKIA[0-9A-Z]{12,}|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}|(?:api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S+)"
+    r"(?is)(-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
+    r"|bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{12,}"
+    r"|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}"
+    r"|(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[_-]?id|authorization)\s*[=:]\s*\S+"
+    r"|\b[a-z0-9_\-]{40,}\b)"
 )
+# Event types whose payload is a prompt/completion/reasoning: the summary is withheld entirely.
+_WITHHOLD = re.compile(r"PROMPT|COMPLETION|CHAIN|THOUGHT|REASONING|TRANSCRIPT|MESSAGE_BODY", re.I)
 
 
 def normalize_state(raw) -> str:
@@ -78,7 +84,7 @@ def contract_event(raw: dict, provenance: dict | None = None) -> dict | None:
         "state": normalize_state(state_raw) if state_raw else "UNKNOWN",
         "severity": severity if severity in SEVERITIES else "info",
         "provenance": dict(provenance or {}),
-        "redacted_summary": redact_summary(raw.get("redacted_summary") or raw.get("title") or raw.get("summary")),
+        "redacted_summary": None if _WITHHOLD.search(str(event_type)) else redact_summary(raw.get("redacted_summary") or raw.get("title") or raw.get("summary")),
     }
     # Optional interaction hints used only for orbital movement (never inferred):
     for key in ("target_node", "target_role_id"):

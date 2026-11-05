@@ -42,7 +42,7 @@ body{overflow:hidden;min-height:0;height:100vh;background:radial-gradient(ellips
 .hive-panel{background:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid var(--glass-line);border-radius:.85rem;box-shadow:inset 0 0 28px rgba(40,130,210,.07),0 0 22px rgba(20,90,170,.12);display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;color:var(--text)}
 .rail{display:flex;flex-direction:column;gap:var(--gap);min-height:0;min-width:0}
 .rail>.hive-panel{flex:1 1 0}
-#panel-chats,#panel-agents{flex-grow:1.2}#panel-activity{flex-grow:1.4}
+#panel-activity{flex-grow:1.4}
 .hp-head{padding:.6rem .9rem .35rem;border-bottom:1px solid rgba(90,190,255,.16)}
 .hp-head h2{margin:0;font-size:.9rem;letter-spacing:.16em;font-weight:600;color:#e6f4ff}
 .hp-body{padding:.5rem .9rem .7rem;overflow:auto;min-height:0;flex:1;font-size:.82rem}
@@ -156,3 +156,32 @@ body{overflow:hidden;min-height:0;height:100vh;background:radial-gradient(ellips
 .core-demo-tag{fill:var(--c-warn);font-size:20px;letter-spacing:.14em}
 @media (prefers-reduced-motion:reduce){.core-arms,.core-ambient path,.event-link{animation:none!important}.core-ambient path{opacity:.3}}
 body.reduced-motion .core-arms,body.reduced-motion .core-ambient path,body.reduced-motion .event-link{animation:none!important}
+
+/* ===== P0.3 composer, chips, outbox, activity rows ===== */
+.composer{flex-direction:column;align-items:stretch;gap:.45rem;padding:.55rem .8rem}
+.composer-row{display:flex;align-items:flex-end;gap:.7rem;min-width:0}
+.composer textarea{order:1;flex:1;min-width:0;resize:none;overflow-y:auto;max-height:120px;background:rgba(2,10,20,.5);border:1px solid rgba(90,190,255,.3);color:var(--text);border-radius:.5rem;padding:.6rem .8rem;font:inherit;font-size:.95rem;line-height:1.3}
+.composer-row .icon-button,.composer-row .send-button,.composer-row .voice-button{align-self:flex-end}
+.composer-chips{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;max-height:5.2rem;overflow:auto}
+.chip{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .5rem;border:1px solid rgba(90,190,255,.4);border-radius:1rem;background:rgba(10,40,70,.5);font-size:.78rem;max-width:16rem}
+.chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chip small{color:var(--muted);font-size:max(.68rem,10px)}
+.chip-x{border:0;background:transparent;color:var(--text);cursor:pointer;font-size:1rem;line-height:1;padding:0 .1rem}
+.chip-note{color:var(--muted);font-size:max(.68rem,10px)}
+.hp-head.sub{padding-top:.4rem;border-top:1px solid rgba(90,190,255,.16);border-bottom:0}.hp-head.sub h3{margin:0;font-size:.72rem;letter-spacing:.14em;color:var(--muted);font-weight:600}
+#chat-list{flex:0 0 auto;max-height:45%}.outbox{flex:1}
+.outbox-row{display:flex;align-items:center;gap:.4rem;padding:.3rem 0;border-bottom:1px solid rgba(90,190,255,.1)}
+.outbox-row .grow{flex:1;min-width:0}.ob-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.8rem}.outbox-row small{color:var(--muted);font-size:max(.68rem,10px)}
+.ob-state{font-size:max(.62rem,9px);letter-spacing:.06em;padding:.1rem .3rem;border:1px solid var(--c-unknown);border-radius:.3rem;color:var(--c-unknown);white-space:nowrap}
+.ob-state.ok{color:var(--c-ok);border-color:var(--c-ok)}.ob-state.fail{color:var(--c-fail);border-color:var(--c-fail)}.ob-state.warn{color:var(--c-warn);border-color:var(--c-warn)}
+.act-meta{display:flex;flex-wrap:wrap;gap:.2rem .5rem;align-items:baseline;font-size:.78rem}.act-meta span{color:var(--muted)}.act-meta .state{font-size:max(.64rem,9px);letter-spacing:.06em}.act-meta .state.ok{color:var(--c-ok)}.act-meta .state.warn{color:var(--c-warn)}.act-meta .state.fail{color:var(--c-fail)}
+.act-action{font-size:.8rem;overflow-wrap:anywhere}
+.approval-row .ap-state{white-space:normal;overflow:visible}
+/* shell panels: legacy empty-state forced min-height 220-270px, which crushed neighbours in live (empty) mode */
+.hive-panel .empty-state,.hive-panel .empty-state.compact{min-height:0;padding:.2rem 0;align-items:flex-start;justify-content:flex-start;text-align:left}
+.hive-panel .empty-state strong{font-size:.8rem}.hive-panel .empty-state small{max-width:none;font-size:max(.7rem,10px)}
+#panel-agents{flex:0 1 auto}
+
+.outbox-row{display:block}.ob-top{display:flex;align-items:center;gap:.4rem;min-width:0}.ob-top .ob-text{flex:1;min-width:0}
+.ob-reason{display:block;color:var(--muted);font-size:max(.68rem,10px);overflow-wrap:anywhere;margin:.1rem 0}
+.ob-actions{display:flex;gap:.35rem;margin:.2rem 0}.ob-actions .ap-btn{flex:1 1 0;min-width:0;white-space:nowrap}
+.composer-status{white-space:normal;max-width:24%;line-height:1.2}

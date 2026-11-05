@@ -24,7 +24,7 @@
     </header>
 
     <aside class="rail rail-left" aria-label="Chats, projects and agents">
-      <section class="hive-panel" id="panel-chats"><div class="hp-head"><h2>CHATS</h2></div><div class="hp-body" id="chat-list"><div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div></div></section>
+      <section class="hive-panel" id="panel-chats"><div class="hp-head"><h2>CHATS</h2></div><div class="hp-body" id="chat-list"><div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div></div><div class="hp-head sub"><h3>LOCAL OUTBOX</h3></div><div class="hp-body outbox" id="chat-outbox"><div class="empty-state compact"><strong>Empty</strong><small>Sent and unsent messages appear here with their true state.</small></div></div></section>
       <section class="hive-panel" id="panel-projects"><div class="hp-head"><h2>PROJECTS</h2></div><div class="hp-body" id="project-rail"><div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div></div></section>
       <section class="hive-panel" id="panel-agents"><div class="hp-head"><h2>AGENTS / ROLES</h2></div><div class="hp-body" id="agent-roster"></div></section>
     </aside>
@@ -65,11 +65,15 @@
     </div>
 
     <form class="hive-panel composer" id="chat-draft-form" autocomplete="off">
-      <button class="icon-button" type="button" id="attach-button" disabled title="Attachments arrive in P0.3" aria-label="Attach files">📎</button>
-      <input id="chat-draft-input" maxlength="500" placeholder="ASK HIVE…" aria-label="Ask HIVE">
-      <button class="send-button" type="submit" aria-label="Send">➤</button>
-      <button class="voice-button" type="button" id="voice-button" disabled title="Voice layer is a future feature"><span aria-hidden="true">🎙</span> VOICE <em>FUTURE</em></button>
-      <small id="chat-draft-status" class="composer-status">Draft only · no provider message is sent.</small>
+      <div class="composer-chips" id="attachment-chips" aria-label="Attached files" hidden></div>
+      <div class="composer-row">
+        <input type="file" id="attach-input" multiple hidden>
+        <button class="icon-button" type="button" id="attach-button" title="Attach local files" aria-label="Attach files">📎</button>
+        <textarea id="chat-draft-input" rows="1" maxlength="4000" placeholder="ASK HIVE…  (Enter sends · Shift+Enter new line)" aria-label="Ask HIVE"></textarea>
+        <small id="chat-draft-status" class="composer-status" role="status">Nothing sent yet.</small>
+        <button class="send-button" type="submit" id="send-button" aria-label="Send">➤</button>
+        <button class="voice-button" type="button" id="voice-button" disabled title="Voice layer is a future feature"><span aria-hidden="true">🎙</span> VOICE <em>FUTURE</em></button>
+      </div>
     </form>
 
     <aside class="rail rail-right" aria-label="Activity and approvals">
@@ -127,7 +131,6 @@
               <h1>One machine. <span>Bounded evidence.</span></h1>
               <p class="lede">A read-only, proposal-only operating picture for HIVE Core: project catalog, task queue, and adapter health. Nothing here applies, deploys, promotes, or replaces anything.</p>
             </div>
-            <div class="heading-state"><span class="status-dot unknown" id="core-dot"></span><div><strong id="core-state">UNKNOWN</strong><small id="core-state-detail">Waiting for an application health payload</small></div></div>
           </section>
 
           <section class="metric-strip" aria-label="Summary metrics" data-views="overview">
@@ -151,7 +154,7 @@
               <div class="panel-heading"><div><p class="eyebrow">CHAT BRIDGE</p><h2>Ask HIVE / coordinate</h2></div><span class="panel-status" id="chat-validity">UNKNOWN</span></div>
               <div class="chat-session-bar"><span class="status-dot unknown" id="chat-dot"></span><span id="chat-session-label">No provider session selected</span><button class="text-button" id="chat-refresh" type="button">Refresh</button></div>
               <div class="chat-transcript" id="chat-transcript"><div class="empty-state compact"><span>◌</span><strong>Chat evidence unavailable</strong><small>AO session history is read through the documented local adapter.</small></div></div>
-              <form class="chat-draft" id="chat-draft-form"><label for="chat-draft-input">Draft a bounded request</label><div><input id="chat-draft-input" maxlength="500" placeholder="Ask HIVE to explain a task or prepare a proposal…"><button class="button" type="submit">Queue</button></div><small id="chat-draft-status">Draft only · no provider message is sent from this panel.</small></form>
+              <p class="inference-note">Compose messages from the ASK HIVE bar. Nothing is sent unless a provider connector is connected; see the local outbox under CHATS.</p>
             </section>
           </div>
 
@@ -236,6 +239,7 @@
     <p class="dialog-copy">This drawer only ever shows the evidence envelope (source, timestamp, validity, reason) already rendered on this page. It never shows prompts, tokens, credentials, or raw provider session content.</p>
   </dialog>
   <script src="hive-core.js"></script>
+  <script src="hive-ops.js"></script>
   <script src="app.js" defer></script>
 </body>
 </html>

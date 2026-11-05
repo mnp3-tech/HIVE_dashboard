@@ -15,7 +15,8 @@
   };
   const STATE_MAP = {};
   Object.keys(STATE_WORDS).forEach(s => STATE_WORDS[s].forEach(w => { STATE_MAP[w] = s; }));
-  const SECRET = /(bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|AKIA[0-9A-Z]{12,}|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}|(?:api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S+)/gi;
+  const SECRET = /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)|bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}|(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[_-]?id|authorization)\s*[=:]\s*\S+|\b[a-z0-9_\-]{40,}\b)/gi;
+  const WITHHOLD = /PROMPT|COMPLETION|CHAIN|THOUGHT|REASONING|TRANSCRIPT|MESSAGE_BODY/i;
 
   function normalizeState(raw) {
     if (typeof raw !== 'string') return 'UNKNOWN';
@@ -48,11 +49,20 @@
       event_type: String(eventType).slice(0, 60), state: stateRaw ? normalizeState(stateRaw) : 'UNKNOWN',
       severity: ['info', 'warning', 'error', 'critical'].includes(severity) ? severity : 'info',
       provenance: raw.provenance && typeof raw.provenance === 'object' ? raw.provenance : {},
-      redacted_summary: redactSummary(raw.redacted_summary || raw.title || raw.summary),
+      redacted_summary: WITHHOLD.test(String(eventType)) ? null : redactSummary(raw.redacted_summary || raw.title || raw.summary),
     };
     if (raw.target_node) ev.target_node = text(raw.target_node, 40);
     if (raw.target_role_id) ev.target_role_id = text(raw.target_role_id, 40);
     return ev;
+  }
+
+  /* Activity row: exactly time | role | provider | action | state. Built only from the normalised
+     (already redacted) event; prompt-like events show their type, never their content. */
+  function sanitizeActivityRow(ev) {
+    if (!ev) return null;
+    const withheld = WITHHOLD.test(String(ev.event_type));
+    const action = withheld ? String(ev.event_type).slice(0, 40) + ' (content withheld)' : (ev.redacted_summary || ev.event_type || 'event');
+    return { id: ev.event_id, time: ev.timestamp, role: ev.role_id || null, provider: ev.provider || null, action: redactSummary(String(action), 120) || 'event', state: ev.state || 'UNKNOWN' };
   }
 
   /* Bounded buffer with duplicate protection. */
@@ -251,6 +261,6 @@
     };
   }
 
-  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, createEventBuffer, classifyFreshness, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
+  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

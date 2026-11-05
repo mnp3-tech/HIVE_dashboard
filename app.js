@@ -347,8 +347,7 @@ function renderShell(snapshot){
   const projects=(snapshot.projects||[]).filter(item=>item&&(item.id||item.name)); const pr=$('#project-rail');
   if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map(item=>`<div class="rail-row"><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
   const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>`<div class="rail-row"><i class="dot"></i><div class="grow"><strong>${role}</strong></div><span class="state">PROVIDER UNKNOWN</span></div>`).join('');
-  const act=$('#activity-rows'); if(act) act.innerHTML=(snapshot.events||[]).filter(e=>e&&e.timestamp).length?snapshot.events.filter(e=>e&&e.timestamp).slice(0,8).map(e=>`<div class="act-row"><time>${esc(isoTime(e.timestamp))}</time><div><b>${esc(e.component_id||'role n/a')}</b> · ${esc(e.title||e.kind||'event')}<br><small>${esc(e.source||'source unknown')} · ${esc(stateLabel(e.severity||'unknown'))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
-  const ap=$('#approval-rows'); if(ap) ap.innerHTML=SHELL_PROVIDERS.map(([,label])=>`<div class="approval-row"><strong>${label}</strong><span class="ap-state">NOT CONNECTED</span><span class="ap-actions"><button class="ap-btn approve" disabled>Approve</button><button class="ap-btn" disabled>Edit</button><button class="ap-btn reject" disabled>Reject</button></span></div>`).join('');
+  ingestActivity(snapshot); renderActivity(); renderApprovals();
   const g=$('#resource-gauges'); if(g) g.innerHTML=gaugeMarkup('CPU',snapshot.metrics.cpu)+gaugeMarkup('RAM',snapshot.metrics.memory)+gaugeMarkup('DISK',snapshot.metrics.disk)+gaugeMarkup('GPU',null)+gaugeMarkup('TEMP',null);
   const lim=$('#limit-rows'); if(lim) lim.innerHTML=[...SHELL_PROVIDERS.map(([k,l])=>[k,l]),['local','LOCAL']].map(([k,l])=>{ const o=k==='local'?{tone:'unknown'}:providerObservation(snapshot,k); return `<div class="limit-row"><i class="dot ${o.tone}"></i><strong>${l}</strong><div class="bar"></div><span class="v">Limit: NOT_PROVIDED</span></div>`; }).join('');
 }
@@ -359,19 +358,20 @@ function tickClock(){ const el=$('#clock-tag'); if(el) el.textContent=new Date()
 
 // ---- P0.2 CORE: transport -> buffer -> derived state -> movement -> SVG overlay (see hive-core.js) ----
 const HC = window.HiveCore;
-const core = {buffer:HC.createEventBuffer(200), ultronObserved:false, transport:null, view:{state:'UNKNOWN',reason:'No telemetry observed yet'}, raf:null,
+const core = {buffer:HC.createEventBuffer(200), activity:HC.createEventBuffer(100), ultronObserved:false, transport:null, view:{state:'UNKNOWN',reason:'No telemetry observed yet'}, raf:null,
   tstate:{status:'connecting', lastMessageAt:null, sourceValidity:null}, roleStates:new Map()};
 const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 core.movement = HC.createMovementModel(reducedMotion() ? {travelMs:1, returnMs:1} : {});
 const SVGNS = 'http://www.w3.org/2000/svg';
 function onCoreEvent(ev){
+  core.activity.add(ev);
   if(!core.buffer.add(ev)) return;
   const t=Date.now();
   core.movement.applyEvent(ev,t);
   const role=String(ev.role_id||'').toUpperCase();
   if(role==='ULTRON') core.ultronObserved=true;
   if(role) core.roleStates.set(role,{state:ev.state, at:Date.parse(ev.timestamp||'')||t});
-  scheduleCoreFrame();
+  scheduleCoreFrame(); recomputeCore();
 }
 function recomputeCore(){
   core.view = HC.deriveCoreState(core.buffer.list(), {now:Date.now(), transportStatus:core.tstate.status, lastMessageAt:core.tstate.lastMessageAt, sourceValidity:core.tstate.sourceValidity});
@@ -392,7 +392,7 @@ function applyCoreState(){
     const label=g.querySelector('.ca-state'); if(label) label.textContent=stateLabel(st);
     g.setAttribute('class',`core-agent ${HC.visualClass(st).tone==='unknown'?'':HC.visualClass(st).tone}`);
   });
-  drawCoreFrame();
+  drawCoreFrame(); renderActivity(); renderApprovals();
 }
 function scheduleCoreFrame(){ if(core.raf) return; core.raf=requestAnimationFrame(coreFrame); }
 function coreFrame(){ core.raf=null; const t=Date.now(); core.movement.tick(t); drawCoreFrame(); if(core.movement.size()||core.movement.queued()) scheduleCoreFrame(); }
@@ -433,10 +433,79 @@ function startCore(){
     const tag=document.createElementNS(SVGNS,'text'); tag.setAttribute('class','core-demo-tag'); tag.setAttribute('x','800'); tag.setAttribute('y','880'); tag.setAttribute('text-anchor','middle'); tag.textContent='DEMO'; $('#hive-core-art')?.appendChild(tag);
     return;
   }
-  core.transport=HC.createTransport({EventSource:window.EventSource, pollFn:pollSnapshotForCore, onEvent:onCoreEvent, onStatus:s=>{core.tstate=s; recomputeCore();}});
+  const scenario=new URLSearchParams(location.search).get('scenario');
+  core.transport=HC.createTransport({streamUrl:'/api/events/stream'+(scenario&&/^[a-z0-9_-]{1,24}$/.test(scenario)?'?scenario='+scenario:''), EventSource:window.EventSource, pollFn:pollSnapshotForCore, onEvent:onCoreEvent, onStatus:s=>{core.tstate=s; recomputeCore();}});
   core.transport.start();
 }
 setInterval(()=>{ core.movement.tick(Date.now()); recomputeCore(); }, 5000);
+
+// ---- P0.3 Activity / Approvals / Chat (logic in hive-ops.js; sanitisation in hive-core.js) ----
+const OPS = window.HiveOps;
+function ingestActivity(snapshot){ (snapshot.events||[]).forEach(raw=>{ const ev=HC.normalizeEvent(raw); if(ev) core.activity.add(ev); }); }
+function renderActivity(){
+  const el=$('#activity-rows'); if(!el) return;
+  const rows=core.activity.list().map(HC.sanitizeActivityRow).filter(r=>r&&r.time).sort((a,b)=>Date.parse(b.time)-Date.parse(a.time)).slice(0,10);
+  el.innerHTML=rows.length?rows.map(r=>`<div class="act-row"><time>${esc(isoTime(r.time))}</time><div><div class="act-meta"><b>${esc(r.role||'role n/a')}</b><span>${esc(r.provider||'provider n/a')}</span><span class="state ${tone(r.state)}">${esc(stateLabel(r.state))}</span></div><div class="act-action">${esc(r.action)}</div></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
+}
+const APPROVAL_KEY='hive.approvals.local.v1';
+function loadLocalDecisions(){ try{ const v=JSON.parse(localStorage.getItem(APPROVAL_KEY)||'{}'); return v&&typeof v==='object'?v:{}; }catch(_e){ return {}; } }
+function saveLocalDecisions(v){ try{ localStorage.setItem(APPROVAL_KEY, JSON.stringify(v)); }catch(_e){ /* storage unavailable: decision stays in memory only */ } }
+core.localDecisions=loadLocalDecisions();
+const approvalConnector = null; // no source connector supports approve/reject/edit yet -> all decisions are local
+function renderApprovals(){
+  const el=$('#approval-rows'); if(!el) return;
+  const telemetryOk = core.view && !['UNKNOWN','OFFLINE'].includes(core.view.state);
+  const pending=OPS.pendingApprovals(core.activity.list(), Date.now());
+  el.innerHTML=[['gpt','GPT'],['codex','CODEX'],['claude','CLAUDE']].map(([k,label])=>{
+    const items=pending[k]; const item=items[0]; const dec=item&&core.localDecisions[item.key];
+    const status = item ? (dec ? `${dec.decision==='APPROVED'?'Approved':'Rejected'} locally, source not updated` : `${items.length} PENDING · ${esc(item.summary||'approval requested')}`) : (telemetryOk ? 'NO PENDING APPROVAL OBSERVED' : 'UNKNOWN · no fresh telemetry');
+    const can=Boolean(item&&!dec);
+    return `<div class="approval-row" data-provider="${k}"><strong>${label}</strong><span class="ap-state">${status}</span><span class="ap-actions"><button class="ap-btn approve" data-act="approve" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}>Approve</button><button class="ap-btn" data-act="edit" ${OPS.editAvailable(item||{provider:k},approvalConnector)?'':'disabled'} title="${OPS.editAvailable(item||{provider:k},approvalConnector)?'Open source task':'No source adapter or deep link available'}">Edit</button><button class="ap-btn reject" data-act="reject" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}>Reject</button></span></div>`;
+  }).join('');
+}
+document.addEventListener('click', async event=>{
+  const btn=event.target.closest('.ap-btn[data-act]'); if(!btn||btn.disabled) return;
+  const act=btn.dataset.act; if(act==='edit') return;
+  const row=btn.closest('.approval-row'); const pending=OPS.pendingApprovals(core.activity.list(), Date.now());
+  const item=(pending[row.dataset.provider]||[]).find(i=>i.key===btn.dataset.key); if(!item) return;
+  const result=await OPS.decide(item, act, approvalConnector);
+  if(result.scope==='local'||result.scope==='source'){ core.localDecisions[item.key]={decision:result.decision,scope:result.scope,at:new Date().toISOString()}; saveLocalDecisions(core.localDecisions); }
+  renderApprovals();
+});
+
+const composer={attachments:[], outbox:null};
+function chatConnector(){
+  return { connected(){ const ao=state.capabilities&&state.capabilities.ao;
+      if(ao&&ao.send_confirmed) return {ok:false, reason:'AO send is configured, but the browser holds no caller token and no authenticated send route exists'};
+      return {ok:false, reason:'No provider connector is connected (AO send gate not configured)'}; },
+    async send(){ throw new Error('not connected'); } };
+}
+function fmtSize(n){ return n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B'; }
+function renderChips(){
+  const box=$('#attachment-chips'); if(!box) return; box.hidden=!composer.attachments.length;
+  box.innerHTML=composer.attachments.map(a=>`<span class="chip" data-id="${esc(a.id)}"><span class="chip-name">${esc(a.name)}</span><small>${esc(fmtSize(a.size))}</small><button type="button" class="chip-x" aria-label="Remove ${esc(a.name)}" data-remove="${esc(a.id)}">×</button></span>`).join('')+'<small class="chip-note">attached locally · not uploaded</small>';
+}
+function renderOutbox(list){
+  const box=$('#chat-outbox'); if(!box) return; const msgs=(list||composer.outbox.list()).slice().reverse().slice(0,6);
+  box.innerHTML=msgs.length?msgs.map(m=>`<div class="outbox-row" data-state="${m.state}"><div class="ob-top"><span class="ob-state ${m.state==='SENT'?'ok':m.state==='FAILED'?'fail':m.state==='NOT_CONNECTED'?'warn':''}">${m.state}</span><div class="ob-text">${esc(HC.redactSummary(m.text,90)||'(attachments only)')}</div></div><small class="ob-reason">${m.attachments.length?m.attachments.length+' file(s) · ':''}${esc(m.reason||'')}</small>${m.state==='FAILED'||m.state==='NOT_CONNECTED'?`<div class="ob-actions"><button type="button" class="ap-btn" data-retry="${m.id}">Retry</button><button type="button" class="ap-btn" data-draft="${m.id}" title="Open the explicit proposal form with this text">Draft as proposal</button></div>`:''}</div>`).join(''):'<div class="empty-state compact"><strong>Empty</strong><small>Sent and unsent messages appear here with their true state.</small></div>';
+}
+function initComposer(){
+  const form=$('#chat-draft-form'), input=$('#chat-draft-input'), file=$('#attach-input'); if(!form||!input) return;
+  composer.outbox=OPS.createOutbox({connector:{connected:()=>chatConnector().connected(), send:a=>chatConnector().send(a)}, onChange:list=>{ renderOutbox(list); const last=list[list.length-1]; setText('chat-draft-status', last?`${last.state}${last.state==='SENT'?'':' · no provider message sent'}`:'Nothing sent yet.'); }});
+  $('#attach-button').addEventListener('click',()=>file.click());
+  file.addEventListener('change',()=>{ const r=OPS.describeFiles(file.files, composer.attachments); composer.attachments=r.attachments; file.value=''; renderChips(); if(r.rejected.length) setText('chat-draft-status', `Skipped: ${r.rejected.map(x=>x.name+' ('+x.reason+')').join(', ')}`); });
+  $('#attachment-chips').addEventListener('click',event=>{ const id=event.target.closest('[data-remove]')?.dataset.remove; if(!id) return; composer.attachments=composer.attachments.filter(a=>a.id!==id); renderChips(); });
+  const submit=async()=>{ const text=input.value; const r=await composer.outbox.send(text, composer.attachments); if(r.error){ setText('chat-draft-status', r.error); return; } input.value=''; composer.attachments=[]; renderChips(); autosize(); };
+  const autosize=()=>{ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; };
+  form.addEventListener('submit',event=>{ event.preventDefault(); submit(); });
+  input.addEventListener('keydown',event=>{ if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){ event.preventDefault(); submit(); } });
+  input.addEventListener('input',autosize);
+  $('#chat-outbox').addEventListener('click',event=>{
+    const retry=event.target.closest('[data-retry]')?.dataset.retry; if(retry){ composer.outbox.retry(retry); return; }
+    const draft=event.target.closest('[data-draft]')?.dataset.draft; if(draft){ const m=composer.outbox.list().find(x=>x.id===draft); const t=$('#delegate-prompt'); if(m&&t) t.value=m.text; state.view='proposals'; setConsole(true); render(); }
+  });
+  renderChips(); renderOutbox([]);
+}
 
 function renderView(){
   $$('[data-views]').forEach(section => {
@@ -530,7 +599,7 @@ $('#refresh-button').addEventListener('click',load);
 $('#density-toggle').addEventListener('click',()=>{const next=DENSITY_CYCLE[(DENSITY_CYCLE.indexOf(state.density)+1)%DENSITY_CYCLE.length]; state.density=next; savePrefs(); render();});
 $$('.mode-button').forEach(button=>button.addEventListener('click',()=>{state.mode=button.dataset.mode; savePrefs(); render();}));
 $('#chat-refresh')?.addEventListener('click',load);
-$('#chat-draft-form')?.addEventListener('submit',event=>{event.preventDefault(); const input=$('#chat-draft-input'), status=$('#chat-draft-status'); const prompt=input?.value.trim(); if(!prompt){if(status)status.textContent='Enter a bounded request first.';return;} const target=$('#delegate-prompt'); if(target)target.value=prompt; state.view='proposals'; setConsole(true); render(); if(status)status.textContent='Draft copied to proposal form · no provider message sent.';});
+initComposer();
 $('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
 document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });

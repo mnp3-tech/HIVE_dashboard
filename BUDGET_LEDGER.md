@@ -20,3 +20,11 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Real defect found by looking at the screenshot and fixed: Obsidian trip parked UATU on top of SHURI; rest angles now keep >= 26 deg from every other agent's home (unit-tested for all roles x nodes).
 - Not verified: live HIVE Core events (Core unreachable here => honest UNKNOWN); real Internet-active path through ULTRON ring (no internet event in any fixture); CORE-with-events at 1280/2560; Windows browser. ULTRON ring is gray unless an ULTRON event is observed (ULTRON guard is P1.3).
 - Subagents: 0 new (2 total). Effort: ~$11 of $18.
+
+## P0.3 Chat, Activity, Approvals (allocation $18)
+- Files: hive-ops.js (new: outbox state machine, attachment metadata, approvals logic), hive-core.js (sanitizeActivityRow, stronger redaction, prompt-type withholding), hive_events.py (redaction/withholding parity), app.js (composer, chips, outbox, Activity rows, Approvals), index.html (textarea composer, chips, outbox; removed duplicate ids), styles.css, fixture_server.py (opt-in `scenario=approval|secrets`), tests/ops.test.mjs, tests/html_ids.test.mjs, tests/e2e/chat.e2e.mjs, tests/test_events.py, ACCEPTANCE.md (P0.3 statuses + tracked gaps).
+- Tests: Python test_server+test_fixture_server+test_events 237/237 OK; ui_contract 20/20; core 27/27; ops 15/15; html_ids 2/2; Playwright shell 7/7, core 7/7, chat 9/9. py_compile + git diff --check clean.
+- Defects I introduced earlier or missed, found by looking at screenshots (not by tests) and then covered by new assertions: duplicate element ids from P0.1 (composer vs legacy chat form, core-state ids) - removed + html_ids test; legacy `.empty-state` min-height 220-270px crushed CHATS/neighbours in live (empty) mode - overridden; outbox row text squeezed to a sliver - restructured. All earlier screenshots had used the fixture server, which hid the empty-state problem.
+- Preserved as-is: all P0.2 PARTIAL statuses. Added GAP-1..5 to ACCEPTANCE.md, including the correlation_id contract gap (GAP-1, OPEN).
+- Not verified: any real provider send (no route exists; SENT is exercised with a mock connector only), any approval source connector, live HIVE Core, Windows.
+- Subagents: 0 new (2 total; Test Engineer review of coverage vs ACCEPTANCE.md still to run per plan). Effort: ~$12 of $18.
