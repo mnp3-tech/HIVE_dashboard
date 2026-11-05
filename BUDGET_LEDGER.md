@@ -105,3 +105,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Windows result record + Playwright procedure (GAP-9 resolved on this configuration, GAP-8 open)
 - .gitignore (node_modules/), tools/live_check_windows.mjs (NOT_RUN + install hint), tests/live_check.test.mjs (+1), docs. No application code changed; full suite not re-run (last green at 4456991). Effort ~$1 (rough); running total about $93.5 of $100 - only ~$6 remain, so the next round should be the Windows browser run and, if needed, one small fix. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## Windows live check PASS recorded (documentation only)
+- ACCEPTANCE.md (GAP-8 closed scoped, GAP-9 resolved, residuals listed), HANDOFF_REPORT.md section 26. No code or tests changed. Effort ~$0.5 (rough); running total about $94 of $100 - about $6 remain, which is less than any earlier P1 phase cost ($7-14), so P1.2 would need either more budget or a much narrower scope. Subagents 5 of 8. P1.2/P1.3 not started.
