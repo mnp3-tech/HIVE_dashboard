@@ -20,9 +20,12 @@ import argparse
 import ipaddress
 import json
 import mimetypes
+import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import hive_events
 from urllib.parse import parse_qs, unquote, urlsplit
 
 
@@ -321,6 +324,19 @@ def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = N
     return {"detail": "Unknown fixture endpoint"}, 404
 
 
+def fixture_event_batch():
+    """Deterministic, clearly synthetic events in the section 9 contract (never live data)."""
+    now = datetime.now(timezone.utc)
+    prov = {"source": "fixture:events", "validity": "fixture", "observed_at": now.isoformat()}
+    raw = [
+        {"event_id": "fx-1", "timestamp": _observed(now, 5), "role_id": "FURY", "provider": "claude", "event_type": "TASK_ROUTED", "state": "working", "task_id": "fx-task-1", "correlation_id": "fx-corr-1", "source": "fixture event bus", "title": "Task routed (fixture)"},
+        {"event_id": "fx-2", "timestamp": _observed(now, 42), "role_id": "UATU", "provider": "local", "event_type": "WONG_READ", "state": "working", "task_id": "fx-task-2", "correlation_id": "fx-corr-2", "target_node": "obsidian", "source": "fixture memory bridge", "title": "WONG projection read (fixture)"},
+    ]
+    events = [hive_events.contract_event(r, prov) for r in raw]
+    status = {"schema_version": hive_events.SCHEMA_VERSION, "validity": "fixture", "source": "fixture:events", "observed_at": now.isoformat(), "reason": "Synthetic fixture stream; not live telemetry", "event_count": len(events)}
+    return events, status
+
+
 class FixtureHandler(BaseHTTPRequestHandler):
     server_version = "HIVE-Dashboard-Runtime-Fixture/1.0"
 
@@ -345,12 +361,33 @@ class FixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         query = parse_qs(urlsplit(self.path).query)
+        if path == "/api/events/stream":
+            return self.stream_events(query)
         if path.startswith("/api/"):
             payload, status = api_payload(path, query)
             payload = dict(payload)
             payload.setdefault("fixture_only", True)
             return self.json_response(payload, status)
         return self.serve_static(path)
+
+    def stream_events(self, query) -> None:
+        """Read-only SSE of synthetic fixture events. `cycles=N` bounds it (tests)."""
+        try:
+            cycles = max(1, min(100000, int(query["cycles"][0]))) if query.get("cycles") else None
+        except ValueError:
+            cycles = None
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        try:
+            for frame in hive_events.stream_frames(fixture_event_batch, 15.0, cycles, time.sleep):
+                self.wfile.write(frame)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def do_HEAD(self) -> None:
         # The dashboard does not need HEAD, but returning the same route shape

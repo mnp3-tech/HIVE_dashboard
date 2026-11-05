@@ -122,7 +122,7 @@ function render(){
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
   evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderShell(snapshot); renderView();
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderShell(snapshot); renderShellTail(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -340,9 +340,7 @@ function gaugeMarkup(label, metric){
   return `<div class="gauge ${known?'':'unknown'}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(label)} ${known?pct.toFixed(0)+'%':'UNKNOWN'}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${known?pct.toFixed(0)+' %':'UNKNOWN'}</text></svg><label>${esc(label)}</label></div>`;
 }
 function renderShell(snapshot){
-  const status=snapshot.core&&snapshot.core.status; const t=tone(status);
-  const stage=$('#core-stage'); if(stage) stage.dataset.tone=t;
-  setText('core-center-state', stateLabel(status)); setText('env-tag', snapshot.environment || 'UNVERIFIED');
+  setText('env-tag', snapshot.environment || 'UNVERIFIED');
   SHELL_PROVIDERS.forEach(([key])=>{ const chip=$(`.source-chip[data-provider="${key}"]`); if(!chip) return; const o=providerObservation(snapshot,key); chip.className=`source-chip ${o.tone}`; const em=chip.querySelector('em'); if(em) em.textContent=o.label; });
   const sessions=(state.chat&&state.chat.sessions)||[];
   const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';
@@ -354,8 +352,91 @@ function renderShell(snapshot){
   const g=$('#resource-gauges'); if(g) g.innerHTML=gaugeMarkup('CPU',snapshot.metrics.cpu)+gaugeMarkup('RAM',snapshot.metrics.memory)+gaugeMarkup('DISK',snapshot.metrics.disk)+gaugeMarkup('GPU',null)+gaugeMarkup('TEMP',null);
   const lim=$('#limit-rows'); if(lim) lim.innerHTML=[...SHELL_PROVIDERS.map(([k,l])=>[k,l]),['local','LOCAL']].map(([k,l])=>{ const o=k==='local'?{tone:'unknown'}:providerObservation(snapshot,k); return `<div class="limit-row"><i class="dot ${o.tone}"></i><strong>${l}</strong><div class="bar"></div><span class="v">Limit: NOT_PROVIDED</span></div>`; }).join('');
 }
+function renderShellTail(snapshot){ if(demoMode){ core.tstate={status:'live', lastMessageAt:Date.now(), sourceValidity:'fixture'}; ingestSnapshotEvents(snapshot); } recomputeCore(); }
 function setConsole(open){ const c=$('#console'); if(c) c.hidden=!open; }
 function tickClock(){ const el=$('#clock-tag'); if(el) el.textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+
+
+// ---- P0.2 CORE: transport -> buffer -> derived state -> movement -> SVG overlay (see hive-core.js) ----
+const HC = window.HiveCore;
+const core = {buffer:HC.createEventBuffer(200), ultronObserved:false, transport:null, view:{state:'UNKNOWN',reason:'No telemetry observed yet'}, raf:null,
+  tstate:{status:'connecting', lastMessageAt:null, sourceValidity:null}, roleStates:new Map()};
+const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+core.movement = HC.createMovementModel(reducedMotion() ? {travelMs:1, returnMs:1} : {});
+const SVGNS = 'http://www.w3.org/2000/svg';
+function onCoreEvent(ev){
+  if(!core.buffer.add(ev)) return;
+  const t=Date.now();
+  core.movement.applyEvent(ev,t);
+  const role=String(ev.role_id||'').toUpperCase();
+  if(role==='ULTRON') core.ultronObserved=true;
+  if(role) core.roleStates.set(role,{state:ev.state, at:Date.parse(ev.timestamp||'')||t});
+  scheduleCoreFrame();
+}
+function recomputeCore(){
+  core.view = HC.deriveCoreState(core.buffer.list(), {now:Date.now(), transportStatus:core.tstate.status, lastMessageAt:core.tstate.lastMessageAt, sourceValidity:core.tstate.sourceValidity});
+  applyCoreState();
+}
+const GLOBAL_LABEL = {IDLE:'IDLE', WORKING:'WORKING', WAITING_APPROVAL:'WAITING', REVIEW:'REVIEW', FAILED:'ERROR', SECURITY_BLOCKED:'ERROR', OFFLINE:'OFFLINE', UNKNOWN:'UNKNOWN'};
+function applyCoreState(){
+  const stage=$('#core-stage'); if(!stage) return;
+  const s=core.view.state, vis=HC.visualClass(s), now=Date.now();
+  stage.dataset.coreState=s; stage.dataset.tone=vis.tone; stage.className=`core-stage ${vis.cls}`;
+  setText('core-center-state', stateLabel(s)); setText('core-state', GLOBAL_LABEL[s]); setText('core-state-detail', core.view.reason);
+  const dot=$('#core-dot'); if(dot) dot.className=`status-dot ${vis.tone==='review'?'warn':vis.tone}`;
+  const lock=$('#core-lock'); if(lock) lock.hidden=!vis.lock;
+  const ring=$('#ultron-ring'); if(ring) ring.setAttribute('class',`ultron-ring ${HC.ultronRingClass(s,core.ultronObserved)}`);
+  const fresh = s!=='UNKNOWN' && s!=='OFFLINE';
+  $$('#core-agents .core-agent').forEach(g=>{
+    const role=g.dataset.agent; const rs=core.roleStates.get(role); const st=(fresh&&rs&&now-rs.at<120000)?rs.state:'UNKNOWN';
+    const label=g.querySelector('.ca-state'); if(label) label.textContent=stateLabel(st);
+    g.setAttribute('class',`core-agent ${HC.visualClass(st).tone==='unknown'?'':HC.visualClass(st).tone}`);
+  });
+  drawCoreFrame();
+}
+function scheduleCoreFrame(){ if(core.raf) return; core.raf=requestAnimationFrame(coreFrame); }
+function coreFrame(){ core.raf=null; const t=Date.now(); core.movement.tick(t); drawCoreFrame(); if(core.movement.size()||core.movement.queued()) scheduleCoreFrame(); }
+function drawCoreFrame(){
+  const t=Date.now(); const movers=core.movement.snapshot(t); const overlay=$('#core-overlay'); if(!overlay) return;
+  const byRole=new Map(movers.map(m=>[m.role,m]));
+  $$('#core-agents .core-agent').forEach(g=>{
+    const role=g.dataset.agent; const home=HC.HOME_ANGLES[role]; const m=byRole.get(role);
+    const p=m?{x:m.x,y:m.y}:{x:HC.CENTER.x+HC.ORBIT_R*Math.cos(home*Math.PI/180), y:HC.CENTER.y+HC.ORBIT_R*Math.sin(home*Math.PI/180)};
+    g.setAttribute('transform',`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`); g.classList.toggle('moving',Boolean(m));
+  });
+  const ringPoint=a=>({x:HC.CENTER.x+380*Math.cos(a*Math.PI/180), y:HC.CENTER.y+380*Math.sin(a*Math.PI/180)});
+  overlay.innerHTML=movers.filter(m=>m.movement_state!=='returning').map(m=>{
+    const kind=m.target_kind==='agent'?'handoff':m.target_id==='obsidian'||m.target_node==='obsidian'?'obsidian':'internet';
+    let d;
+    if(m.target_kind==='node'&&m.target_node==='internet'){ const r=ringPoint(m.target_angle), n=HC.NODES.internet; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${r.x.toFixed(1)} ${r.y.toFixed(1)} L${n.x} ${n.y}`; } // always passes through the ULTRON ring
+    else if(m.target_kind==='node'){ const n=HC.NODES[m.target_node]; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${n.x} ${n.y}`; }
+    else { const tp=HC.HOME_ANGLES[m.target_node]; const q={x:HC.CENTER.x+HC.ORBIT_R*Math.cos(tp*Math.PI/180), y:HC.CENTER.y+HC.ORBIT_R*Math.sin(tp*Math.PI/180)}; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }
+    return `<path class="event-link ${kind}" d="${d}"><title>${esc(m.role)} → ${esc(m.target_node)} · ${esc(m.interaction_id)}</title></path>`;
+  }).join('');
+  const activeTo=id=>movers.some(m=>m.target_kind==='node'&&m.target_node===id&&m.movement_state!=='returning');
+  $('#node-internet')?.classList.toggle('active',activeTo('internet')); $('#node-obsidian')?.classList.toggle('active',activeTo('obsidian'));
+  setSvgText('internet-state', activeTo('internet')?'ACTIVE · VIA ULTRON':'NO ACTIVITY OBSERVED'); setSvgText('obsidian-state', activeTo('obsidian')?'READ OBSERVED':'NOT CONFIGURED');
+}
+function setSvgText(id,value){ const el=document.getElementById(id); if(el) el.textContent=value; }
+function ingestSnapshotEvents(snapshot, validity){
+  (snapshot.events||[]).forEach(raw=>{ const ev=HC.normalizeEvent(raw); if(ev) onCoreEvent(ev); });
+}
+async function pollSnapshotForCore(signal){
+  const response=await fetch('/api/dashboard/snapshot',{headers:{Accept:'application/json'},cache:'no-store',signal});
+  if(!response.ok) throw new Error(`HTTP ${response.status}`);
+  const body=await response.json(); const ev=(body.events&&body.events.items)||[]; const ee=(body.events&&body.events.evidence)||{};
+  return {events:ev, validity:ee.validity||null};
+}
+function startCore(){
+  if(demoMode){
+    core.tstate={status:'live', lastMessageAt:Date.now(), sourceValidity:'fixture'};
+    const tag=document.createElementNS(SVGNS,'text'); tag.setAttribute('class','core-demo-tag'); tag.setAttribute('x','800'); tag.setAttribute('y','880'); tag.setAttribute('text-anchor','middle'); tag.textContent='DEMO'; $('#hive-core-art')?.appendChild(tag);
+    return;
+  }
+  core.transport=HC.createTransport({EventSource:window.EventSource, pollFn:pollSnapshotForCore, onEvent:onCoreEvent, onStatus:s=>{core.tstate=s; recomputeCore();}});
+  core.transport.start();
+}
+setInterval(()=>{ core.movement.tick(Date.now()); recomputeCore(); }, 5000);
 
 function renderView(){
   $$('[data-views]').forEach(section => {
@@ -453,4 +534,4 @@ $('#chat-draft-form')?.addEventListener('submit',event=>{event.preventDefault();
 $('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
 document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
-load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);
+startCore(); load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);

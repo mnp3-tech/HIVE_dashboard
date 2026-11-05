@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import hive_events
 import ipaddress
 import json
 import mimetypes
@@ -27,6 +28,7 @@ import re
 import secrets
 import sqlite3
 import subprocess
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PureWindowsPath
@@ -1902,6 +1904,20 @@ AO_SESSION_SEND_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/send$")
 AO_SESSION_SEND_RECOVER_PATH = re.compile(r"^/api/ao/sessions/([^/]+)/send/recover$")
 
 
+
+def live_event_batch():
+    """(contract events, status) from HIVE Core /events with its evidence; never fabricated."""
+    raw, ev = fetch_with_evidence("/events?limit=50")
+    prov = {"source": ev.get("source"), "validity": ev.get("validity"), "observed_at": ev.get("observed_at")}
+    events = [e for e in (hive_events.contract_event(item, prov) for item in unwrap_items(raw)) if e]
+    status = {"schema_version": hive_events.SCHEMA_VERSION, "validity": ev.get("validity"), "source": ev.get("source"),
+              "observed_at": ev.get("observed_at"), "reason": ev.get("reason"), "event_count": len(events)}
+    return events, status
+
+
+EVENT_STREAM_INTERVAL = 5.0
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Unified-Dashboard-Adapter/0.2"
 
@@ -1920,6 +1936,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def stream_events(self, query):
+        """Server-Sent Events. `cycles=N` bounds the stream (tests); default is until disconnect."""
+        try:
+            cycles = parse_bounded_int(query["cycles"][0], "cycles", 1, 100000, 1) if query.get("cycles") else None
+        except AdapterError:
+            cycles = None
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        try:
+            for frame in hive_events.stream_frames(live_event_batch, EVENT_STREAM_INTERVAL, cycles, time.sleep):
+                self.wfile.write(frame)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
 
     def drain_request_body(self) -> None:
         """Discard any pending request body bytes without parsing or using them.
@@ -1940,6 +1976,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         try:
+            if path == "/api/events/stream":
+                return self.stream_events(parse_qs(urlparse(self.path).query))
             if path == "/api/dashboard/snapshot":
                 return self.json_response(snapshot())
             if path == "/api/control/capabilities":

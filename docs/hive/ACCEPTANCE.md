@@ -53,24 +53,24 @@ Note on P0.1.6: the e2e asserts every listed label; the bottom ASK HIVE input, a
 
 | ID | Requirement | Phase | Verification | Status |
 |----|-------------|-------|--------------|--------|
-| P0.2.1 | Event normalization maps raw events to the section 9 contract (schema_version ... redacted_summary); malformed input rejected or marked UNKNOWN | P0.2 | tests/core_events.test.mjs (planned) | NOT_RUN |
-| P0.2.2 | Duplicate events (same event_id) are dropped | P0.2 | tests/core_events.test.mjs (planned) | NOT_RUN |
-| P0.2.3 | Stale/offline classification from last-observed time; silence yields UNKNOWN, never WORKING | P0.2 | tests/core_state.test.mjs (planned) | NOT_RUN |
-| P0.2.4 | State to visual-class mapping for all 8 CORE states (IDLE, WORKING, WAITING_APPROVAL, REVIEW, FAILED, SECURITY_BLOCKED, OFFLINE, UNKNOWN) | P0.2 | tests/core_state.test.mjs (planned) | NOT_RUN |
-| P0.2.5 | Agent movement: event -> target node -> return to home sector on completion | P0.2 | tests/core_movement.test.mjs (planned) | NOT_RUN |
-| P0.2.6 | Agent movement: return home on timeout | P0.2 | tests/core_movement.test.mjs (planned) | NOT_RUN |
-| P0.2.7 | No movement without an observed event (elapsed time alone never moves agents) | P0.2 | tests/core_movement.test.mjs (planned) | NOT_RUN |
-| P0.2.8 | Concurrent movement and pulse counts are capped; agents never disappear in transit | P0.2 | tests/core_movement.test.mjs (planned) | NOT_RUN |
-| P0.2.9 | Event-linked pulses require an observed event and correlation_id; ambient motion is visually distinct | P0.2 | tests/core_events.test.mjs + tests/core_visual.e2e.mjs (planned) | NOT_RUN |
-| P0.2.10 | SSE is the primary live transport when a stream endpoint exists | P0.2 | tests/core_transport.test.mjs (planned, with mock EventSource) | NOT_RUN |
-| P0.2.11 | Polling fallback has in-flight guard (no overlapping requests) | P0.2 | tests/core_transport.test.mjs (planned) | NOT_RUN |
-| P0.2.12 | Polling fallback has request timeout | P0.2 | tests/core_transport.test.mjs (planned) | NOT_RUN |
-| P0.2.13 | Reconnect with exponential backoff (bounded max) | P0.2 | tests/core_transport.test.mjs (planned) | NOT_RUN |
-| P0.2.14 | Event buffer is bounded (oldest evicted) | P0.2 | tests/core_transport.test.mjs (planned) | NOT_RUN |
-| P0.2.15 | prefers-reduced-motion disables/minimizes CORE, ambient and movement animation | P0.2 | tests/e2e/reduced_motion.e2e.mjs (planned, `emulateMedia({reducedMotion:'reduce'})`) | NOT_RUN |
-| P0.2.16 | Internet planet active only on observed network event; Obsidian node visible; ULTRON between agent and Internet during external access | P0.2 | tests/core_movement.test.mjs + tests/core_visual.e2e.mjs (planned) | NOT_RUN |
-| P0.2.17 | Server exposes an event stream (SSE) or the UI documents "polling only" and runs on fallback | P0.2 | tests/test_server.py + tests/test_fixture_server.py (planned cases; currently no stream endpoint exists, see Contradictions) | NOT_RUN |
-| P0.2.18 | CORE animation observable in a real browser at 3 resolutions; no console errors | P0.2 | tests/core_visual.e2e.mjs (planned) + MANUAL on Windows PC | NOT_RUN |
+| P0.2.1 | Event normalization maps raw events to the section 9 contract (schema_version ... redacted_summary); malformed input rejected or marked UNKNOWN | P0.2 | tests/core.test.mjs + tests/test_events.py | PASS_AUTOMATED |
+| P0.2.2 | Duplicate events (same event_id) are dropped | P0.2 | tests/core.test.mjs (buffer, derived ids) | PASS_AUTOMATED |
+| P0.2.3 | Stale/offline classification from last-observed time; silence yields UNKNOWN, never WORKING | P0.2 | tests/core.test.mjs (freshness + deriveCoreState); tests/e2e/core.e2e.mjs (live adapter, Core unreachable => UNKNOWN) | PASS_AUTOMATED |
+| P0.2.4 | State to visual-class mapping for all 8 CORE states (IDLE, WORKING, WAITING_APPROVAL, REVIEW, FAILED, SECURITY_BLOCKED, OFFLINE, UNKNOWN) | P0.2 | tests/core.test.mjs (8 states, distinct classes) | PASS_AUTOMATED |
+| P0.2.5 | Agent movement: event -> target node -> return to home sector on completion | P0.2 | tests/core.test.mjs (internet/obsidian/handoff, completion return) | PASS_AUTOMATED |
+| P0.2.6 | Agent movement: return home on timeout | P0.2 | tests/core.test.mjs (timeout return) | PASS_AUTOMATED |
+| P0.2.7 | No movement without an observed event (elapsed time alone never moves agents) | P0.2 | tests/core.test.mjs + tests/e2e/core.e2e.mjs (no movement without events) | PASS_AUTOMATED |
+| P0.2.8 | Concurrent movement and pulse counts are capped; agents never disappear in transit | P0.2 | tests/core.test.mjs (cap + queue + one trip/agent). "Never disappear in transit" not asserted | PARTIAL |
+| P0.2.9 | Event-linked pulses require an observed event and correlation_id; ambient motion is visually distinct | P0.2 | tests/e2e/core.e2e.mjs (ambient vs event link styles). Interaction id falls back to run/task/event id when no correlation_id exists - strict correlation_id requirement NOT enforced | PARTIAL |
+| P0.2.10 | SSE is the primary live transport when a stream endpoint exists | P0.2 | tests/core.test.mjs (fake EventSource) + tests/e2e/core.e2e.mjs (real SSE from fixture server) | PASS_AUTOMATED |
+| P0.2.11 | Polling fallback has in-flight guard (no overlapping requests) | P0.2 | tests/core.test.mjs | PASS_AUTOMATED |
+| P0.2.12 | Polling fallback has request timeout | P0.2 | tests/core.test.mjs | PASS_AUTOMATED |
+| P0.2.13 | Reconnect with exponential backoff (bounded max) | P0.2 | tests/core.test.mjs (1s,2s,4s...; max 30s) | PASS_AUTOMATED |
+| P0.2.14 | Event buffer is bounded (oldest evicted) | P0.2 | tests/core.test.mjs | PASS_AUTOMATED |
+| P0.2.15 | prefers-reduced-motion disables/minimizes CORE, ambient and movement animation | P0.2 | tests/e2e/core.e2e.mjs (reducedMotion emulation: animation none; movement model snaps) | PASS_AUTOMATED |
+| P0.2.16 | Internet planet active only on observed network event; Obsidian node visible; ULTRON between agent and Internet during external access | P0.2 | tests/e2e/core.e2e.mjs covers Internet inactive without traffic and Obsidian active on read. Internet-active path through the ULTRON ring is NOT asserted (no fixture internet event) | PARTIAL |
+| P0.2.17 | Server exposes an event stream (SSE) or the UI documents "polling only" and runs on fallback | P0.2 | tests/test_events.py (fixture + live SSE with mocked upstream) | PASS_AUTOMATED |
+| P0.2.18 | CORE animation observable in a real browser at 3 resolutions; no console errors | P0.2 | tests/e2e/core.e2e.mjs runs at 1920x1080 only; 1280/2560 CORE-with-events and Windows browser NOT_RUN | PARTIAL |
 
 ### P0.3 Chat, Activity, Approvals
 
