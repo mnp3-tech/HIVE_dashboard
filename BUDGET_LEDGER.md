@@ -127,3 +127,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Windows registry evidence recorded; summary-tool clarity fix
 - Docs (ACCEPTANCE, HANDOFF section 30, INTEGRATION_PLAN), hive_registry.py (provider/role lists without a section chip), tools/registry_summary.py (`--uncatalogued`, provider runtime breakdown, path masking), tests (+2 Python, registry E2E updated). Effort ~$2 (rough, not observed); estimated remaining on the USER-REPORTED basis ~$31-38. No execution or write path.
+
+## Uncatalogued skill identified (documentation only)
+- ACCEPTANCE, HANDOFF section 31, INTEGRATION_PLAN. No code or test change. Effort ~$0.5 (rough, not observed); estimated remaining on the USER-REPORTED basis ~$30-37.
