@@ -40,6 +40,7 @@ test('fixture SSE: events drive CORE to WORKING, UATU moves toward Obsidian with
   const home = await agentPos(p, 'UATU'); const thorHome = await agentPos(p, 'THOR');
   await p.waitForFunction(() => document.querySelector('#core-stage')?.dataset.coreState === 'WORKING', null, { timeout: 8000 });
   await p.waitForSelector('.event-link.obsidian', { timeout: 8000 });
+  await p.waitForFunction(h => { const m = document.querySelector('.core-agent[data-agent="UATU"]').getAttribute('transform').match(/-?[\d.]+/g).map(Number); return Math.hypot(m[0] - h[0], m[1] - h[1]) > 20; }, home, { timeout: 5000 }); // travel takes ~1.5s
   assert.ok(!sameSpot(await agentPos(p, 'UATU'), home), 'UATU left its home sector');
   assert.equal(await p.$eval('#node-obsidian', e => e.classList.contains('active')), true);
   assert.equal(await p.$eval('#obsidian-state', e => e.textContent), 'READ OBSERVED');
@@ -100,4 +101,37 @@ test('CORE stays centred and screenshots are saved for each state', async () => 
   await p.waitForTimeout(1800); await p.screenshot({ path: join(root, 'docs/hive/screenshots/core-working-1920x1080.png') });
   await ctx.close();
   const u = await page(LIVE); await u.p.waitForTimeout(1500); await u.p.screenshot({ path: join(root, 'docs/hive/screenshots/core-unknown-1920x1080.png') }); await u.ctx.close();
+});
+
+test('fixture data is labelled FIXTURE in the top bar at the same moment CORE shows WORKING', async () => {
+  const { p, ctx } = await page(FIX); await p.waitForFunction(() => document.querySelector('#core-stage')?.dataset.coreState === 'WORKING', null, { timeout: 8000 });
+  assert.match(await p.$eval('#env-tag', e => e.textContent), /FIXTURE/i); assert.equal(await p.$eval('#env-tag', e => e.offsetParent !== null), true);
+  await ctx.close();
+});
+
+test('untrusted source: an SSE stream announcing auth_required never yields WORKING or movement, even with a fresh INTERNET event', async () => {
+  const frame = (ev, d) => `event: ${ev}\ndata: ${JSON.stringify(d)}\n\n`;
+  const now = new Date().toISOString();
+  const body = frame('status', { validity: 'auth_required', source: 'hive:/events', reason: 'token missing' }) + frame('hive', { event_id: 'evil-1', timestamp: now, role_id: 'THOR', event_type: 'INTERNET_ACCESS', state: 'WORKING', task_id: 'tx', provenance: { validity: 'auth_required' } });
+  const { p, errors, ctx } = await page(FIX, { prep: pg => pg.route('**/api/events/stream*', r => r.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' }, body })) });
+  const home = await agentPos(p, 'THOR'); await p.waitForTimeout(2500);
+  // The stream ends after its frames, so the page falls back to polling the (trusted) fixture: IDLE is legitimate; WORKING never is.
+  assert.notEqual(await coreState(p), 'WORKING'); assert.equal(await p.$$eval('.event-link', e => e.length), 0);
+  assert.equal(await p.evaluate(() => core.buffer.list().some(e => e.event_id === 'evil-1')), false, 'the untrusted event must not be retained');
+  assert.ok(sameSpot(await agentPos(p, 'THOR'), home), 'THOR must not move'); assert.equal(await p.$eval('#internet-state', e => e.textContent), 'NO ACTIVITY OBSERVED');
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('stale ULTRON sighting does not keep the ring green', async () => {
+  const frame = (ev, d) => `event: ${ev}\ndata: ${JSON.stringify(d)}\n\n`;
+  const old = new Date(Date.now() - 600000).toISOString();
+  const body = frame('status', { validity: 'valid' }) + frame('hive', { event_id: 'u-old', timestamp: old, role_id: 'ULTRON', event_type: 'ULTRON_CHECK', state: 'WORKING', provenance: { validity: 'valid' } });
+  const { p, ctx } = await page(FIX, { prep: async pg => {
+    await pg.route('**/api/events/stream*', r => r.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body }));
+    // the polling fallback must not supply its own (fresh) ULTRON event, so only the stale SSE sighting exists
+    await pg.route('**/api/dashboard/snapshot*', async r => { const res = await r.fetch(); const j = await res.json(); j.events.items = []; r.fulfill({ json: j }); });
+  } });
+  await p.waitForTimeout(2000);
+  assert.equal(await p.evaluate(() => core.roleStates.has('ULTRON')), true, 'the stale ULTRON event was ingested (test is not vacuous)');
+  assert.equal(await p.$eval('#ultron-ring', e => e.getAttribute('class').includes('green')), false); await ctx.close();
 });

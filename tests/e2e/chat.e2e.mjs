@@ -144,3 +144,20 @@ test('composer with chips fits at 1280x720 without clipping or overlap; screensh
   assert.ok((await p.$eval('#hive-core-art', e => e.getBoundingClientRect().height)) >= 720 * 0.35, 'CORE still dominant with chips visible');
   await p.screenshot({ path: join(root, 'docs/hive/screenshots/composer-1280x720.png') }); await ctx.close();
 });
+
+test('a mocked 200 {ok:true} on any API route can never produce SENT (the UI has no send path)', async () => {
+  const { p, posts, ctx } = await open(LIVE);
+  await p.route('**/api/**', r => (r.request().url().includes('/api/events/stream') ? r.continue() : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, delivered: true, provider_response_id: 'fake' }) })));
+  await p.click('#chat-draft-input'); await p.keyboard.type('hello'); await p.keyboard.press('Enter'); await p.waitForSelector('.outbox-row');
+  await p.waitForTimeout(500);
+  assert.equal(await p.$$eval('.ob-state', e => e.map(x => x.textContent).includes('SENT')), false); assert.equal((await outbox(p))[0].state, 'NOT_CONNECTED');
+  assert.deepEqual(posts, []); await ctx.close();
+});
+
+test('after reload a local approval still reads "locally" and never "at source"', async () => {
+  const { p, ctx } = await open(FIX + '?scenario=approval');
+  await p.waitForSelector('.approval-row[data-provider="gpt"] .ap-btn.approve:not([disabled])', { timeout: 8000 }); await p.click('.approval-row[data-provider="gpt"] .ap-btn.approve');
+  await p.reload({ waitUntil: 'domcontentloaded' });
+  await p.waitForFunction(() => /Approved locally/.test(document.querySelector('.approval-row[data-provider="gpt"] .ap-state')?.textContent || ''), null, { timeout: 8000 });
+  assert.doesNotMatch(await p.$eval('#approval-rows', e => e.innerText), /at source/i); await ctx.close();
+});

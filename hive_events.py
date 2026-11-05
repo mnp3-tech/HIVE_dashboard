@@ -29,8 +29,8 @@ _SECRET = re.compile(
     r"(?is)(-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
     r"|bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{12,}"
     r"|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}"
-    r"|(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[_-]?id|authorization)\s*[=:]\s*\S+"
-    r"|\b[a-z0-9_\-]{40,}\b)"
+    r"|(?:api[ _-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[ _-]?id|authorization)\s*[=:]\s*(?:\"[^\"]*\"|'[^']*'|(?:basic|bearer|token)\s+\S+|\S+)"
+    r"|\b[a-z0-9_\-]{32,}\b)"
 )
 # Event types whose payload is a prompt/completion/reasoning: the summary is withheld entirely.
 _WITHHOLD = re.compile(r"PROMPT|COMPLETION|CHAIN|THOUGHT|REASONING|TRANSCRIPT|MESSAGE_BODY", re.I)
@@ -48,6 +48,11 @@ def redact_summary(text, limit: int = 160) -> str | None:
     if not isinstance(text, str) or not text.strip():
         return None
     return _SECRET.sub("[REDACTED]", " ".join(text.split()))[:limit]
+
+
+def _disp(value, limit=80):
+    """Display fields (role/provider/model/source) are redacted; identity fields (ids) are not."""
+    return redact_summary(str(value), limit) if value not in (None, "") else None
 
 
 def _text(value, limit=80):
@@ -73,10 +78,10 @@ def contract_event(raw: dict, provenance: dict | None = None) -> dict | None:
         "schema_version": SCHEMA_VERSION,
         "event_id": str(event_id)[:80],
         "timestamp": timestamp if isinstance(timestamp, str) else None,
-        "source": _text(raw.get("source")),
-        "role_id": _text(role),
-        "provider": _text(raw.get("provider")),
-        "model": _text(raw.get("model")),
+        "source": _disp(raw.get("source")),
+        "role_id": _disp(role),
+        "provider": _disp(raw.get("provider")),
+        "model": _disp(raw.get("model")),
         "task_id": _text(task_id),
         "run_id": _text(raw.get("run_id")),
         "correlation_id": _text(raw.get("correlation_id") or raw.get("interaction_id")),

@@ -61,6 +61,28 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(hive_events.contract_event({"event_id": "1", "target_node": "obsidian"})["target_node"], "obsidian")
 
 
+class RedactionParityTests(unittest.TestCase):
+    """The JS twin (hive-core.js) is checked against the same fixture list in tests/core.test.mjs."""
+
+    def test_shared_cases_match_the_recorded_js_output(self):
+        cases = json.loads((Path(__file__).parent / "redaction_cases.json").read_text(encoding="utf-8"))["cases"]
+        self.assertGreaterEqual(len(cases), 20)
+        for c in cases:
+            self.assertEqual(hive_events.redact_summary(c["input"], 160), c["expected"], c["input"][:40])
+
+    def test_display_fields_are_redacted_but_identity_fields_are_not(self):
+        ev = hive_events.contract_event({"event_id": "x" * 100, "role_id": "token=abc123", "provider": "secret=zzz", "model": "password=pw", "source": "cookie: sid=1",
+                                         "task_id": "123e4567-e89b-12d3-a456-426614174000", "redacted_summary": "secret=abc123"})
+        dump = json.dumps(ev)
+        for leaked in ("abc123", "zzz", "password=pw", "sid=1"):
+            self.assertNotIn(leaked, dump)
+        self.assertEqual(ev["task_id"], "123e4567-e89b-12d3-a456-426614174000"); self.assertEqual(len(ev["event_id"]), 80)
+
+    def test_withhold_is_case_insensitive(self):
+        for t in ("prompt_sent", "LLMPrompt", "user_message_body", "Chain-Of-Thought", "llm_completion"):
+            self.assertIsNone(hive_events.contract_event({"event_id": t, "event_type": t, "title": "private"})["redacted_summary"], t)
+
+
 class FramingTests(unittest.TestCase):
     def test_frames_status_first_then_each_event_once(self):
         evs = [hive_events.contract_event({"event_id": "b"}), hive_events.contract_event({"event_id": "a"})]  # newest first
@@ -116,6 +138,22 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(body.count("event: hive"), 0)
         status_frame = json.loads([l for l in body.splitlines() if l.startswith("data: ")][0][6:])
         self.assertEqual(status_frame["validity"], "unavailable"); self.assertEqual(status_frame["event_count"], 0)
+
+    def test_live_stream_never_reports_valid_for_untrusted_upstream(self):
+        for validity in ("auth_required", "unknown", "stale"):
+            fake = ({"items": []}, {"source": "hive:/events", "validity": validity, "observed_at": "2026-11-05T12:00:00Z", "reason": "r"})
+            with patch.object(server, "fetch_with_evidence", return_value=fake):
+                httpd = _serve(server.Handler)
+                try:
+                    _s, _c, body = _get(httpd, "/api/events/stream?cycles=1")
+                finally:
+                    httpd.shutdown(); httpd.server_close()
+            status = json.loads([l for l in body.splitlines() if l.startswith("data: ")][0][6:])
+            self.assertEqual(status["validity"], validity); self.assertEqual(status["event_count"], 0)
+
+    def test_stream_and_polling_ids_agree_for_the_same_upstream_event(self):
+        raw = {"timestamp": "2026-11-05T12:00:00Z", "event_type": "TASK_STARTED", "component_id": "FURY", "title": "t", "source": "bus"}
+        self.assertEqual(hive_events.contract_event(raw, {"validity": "valid"})["event_id"], hive_events.contract_event(dict(raw))["event_id"])
 
     def test_live_stream_normalises_core_events_with_provenance(self):
         fake = ({"items": [{"id": "ev-1", "timestamp": "2026-11-05T12:00:00Z", "event_type": "TASK_STARTED", "status": "running", "component_id": "FURY", "title": "secret=abc123def go"}]},

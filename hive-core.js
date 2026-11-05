@@ -15,7 +15,7 @@
   };
   const STATE_MAP = {};
   Object.keys(STATE_WORDS).forEach(s => STATE_WORDS[s].forEach(w => { STATE_MAP[w] = s; }));
-  const SECRET = /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)|bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}|(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[_-]?id|authorization)\s*[=:]\s*\S+|\b[a-z0-9_\-]{40,}\b)/gi;
+  const SECRET = /(-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)|bearer\s+[a-z0-9._\-]{8,}|sk-[a-z0-9_\-]{10,}|ghp_[a-z0-9]{10,}|github_pat_[a-z0-9_]{20,}|xox[baprs]-[a-z0-9-]{10,}|AKIA[0-9A-Z]{12,}|eyJ[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}\.[a-z0-9_\-]{8,}|(?:api[ _-]?key|token|secret|passw(?:or)?d|pwd|credential|cookie|session[ _-]?id|authorization)\s*[=:]\s*(?:"[^"]*"|'[^']*'|(?:basic|bearer|token)\s+\S+|\S+)|\b[a-z0-9_\-]{32,}\b)/gi;
   const WITHHOLD = /PROMPT|COMPLETION|CHAIN|THOUGHT|REASONING|TRANSCRIPT|MESSAGE_BODY/i;
 
   function normalizeState(raw) {
@@ -29,6 +29,7 @@
   }
   function hash(str) { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
   const text = (v, n) => (v === null || v === undefined || v === '' ? null : String(v).slice(0, n || 80));
+  const disp = v => (v === null || v === undefined || v === '' ? null : redactSummary(String(v), 80));
 
   /* Normalise one upstream event (server contract event or legacy snapshot event) to spec section 9. */
   function normalizeEvent(raw) {
@@ -44,7 +45,7 @@
     const ev = {
       schema_version: 1, event_id: String(id).slice(0, 80),
       timestamp: typeof timestamp === 'string' ? timestamp : null,
-      source: text(raw.source), role_id: text(role), provider: text(raw.provider), model: text(raw.model),
+      source: disp(raw.source), role_id: disp(role), provider: disp(raw.provider), model: disp(raw.model),
       task_id: text(raw.task_id), run_id: text(raw.run_id), correlation_id: text(raw.correlation_id || raw.interaction_id),
       event_type: String(eventType).slice(0, 60), state: stateRaw ? normalizeState(stateRaw) : 'UNKNOWN',
       severity: ['info', 'warning', 'error', 'critical'].includes(severity) ? severity : 'info',
@@ -84,6 +85,7 @@
     const o = Object.assign({ staleMs: 30000, offlineMs: 90000 }, opts);
     if (lastMs === null || lastMs === undefined || !Number.isFinite(lastMs)) return 'unknown';
     const age = nowMs - lastMs;
+    if (age < -5000) return 'unknown'; // a timestamp from the future is not evidence of liveness
     return age <= o.staleMs ? 'live' : age <= o.offlineMs ? 'stale' : 'offline';
   }
 
@@ -102,13 +104,23 @@
     (events || []).forEach(ev => {
       const t = Date.parse(ev.timestamp || '');
       if (!Number.isFinite(t) || now - t > o.activeWindowMs || t > now + 60000) return;
-      const key = ev.run_id || ev.task_id || ev.correlation_id || ev.event_id;
+      const key = ev.run_id || ev.task_id || ev.correlation_id || (ev.role_id ? 'role:' + ev.role_id : ev.event_id);
       const prev = latest.get(key);
       if (!prev || t >= prev.t) latest.set(key, { t, state: ev.state });
     });
     const active = new Set([...latest.values()].map(v => v.state));
     for (const s of PRIORITY) if (active.has(s)) return { state: s, reason: 'Observed event' };
     return { state: 'IDLE', reason: 'Fresh valid telemetry, no active run observed' };
+  }
+
+  /* Per-event trust: provenance (when present) and transport source validity must both be trusted. */
+  function eventTrusted(ev, sourceValidity) {
+    if (!TRUSTED_VALIDITY.includes(sourceValidity)) return false;
+    const v = ev && ev.provenance && ev.provenance.validity;
+    return v === undefined || v === null || TRUSTED_VALIDITY.includes(v);
+  }
+  function roleFresh(roleStates, role, now, windowMs) {
+    const r = roleStates && roleStates.get(role); return Boolean(r && Number.isFinite(r.at) && now - r.at >= -5000 && now - r.at < (windowMs || 120000));
   }
 
   const STATE_VISUAL = {
@@ -150,7 +162,7 @@
   }
 
   function createMovementModel(opts) {
-    const o = Object.assign({ maxMovers: 2, queueMax: 4, timeoutMs: 20000, travelMs: 1500, returnMs: 1500 }, opts);
+    const o = Object.assign({ maxMovers: 2, queueMax: 4, timeoutMs: 20000, travelMs: 1500, returnMs: 1500, maxEventAgeMs: 30000, futureSkewMs: 5000 }, opts);
     const movers = new Map(); let queue = [];
     const MIN_SEP = 26; // degrees of orbit kept clear between a resting agent and any other agent's home
     function restAngle(preferred, role, mustBeNear) {
@@ -178,8 +190,14 @@
         if (!role || HOME_ANGLES[role] === undefined) return false;
         const id = ev.correlation_id || ev.run_id || ev.task_id || ev.event_id;
         const existing = movers.get(id);
+        // A replayed/old event, an event with no timestamp, or one from the future is not an observation of NOW.
+        const ts = Date.parse(ev.timestamp || '');
+        if (!Number.isFinite(ts) || now - ts > o.maxEventAgeMs || ts - now > o.futureSkewMs) {
+          if (existing && terminal(ev)) existing.completing = true; // a late completion may still release a trip
+          return false;
+        }
         if (existing) { existing.lastEventAt = now; if (terminal(ev)) existing.completing = true; return true; }
-        if (terminal(ev)) return false;
+        if (terminal(ev)) { queue = queue.filter(q => q.id !== id); return false; }
         const target = resolveTarget(Object.assign({}, ev, { role_id: role }));
         if (!target) return false;
         const item = { id, role, target };
@@ -216,16 +234,16 @@
   function createTransport(cfg) {
     const c = Object.assign({ streamUrl: '/api/events/stream', pollIntervalMs: 5000, pollTimeoutMs: 4000, backoffBaseMs: 1000, backoffMaxMs: 30000, offlineAfterFailures: 2, now: Date.now, setTimeout: root.setTimeout && root.setTimeout.bind(root), clearTimeout: root.clearTimeout && root.clearTimeout.bind(root) }, cfg);
     const st = { mode: 'connecting', status: 'connecting', lastMessageAt: null, sourceValidity: null, failures: 0, backoffN: 0, inflight: false };
-    let es = null, pollTimer = null, reconnectTimer = null, stopped = false;
+    let es = null, pollTimer = null, reconnectTimer = null, stopped = false, sseLive = false;
     const emit = () => c.onStatus && c.onStatus(Object.assign({}, st));
     const got = () => { st.lastMessageAt = c.now(); st.failures = 0; };
     function openSse() {
       if (stopped || !c.EventSource) return startPolling();
       try { es = new c.EventSource(c.streamUrl); } catch (_e) { return startPolling(); }
-      es.onopen = () => { st.mode = 'sse'; st.status = 'live'; st.backoffN = 0; stopPolling(); emit(); };
+      es.onopen = () => { sseLive = true; st.mode = 'sse'; st.status = 'live'; st.backoffN = 0; stopPolling(); emit(); };
       es.addEventListener('hive', m => { try { const ev = normalizeEvent(JSON.parse(m.data)); got(); if (ev) c.onEvent(ev); emit(); } catch (_e) { /* malformed frame ignored */ } });
       es.addEventListener('status', m => { try { const s = JSON.parse(m.data); got(); st.sourceValidity = s.validity || null; st.sourceReason = s.reason || null; emit(); } catch (_e) { /* ignore */ } });
-      es.onerror = () => { try { es.close(); } catch (_e) { /* closed */ } es = null; st.mode = 'polling'; st.status = 'degraded'; startPolling(); scheduleReconnect(); emit(); };
+      es.onerror = () => { sseLive = false; try { es.close(); } catch (_e) { /* closed */ } es = null; st.mode = 'polling'; st.status = 'degraded'; st.sourceValidity = null; /* stale 'valid' must not outlive the stream */ startPolling(); scheduleReconnect(); emit(); };
     }
     function scheduleReconnect() {
       if (stopped || reconnectTimer) return;
@@ -244,7 +262,9 @@
       let timedOut = false;
       try {
         const res = await Promise.race([c.pollFn(ctl && ctl.signal), new Promise((_r, rej) => c.setTimeout(() => { timedOut = true; rej(new Error('poll timeout')); }, c.pollTimeoutMs + 50))]);
+        if (stopped || sseLive) return; // a poll that finishes after SSE took over must not overwrite the stream's validity
         got(); st.sourceValidity = (res && res.validity) || null; st.status = 'degraded';
+        emit(); // publish validity BEFORE dispatching events so consumers can gate on it
         (res && res.events || []).forEach(raw => { const ev = normalizeEvent(raw); if (ev) c.onEvent(ev); });
       } catch (_e) {
         st.failures += 1; if (st.failures >= c.offlineAfterFailures) st.status = 'offline';
@@ -261,6 +281,6 @@
     };
   }
 
-  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
+  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, eventTrusted, roleFresh, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

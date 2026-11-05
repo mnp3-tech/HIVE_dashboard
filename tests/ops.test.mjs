@@ -115,3 +115,40 @@ test('Edit needs both adapter support and a deep link', () => {
   assert.equal(O.editAvailable({ provider: 'gpt' }, { supports: () => true }), false);
   assert.equal(O.editAvailable({ provider: 'gpt', editUrl: 'https://x' }, { supports: () => true }), true);
 });
+
+/* ======== review-driven additions ======== */
+test('SENT gate is strict: string/empty/zero/missing id or non-true delivered => FAILED', async () => {
+  const mk = res => O.createOutbox({ connector: connected(async () => res) });
+  for (const res of [{ delivered: 'true', provider_response_id: 'x' }, { delivered: 1, provider_response_id: 'x' }, { delivered: true, provider_response_id: '' }, { delivered: true, provider_response_id: 0 }, { delivered: true, provider_response_id: {} }, { delivered: true, provider_response_id: null }, { ok: true }, {}, null, 'delivered'])
+    assert.equal((await mk(res).send('x')).message.state, 'FAILED', JSON.stringify(res));
+  assert.equal((await mk({ delivered: true, provider_response_id: 42 }).send('x')).message.state, 'SENT');
+});
+test('a response that arrives after the timeout cannot flip FAILED to SENT', async () => {
+  const ob = O.createOutbox({ timeoutMs: 20, connector: connected(() => new Promise(r => setTimeout(() => r({ delivered: true, provider_response_id: 'late' }), 80))) });
+  const m = (await ob.send('x')).message; assert.equal(m.state, 'FAILED'); await new Promise(r => setTimeout(r, 120)); assert.equal(m.state, 'FAILED'); assert.equal(m.providerResponseId, null);
+});
+test('retry on SENT never calls send again; QUEUED is the visible state when the connector is called', async () => {
+  let calls = 0, stateAtCall = null; let ob;
+  ob = O.createOutbox({ connector: connected(async () => { calls++; stateAtCall = ob.list()[0].state; return { delivered: true, provider_response_id: 'r' }; }) });
+  const { message } = await ob.send('x'); assert.equal(stateAtCall, 'QUEUED'); assert.equal(message.state, 'SENT');
+  assert.equal(await ob.retry(message.id), null); assert.equal(calls, 1);
+});
+test('a connector whose connected() throws yields NOT_CONNECTED (no unhandled rejection)', async () => {
+  const ob = O.createOutbox({ connector: { connected() { throw new Error('boom'); }, send: async () => ({ delivered: true, provider_response_id: 'r' }) } });
+  const r = await ob.send('x'); assert.equal(r.message.state, 'NOT_CONNECTED'); assert.match(r.message.reason, /boom/);
+  const ob2 = O.createOutbox({ connector: { connected: () => ({ ok: 'yes' }), send: async () => ({ delivered: true, provider_response_id: 'r' }) } });
+  assert.equal((await ob2.send('x')).message.state, 'NOT_CONNECTED', 'connected() must be exactly ok:true');
+});
+test('approvals: connector must return ok === true; truthy values and thrown supports() never claim "source"', async () => {
+  const item = { provider: 'gpt', key: 'gpt:t:e' };
+  for (const ok of ['yes', 1, {}, 'true']) { const r = await O.decide(item, 'approve', { supports: () => true, apply: async () => ({ ok }) }); assert.equal(r.scope, 'none', JSON.stringify(ok)); assert.equal(r.decision, null); }
+  const t = await O.decide(item, 'approve', { supports: () => { throw new Error('x'); } }); assert.equal(t.scope, 'local'); assert.doesNotMatch(t.label, /at source/);
+  const s = await O.decide(item, 'approve', { supports: () => 'yes', apply: async () => ({ ok: true }) }); assert.equal(s.scope, 'local', 'supports() must be exactly true');
+});
+test('approval decisions are per request: same task, new event => new key; reconnect replay => same key', () => {
+  const a = O.pendingApprovals([evt({ event_id: 'req-1' })], now).gpt[0], b = O.pendingApprovals([evt({ event_id: 'req-2' })], now).gpt[0], a2 = O.pendingApprovals([evt({ event_id: 'req-1' })], now).gpt[0];
+  assert.notEqual(a.key, b.key); assert.equal(a.key, a2.key);
+});
+test('approvals: events for an unrecognised provider are never attributed to GPT/CODEX/CLAUDE', () => {
+  assert.deepEqual(O.pendingApprovals([evt({ provider: 'mistral' }), evt({ provider: 'local' })], now), { gpt: [], codex: [], claude: [] });
+});

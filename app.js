@@ -358,18 +358,20 @@ function tickClock(){ const el=$('#clock-tag'); if(el) el.textContent=new Date()
 
 // ---- P0.2 CORE: transport -> buffer -> derived state -> movement -> SVG overlay (see hive-core.js) ----
 const HC = window.HiveCore;
-const core = {buffer:HC.createEventBuffer(200), activity:HC.createEventBuffer(100), ultronObserved:false, transport:null, view:{state:'UNKNOWN',reason:'No telemetry observed yet'}, raf:null,
+const core = {buffer:HC.createEventBuffer(200), activity:HC.createEventBuffer(100), transport:null, view:{state:'UNKNOWN',reason:'No telemetry observed yet'}, raf:null,
   tstate:{status:'connecting', lastMessageAt:null, sourceValidity:null}, roleStates:new Map()};
 const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 core.movement = HC.createMovementModel(reducedMotion() ? {travelMs:1, returnMs:1} : {});
 const SVGNS = 'http://www.w3.org/2000/svg';
 function onCoreEvent(ev){
+  // Events from an untrusted source (auth_required/unavailable/unknown...) are dropped, not parked: they must never
+  // become state or movement later when the source validity flips.
+  if(!HC.eventTrusted(ev, core.tstate.sourceValidity)) return;
   core.activity.add(ev);
   if(!core.buffer.add(ev)) return;
   const t=Date.now();
   core.movement.applyEvent(ev,t);
   const role=String(ev.role_id||'').toUpperCase();
-  if(role==='ULTRON') core.ultronObserved=true;
   if(role) core.roleStates.set(role,{state:ev.state, at:Date.parse(ev.timestamp||'')||t});
   scheduleCoreFrame(); recomputeCore();
 }
@@ -382,10 +384,11 @@ function applyCoreState(){
   const stage=$('#core-stage'); if(!stage) return;
   const s=core.view.state, vis=HC.visualClass(s), now=Date.now();
   stage.dataset.coreState=s; stage.dataset.tone=vis.tone; stage.className=`core-stage ${vis.cls}`;
+  const envEl=$('#env-tag'); if(envEl && core.tstate.sourceValidity==='fixture' && !/FIXTURE/i.test(envEl.textContent)) envEl.textContent='FIXTURE DATA'; // never show fixture-driven state unlabelled, even before the snapshot loads
   setText('core-center-state', stateLabel(s)); setText('core-state', GLOBAL_LABEL[s]); setText('core-state-detail', core.view.reason);
   const dot=$('#core-dot'); if(dot) dot.className=`status-dot ${vis.tone==='review'?'warn':vis.tone}`;
   const lock=$('#core-lock'); if(lock) lock.hidden=!vis.lock;
-  const ring=$('#ultron-ring'); if(ring) ring.setAttribute('class',`ultron-ring ${HC.ultronRingClass(s,core.ultronObserved)}`);
+  const ring=$('#ultron-ring'); if(ring) ring.setAttribute('class',`ultron-ring ${HC.ultronRingClass(s,HC.roleFresh(core.roleStates,'ULTRON',now))}`);
   const fresh = s!=='UNKNOWN' && s!=='OFFLINE';
   $$('#core-agents .core-agent').forEach(g=>{
     const role=g.dataset.agent; const rs=core.roleStates.get(role); const st=(fresh&&rs&&now-rs.at<120000)?rs.state:'UNKNOWN';

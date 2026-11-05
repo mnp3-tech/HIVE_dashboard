@@ -87,6 +87,10 @@ for (const res of RES) {
     const text = await page.evaluate(() => document.body.innerText);
     assert.doesNotMatch(text, /\bDONE\b/i); assert.doesNotMatch(text, /\bLOGS?\b/i);
     assert.doesNotMatch(text, /\bversion\b|\bv\d+\.\d+|contract v/i);
+    // forbidden text must also be absent from attributes and hidden text of the shell (outside the closed details console)
+    const attrText = await page.evaluate(() => [...document.querySelectorAll('body *')].filter(e => !e.closest('#console') && !['SCRIPT', 'STYLE'].includes(e.tagName))
+      .flatMap(e => [e.getAttribute('title'), e.getAttribute('aria-label'), e.getAttribute('placeholder'), e.getAttribute('alt'), e.textContent && e.children.length === 0 ? e.textContent : null]).filter(Boolean).join(' | '));
+    assert.doesNotMatch(attrText, /\bDONE\b|\bLOGS?\b|\bversion\b|\bv\d+\.\d+/i, 'forbidden label hidden in attributes/hidden text');
     // required shell labels
     for (const label of ['HIVE', 'GPT', 'CODEX', 'CLAUDE', 'ULTRON', 'JARVIS / VOICE LAYER', 'CHATS', 'PROJECTS', 'AGENTS / ROLES', 'ACTIVITY', 'APPROVALS', 'SYSTEM RESOURCES', 'AI MODELS / LIMITS', 'VOICE'])
       assert.ok(text.includes(label), `missing label ${label}`);
@@ -98,8 +102,9 @@ for (const res of RES) {
 
 test('panel material, equal provider chips, inactive JARVIS/VOICE', async () => {
   const { page } = await open(RES[1]);
-  const mat = await page.$eval('#panel-chats', e => { const s = getComputedStyle(e); return { bg: s.backgroundColor, bf: s.backdropFilter || s.webkitBackdropFilter, bc: s.borderTopColor }; });
-  assert.equal(mat.bg, 'rgba(4, 16, 29, 0.46)'); assert.match(mat.bf, /blur\(12px\)/); assert.equal(mat.bc, 'rgba(90, 190, 255, 0.4)');
+  const mats = await page.$$eval('.hive-panel', els => els.map(e => { const s = getComputedStyle(e); return { id: e.id, bg: s.backgroundColor, bf: s.backdropFilter || s.webkitBackdropFilter, bc: s.borderTopColor }; }));
+  assert.equal(mats.length, 9);
+  for (const mat of mats) { assert.equal(mat.bg, 'rgba(4, 16, 29, 0.46)', mat.id); assert.match(mat.bf, /blur\(12px\)/, mat.id); assert.equal(mat.bc, 'rgba(90, 190, 255, 0.4)', mat.id); }
   const widths = await page.$$eval('.source-chip', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
   assert.equal(widths.length, 3); assert.equal(new Set(widths).size, 1, `provider chips unequal: ${widths}`);
   assert.equal(await page.$eval('#voice-button', e => e.disabled), true);

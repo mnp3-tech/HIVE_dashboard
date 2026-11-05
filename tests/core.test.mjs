@@ -203,3 +203,150 @@ test('stopped transport schedules nothing further', async () => {
   const h = harness(); h.tr.start(); h.sources[0].onerror(); h.tr.stop(); await h.advance(60000);
   assert.equal(h.sources.length, 1);
 });
+
+/* ======== review-driven additions (Test Engineer review of P0.1-P0.3) ======== */
+import { readFileSync } from 'node:fs';
+const CASES = JSON.parse(readFileSync(new URL('./redaction_cases.json', import.meta.url), 'utf8')).cases;
+
+test('movement: old, undated or future events never move an agent (replay-safe)', () => {
+  const m = mv();
+  assert.equal(m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', timestamp: iso(3600) }), NOW), false);
+  assert.equal(m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', timestamp: null }), NOW), false);
+  assert.equal(m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', timestamp: iso(-3600) }), NOW), false, 'future');
+  assert.equal(m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', timestamp: iso(29) }), NOW), true, 'fresh enough');
+  assert.equal(m.size(), 1);
+});
+test('movement: a late completion event may still release an existing trip', () => {
+  const m = mv(); m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', correlation_id: 'k' }), NOW); m.tick(NOW + 1000);
+  m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', correlation_id: 'k', state: 'completed', timestamp: iso(600) }), NOW + 1500);
+  m.tick(NOW + 1500); assert.equal(m.snapshot(NOW + 1500)[0].movement_state, 'returning');
+});
+test('movement: completion while still travelling turns around; queued trip dropped by a terminal event', () => {
+  const m = mv(); m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', correlation_id: 'k2' }), NOW);
+  m.applyEvent(ev({ role_id: 'THOR', event_type: 'INTERNET_ACCESS', correlation_id: 'k2', state: 'failed' }), NOW + 200);
+  m.tick(NOW + 300); assert.equal(m.snapshot(NOW + 300)[0].movement_state, 'returning');
+  const q = mv({ maxMovers: 1, queueMax: 3 });
+  q.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'a' }), NOW);
+  assert.equal(q.applyEvent(ev({ role_id: 'SHURI', event_type: 'INTERNET_ACCESS', correlation_id: 'b' }), NOW), true); assert.equal(q.queued(), 1);
+  q.applyEvent(ev({ role_id: 'SHURI', event_type: 'INTERNET_ACCESS', correlation_id: 'b', state: 'completed' }), NOW + 100);
+  assert.equal(q.queued(), 0, 'completed-before-start trip must not start later');
+  q.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'a', state: 'completed' }), NOW + 200);
+  for (let t = 300; t < 6000; t += 100) q.tick(NOW + t);
+  assert.equal(q.size(), 0); assert.equal(q.snapshot(NOW + 6000).length, 0);
+});
+test('movement: exactly one finite, on-orbit entry per active role at every 100ms', () => {
+  const m = mv({ maxMovers: 2 });
+  m.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'x1' }), NOW);
+  m.applyEvent(ev({ role_id: 'UATU', event_type: 'WONG_READ', correlation_id: 'x2' }), NOW);
+  for (let t = 0; t <= 4600; t += 100) {
+    if (t === 2500) { m.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', correlation_id: 'x1', state: 'completed' }), NOW + t); m.applyEvent(ev({ role_id: 'UATU', event_type: 'WONG_READ', correlation_id: 'x2', state: 'completed' }), NOW + t); }
+    m.tick(NOW + t); const snap = m.snapshot(NOW + t);
+    if (t < 3400) assert.equal(snap.length, 2, `both agents visible at +${t}`); // travel, rest, and the whole return leg
+    for (const sn of snap) { assert.ok(Number.isFinite(sn.x) && Number.isFinite(sn.y) && Number.isFinite(sn.angle)); assert.ok(Math.abs(Math.hypot(sn.x - H.CENTER.x, sn.y - H.CENTER.y) - H.ORBIT_R) < 0.01, 'stays on the orbit'); }
+    assert.equal(new Set(snap.map(x => x.role)).size, snap.length);
+  }
+  assert.equal(m.size(), 0, 'both back home afterwards');
+});
+test('movement: exact cap counts (2 moving, 1 queued) and GAP-1 pin: correlation_id fallback is current behaviour', () => {
+  const m = mv({ maxMovers: 2, queueMax: 5 });
+  ['FURY', 'SHURI', 'THOR'].forEach((r, i) => m.applyEvent(ev({ role_id: r, event_type: 'INTERNET_ACCESS', correlation_id: 'c' + i }), NOW));
+  assert.equal(m.size(), 2); assert.equal(m.queued(), 1);
+  // GAP-1 (OPEN, see ACCEPTANCE.md): with no correlation_id the interaction id falls back to event_id. If this changes, update GAP-1.
+  const g = mv(); g.applyEvent(ev({ role_id: 'FURY', event_type: 'INTERNET_ACCESS', event_id: 'only-event-id', correlation_id: null, task_id: null, run_id: null }), NOW);
+  assert.equal(g.snapshot(NOW)[0].interaction_id, 'only-event-id');
+});
+
+test('CORE state: every untrusted source validity gives UNKNOWN even with a fresh WORKING event', () => {
+  for (const v of ['unavailable', 'stale', 'invalid', 'unverified', 'unknown', 'auth_required', '', null, undefined, 'VALID'])
+    assert.equal(H.deriveCoreState([ev()], ctx({ sourceValidity: v })).state, 'UNKNOWN', String(v));
+  assert.equal(H.deriveCoreState([ev()], ctx({ sourceValidity: 'fixture' })).state, 'WORKING');
+});
+test('CORE state: transport modes pinned; NaN / future telemetry timestamps are never live', () => {
+  assert.equal(H.deriveCoreState([ev()], ctx({ transportStatus: 'degraded' })).state, 'WORKING', 'polling fallback with fresh trusted data');
+  assert.equal(H.deriveCoreState([ev()], ctx({ transportStatus: 'connecting', lastMessageAt: null })).state, 'UNKNOWN');
+  assert.equal(H.deriveCoreState([ev()], ctx({ lastMessageAt: NaN })).state, 'UNKNOWN');
+  assert.equal(H.deriveCoreState([ev()], ctx({ lastMessageAt: NOW + 3600e3 })).state, 'UNKNOWN');
+  assert.equal(H.deriveCoreState([ev()], ctx({ lastMessageAt: undefined })).state, 'UNKNOWN');
+});
+test('CORE state: working then completed by the same role without task/run ids does not stick on WORKING', () => {
+  const w = H.normalizeEvent({ event_id: 'w1', timestamp: iso(20), role_id: 'FURY', state: 'working' });
+  const c = H.normalizeEvent({ event_id: 'c1', timestamp: iso(5), role_id: 'FURY', state: 'completed' });
+  assert.equal(H.deriveCoreState([w, c], ctx()).state, 'IDLE');
+  assert.equal(H.deriveCoreState([c, w], ctx()).state, 'IDLE', 'order-independent');
+});
+test('eventTrusted: transport validity and per-event provenance must both be trusted', () => {
+  assert.equal(H.eventTrusted({ provenance: {} }, 'valid'), true); assert.equal(H.eventTrusted({ provenance: { validity: 'fixture' } }, 'fixture'), true);
+  assert.equal(H.eventTrusted({ provenance: { validity: 'unavailable' } }, 'valid'), false);
+  assert.equal(H.eventTrusted({ provenance: {} }, 'auth_required'), false); assert.equal(H.eventTrusted({}, null), false);
+});
+test('ULTRON freshness expires (no sticky green) and future role timestamps are not fresh', () => {
+  const rs = new Map([['ULTRON', { state: 'working', at: NOW - 10000 }]]);
+  assert.equal(H.roleFresh(rs, 'ULTRON', NOW), true); assert.equal(H.roleFresh(rs, 'ULTRON', NOW + 130000), false);
+  assert.equal(H.roleFresh(new Map([['ULTRON', { at: NOW + 3600e3 }]]), 'ULTRON', NOW), false); assert.equal(H.roleFresh(rs, 'FURY', NOW), false);
+  for (const s of ['REVIEW', 'FAILED', 'OFFLINE', 'IDLE']) assert.equal(H.ultronRingClass(s, false), s === 'FAILED' ? 'gray' : 'gray', s);
+  assert.equal(H.ultronRingClass('FAILED', true), 'gray'); assert.equal(H.ultronRingClass('OFFLINE', true), 'gray'); assert.equal(H.ultronRingClass('REVIEW', true), 'green');
+});
+
+test('redaction: shared JS/Python fixture list gives identical, secret-free output', () => {
+  for (const c of CASES) {
+    const out = H.redactSummary(c.input, 160); assert.equal(out, c.expected, JSON.stringify(c.input.slice(0, 40)));
+    assert.ok(!/sk-[a-z0-9]|ghp_[a-z0-9]|AKIA[0-9A-Z]{4}|hunter2|my secret|dXNlcjpwYXNz|MIIEabc/i.test(out), 'leak in ' + JSON.stringify(out));
+  }
+  assert.ok(!/sk-/.test(CASES.at(-1).expected), 'a secret straddling the length cut must not leave a partial token');
+});
+test('redaction: display fields, supplied summaries and prompt-type casing', () => {
+  const r = H.sanitizeActivityRow(H.normalizeEvent({ event_id: 'r', role_id: 'token=abc123', provider: 'secret=zzz', source: 'password=pw', title: 'x', redacted_summary: 'secret=abc123' }));
+  assert.equal(r.role, '[REDACTED]'); assert.equal(r.provider, '[REDACTED]'); assert.ok(!/abc123/.test(JSON.stringify(r)));
+  for (const t of ['prompt_sent', 'LLMPrompt', 'user_message_body', 'Chain-Of-Thought', 'llm_completion'])
+    assert.equal(H.normalizeEvent({ event_id: t, event_type: t, title: 'private' }).redacted_summary, null, t);
+  assert.equal(H.normalizeEvent({ event_id: 'x'.repeat(100) }).event_id.length, 80, 'ids are bounded, not redacted');
+  assert.equal(H.normalizeEvent({ event_id: 'a', task_id: '123e4567-e89b-12d3-a456-426614174000' }).task_id, '123e4567-e89b-12d3-a456-426614174000', 'identity fields keep their value');
+});
+test('dedupe: SSE-style and poll-style copies of one event (same event_id) collapse; distinct id-less events with identical fields collapse by design', () => {
+  const b = H.createEventBuffer(10);
+  const sse = H.normalizeEvent({ event_id: 'ev-9', timestamp: iso(2), role_id: 'FURY', state: 'working', provenance: { source: 'sse' } });
+  const poll = H.normalizeEvent({ event_id: 'ev-9', timestamp: iso(2), kind: 'TASK', component_id: 'FURY', status: 'running' });
+  assert.equal(b.add(sse), true); assert.equal(b.add(poll), false);
+  const a1 = H.normalizeEvent({ timestamp: iso(2), kind: 'K', component_id: 'R', title: 't' }), a2 = H.normalizeEvent({ timestamp: iso(2), kind: 'K', component_id: 'R', title: 't' });
+  assert.equal(b.add(a1), true); assert.equal(b.add(a2), false, 'documented: identical id-less events are one event');
+});
+
+/* ---- transport edge cases ---- */
+test('transport: SSE error clears the stale source validity; a later poll with validity null stays UNKNOWN', async () => {
+  const h = harness({ pollFn: async () => ({ events: [{ event_id: 'p1', state: 'working', role_id: 'FURY', timestamp: new Date().toISOString() }], validity: null }) });
+  h.tr.start(); const es = h.sources[0]; es.onopen(); es.l.status({ data: JSON.stringify({ validity: 'valid' }) }); assert.equal(h.tr.state().sourceValidity, 'valid');
+  es.onerror(); assert.equal(h.tr.state().sourceValidity, null); assert.notEqual(h.tr.state().status, 'live');
+  await h.advance(100); const s = h.tr.state();
+  assert.equal(H.deriveCoreState([ev()], { now: s.lastMessageAt + 100, transportStatus: s.status, lastMessageAt: s.lastMessageAt, sourceValidity: s.sourceValidity }).state, 'UNKNOWN');
+});
+test('transport: a poll reporting validity "unavailable" refreshes freshness but never trusts the data', async () => {
+  const h = harness({ EventSource: undefined, pollFn: async () => ({ events: [{ event_id: 'u1', state: 'working' }], validity: 'unavailable' }) });
+  h.tr.start(); await h.advance(50); const s = h.tr.state(); assert.equal(s.sourceValidity, 'unavailable');
+  assert.equal(H.deriveCoreState([ev()], { now: s.lastMessageAt, transportStatus: s.status, lastMessageAt: s.lastMessageAt, sourceValidity: s.sourceValidity }).state, 'UNKNOWN');
+});
+test('transport: backoff caps at 30s, resets after a successful open, and never double-schedules', async () => {
+  const h = harness({ EventSource: class { constructor() { this.l = {}; h.made.push(this); } addEventListener(n, f) { this.l[n] = f; } close() {} }, pollFn: async () => ({ events: [], validity: 'valid' }) });
+  h.made = []; h.tr.start(); const seen = [];
+  for (let i = 0; i < 9; i++) { const cur = h.made.at(-1); cur.onerror(); cur.onerror(); seen.push(h.tr.state().nextReconnectMs); await h.advance(31000); }
+  assert.deepEqual(seen.slice(0, 6), [1000, 2000, 4000, 8000, 16000, 30000]); assert.ok(seen.every(x => x <= 30000));
+  assert.equal(h.made.length, 10, 'exactly one reconnect per failure even if onerror fires twice');
+  h.made.at(-1).onopen(); h.made.at(-1).onerror(); assert.equal(h.tr.state().nextReconnectMs, 1000, 'backoff reset after open');
+});
+test('transport: stop() mid-flight swallows the resolving poll; timeout aborts the request; malformed status frame is not telemetry', async () => {
+  let release; const gate = new Promise(r => { release = r; }); const got = [];
+  const h = harness({ EventSource: undefined, onEvent: e => got.push(e), pollFn: async () => { await gate; return { events: [{ event_id: 'late' }], validity: 'valid' }; } });
+  h.tr.start(); await h.advance(10); h.tr.stop(); release(); await h.advance(100); assert.equal(got.length, 0, 'no events after stop');
+  let signal; const t = harness({ EventSource: undefined, pollTimeoutMs: 50, pollFn: s => { signal = s; return new Promise(() => {}); } });
+  t.tr.start(); await t.advance(200); assert.equal(signal && signal.aborted, true, 'timeout must abort the in-flight request');
+  const s = harness(); s.tr.start(); s.sources[0].l.status({ data: '{not json' }); assert.equal(s.tr.state().lastMessageAt, null);
+  s.sources[0].l.hive({ data: JSON.stringify({ event_id: 'pre', state: 'working', timestamp: new Date().toISOString() }) }); assert.equal(s.events.length, 1, 'frame before onopen is still handled');
+});
+
+test('transport: a poll still in flight when SSE opens is discarded (cannot overwrite the stream validity or inject events)', async () => {
+  let release; const gate = new Promise(r => { release = r; });
+  const h = harness({ EventSource: class { constructor() { this.l = {}; h.made.push(this); } addEventListener(n, f) { this.l[n] = f; } close() {} }, pollFn: async () => { await gate; return { events: [{ event_id: 'poll-late', state: 'working' }], validity: 'valid' }; } });
+  h.made = []; h.tr.start(); h.made[0].onerror(); await h.advance(10); // SSE failed -> poll in flight
+  await h.advance(1100); h.made[1].onopen(); h.made[1].l.status({ data: JSON.stringify({ validity: 'auth_required' }) });
+  release(); await h.advance(50);
+  assert.equal(h.tr.state().sourceValidity, 'auth_required'); assert.equal(h.events.length, 0);
+});

@@ -1772,6 +1772,7 @@ def snapshot():
             continue
         raw_timestamp = event.get("timestamp") or event.get("created_at")
         normalized_events.append({
+            "event_id": (hive_events.contract_event(event) or {}).get("event_id"),
             "timestamp": raw_timestamp,
             "timestamp_validity": "valid" if raw_timestamp else "unknown",
             "kind": event.get("event_type", "OBSERVED_EVENT"),

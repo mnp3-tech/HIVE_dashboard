@@ -163,9 +163,9 @@ def build_snapshot(now: datetime | None = None) -> dict:
         },
         "events": {
             "items": [
-                {"timestamp": _observed(now, 5), "timestamp_validity": "valid", "kind": "TASK_ROUTED", "title": "Task routed to Claude", "source": "fixture event bus", "component_id": "claude-subscription", "severity": "info"},
-                {"timestamp": _observed(now, 42), "timestamp_validity": "valid", "kind": "WONG_READ", "title": "WONG projection read", "source": "fixture memory bridge", "component_id": "obsidian-wong", "severity": "info"},
-                {"timestamp": _observed(now, 75), "timestamp_validity": "valid", "kind": "ULTRON_CHECK", "title": "ULTRON connection check passed", "source": "fixture security layer", "component_id": "ultron", "severity": "info"},
+                {"event_id": "fx-snap-1", "timestamp": _observed(now, 5), "timestamp_validity": "valid", "kind": "TASK_ROUTED", "title": "Task routed to Claude", "source": "fixture event bus", "component_id": "claude-subscription", "severity": "info"},
+                {"event_id": "fx-snap-2", "timestamp": _observed(now, 42), "timestamp_validity": "valid", "kind": "WONG_READ", "title": "WONG projection read", "source": "fixture memory bridge", "component_id": "obsidian-wong", "severity": "info"},
+                {"event_id": "fx-snap-3", "timestamp": _observed(now, 75), "timestamp_validity": "valid", "kind": "ULTRON_CHECK", "title": "ULTRON connection check passed", "source": "fixture security layer", "component_id": "ultron", "severity": "info"},
             ],
             "evidence": _evidence(now, "fixture:events"),
         },
@@ -330,7 +330,7 @@ def fixture_event_batch(scenario=None):
     prov = {"source": "fixture:events", "validity": "fixture", "observed_at": now.isoformat()}
     raw = [
         {"event_id": "fx-1", "timestamp": _observed(now, 5), "role_id": "FURY", "provider": "claude", "event_type": "TASK_ROUTED", "state": "working", "task_id": "fx-task-1", "correlation_id": "fx-corr-1", "source": "fixture event bus", "title": "Task routed (fixture)"},
-        {"event_id": "fx-2", "timestamp": _observed(now, 42), "role_id": "UATU", "provider": "local", "event_type": "WONG_READ", "state": "working", "task_id": "fx-task-2", "correlation_id": "fx-corr-2", "target_node": "obsidian", "source": "fixture memory bridge", "title": "WONG projection read (fixture)"},
+        {"event_id": "fx-2", "timestamp": _observed(now, 8), "role_id": "UATU", "provider": "local", "event_type": "WONG_READ", "state": "working", "task_id": "fx-task-2", "correlation_id": "fx-corr-2", "target_node": "obsidian", "source": "fixture memory bridge", "title": "WONG projection read (fixture)"},
     ]
     if scenario == "approval":  # opt-in: exercises the Approvals fallback; changes CORE state to WAITING_APPROVAL
         raw.append({"event_id": "fx-3", "timestamp": _observed(now, 3), "role_id": "VISION", "provider": "gpt", "event_type": "APPROVAL_REQUESTED", "state": "waiting_approval", "task_id": "fx-task-3", "correlation_id": "fx-corr-3", "source": "fixture approvals", "title": "Approval requested (fixture)"})

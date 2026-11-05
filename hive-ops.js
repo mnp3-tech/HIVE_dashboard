@@ -34,11 +34,11 @@
     const notify = () => c.onChange && c.onChange(messages.slice());
     async function attempt(m) {
       m.state = 'QUEUED'; m.reason = null; notify();
-      const conn = c.connector.connected();
-      if (!conn || !conn.ok) { m.state = 'NOT_CONNECTED'; m.reason = (conn && conn.reason) || 'No provider connector is connected'; m.updatedAt = c.now(); notify(); return m; }
+      let conn; try { conn = c.connector.connected(); } catch (e) { conn = { ok: false, reason: 'Connector check failed: ' + String(e && e.message || e).slice(0, 120) }; }
+      if (!conn || conn.ok !== true) { m.state = 'NOT_CONNECTED'; m.reason = (conn && conn.reason) || 'No provider connector is connected'; m.updatedAt = c.now(); notify(); return m; }
       try {
         const res = await withTimeout(c.connector.send({ text: m.text, attachments: m.attachments.map(a => ({ name: a.name, size: a.size, type: a.type })) }), c.timeoutMs);
-        if (res && res.delivered === true && res.provider_response_id) { m.state = 'SENT'; m.providerResponseId = String(res.provider_response_id).slice(0, 80); m.reason = null; }
+        if (res && res.delivered === true && Boolean(res.provider_response_id) && (typeof res.provider_response_id === 'string' || typeof res.provider_response_id === 'number')) { m.state = 'SENT'; m.providerResponseId = String(res.provider_response_id).slice(0, 80); m.reason = null; }
         else { m.state = 'FAILED'; m.reason = (res && res.reason) || 'Provider did not confirm delivery'; }
       } catch (e) { m.state = 'FAILED'; m.reason = String(e && e.message || e).slice(0, 160); }
       m.updatedAt = c.now(); notify(); return m;
@@ -69,7 +69,7 @@
       const prev = latest.get(key); if (!prev || t >= prev.t) latest.set(key, { t, ev, key, provider: p });
     });
     const out = { gpt: [], codex: [], claude: [] };
-    latest.forEach(v => { if (v.ev.state === 'WAITING_APPROVAL') out[v.provider].push({ key: v.key, provider: v.provider, summary: v.ev.redacted_summary || v.ev.event_type, at: v.ev.timestamp }); });
+    latest.forEach(v => { if (v.ev.state === 'WAITING_APPROVAL') out[v.provider].push({ key: v.key + ':' + v.ev.event_id /* per request: a new request for the same task is a new decision */, provider: v.provider, summary: v.ev.redacted_summary || v.ev.event_type, at: v.ev.timestamp }); });
     return out;
   }
   const DECISIONS = { approve: 'APPROVED', reject: 'REJECTED' };
@@ -78,8 +78,9 @@
   async function decide(item, action, connector) {
     const conn = connector || NO_APPROVAL_CONNECTOR;
     if (!DECISIONS[action]) throw new Error('unsupported action');
-    if (conn.supports(item.provider, action)) {
-      try { const r = await conn.apply(item.provider, action, item); if (r && r.ok) return { scope: 'source', decision: DECISIONS[action], label: (action === 'approve' ? 'Approved' : 'Rejected') + ' at source' }; return { scope: 'none', decision: null, label: 'Source did not confirm; nothing changed', reason: r && r.reason }; }
+    let supported = false; try { supported = conn.supports(item.provider, action) === true; } catch (_e) { supported = false; }
+    if (supported) {
+      try { const r = await conn.apply(item.provider, action, item); if (r && r.ok === true) return { scope: 'source', decision: DECISIONS[action], label: (action === 'approve' ? 'Approved' : 'Rejected') + ' at source' }; return { scope: 'none', decision: null, label: 'Source did not confirm; nothing changed', reason: r && r.reason }; }
       catch (e) { return { scope: 'none', decision: null, label: 'Source call failed; nothing changed', reason: String(e && e.message || e) }; }
     }
     return { scope: 'local', decision: DECISIONS[action], label: (action === 'approve' ? 'Approved' : 'Rejected') + ' locally, source not updated' };

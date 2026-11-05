@@ -28,3 +28,10 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Preserved as-is: all P0.2 PARTIAL statuses. Added GAP-1..5 to ACCEPTANCE.md, including the correlation_id contract gap (GAP-1, OPEN).
 - Not verified: any real provider send (no route exists; SENT is exercised with a mock connector only), any approval source connector, live HIVE Core, Windows.
 - Subagents: 0 new (2 total; Test Engineer review of coverage vs ACCEPTANCE.md still to run per plan). Effort: ~$12 of $18.
+
+## P0.3 follow-up: Test Engineer review fixes
+- Subagent #3 (Test Engineer) reviewed coverage; I reproduced each claim before acting. 12 real defects fixed (listed in ACCEPTANCE.md "Test Engineer review outcome"), among them two honesty bugs: connector `ok:'yes'` counted as source approval, and untrusted-source events surviving in the state buffer.
+- New/extended tests: core.test.mjs 27 -> 45, ops.test.mjs 15 -> 22, html_ids 2 -> 3 (ids used by app.js must exist), test_events.py 10 -> 17 (shared JS/Python redaction fixture, 0 mismatches), E2E shell 7, core 7 -> 10, chat 9 -> 11. E2E runs repeated 5x for stability after fixing real races and my own test mistakes (wrong regex escape, wrong expectations after fallback polling).
+- Totals now: Python 242/242 OK; ui_contract 20/20; Node unit 45+22+3; Playwright 7+10+11. py_compile + git diff --check clean.
+- Preserved: all P0.2 PARTIAL statuses and GAP-1 (correlation_id), unchanged.
+- Subagents: 3 total. Effort: P0.3 now ~$15 of $18 (including review fixes).

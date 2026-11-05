@@ -1,0 +1,104 @@
+{
+ "cases": [
+  {
+   "input": "Bearer abcdef1234567890",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "password: \"my secret pass\"",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "password='two words here' tail",
+   "expected": "[REDACTED] tail"
+  },
+  {
+   "input": "Authorization: Basic dXNlcjpwYXNz",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "Authorization: Bearer abcdefgh12345678",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "api key=abc123",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "api_key=abc123 end",
+   "expected": "[REDACTED] end"
+  },
+  {
+   "input": "AKIAIOSFODNN7EXAMPLE used",
+   "expected": "[REDACTED] used"
+  },
+  {
+   "input": "token=eyJhbGciOi.eyJzdWIiOiIx.abcdefghij",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "jwt eyJhbGciOiJI.eyJzdWIiOiIx.SflKxwRJSMeKKF2QT4",
+   "expected": "jwt [REDACTED]"
+  },
+  {
+   "input": "cookie: sid=abc123; other=1",
+   "expected": "[REDACTED] other=1"
+  },
+  {
+   "input": "session id: 99887766",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "sk-ant-abcdefghijklmnop12",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "ghp_abcdefghijklmnopqrstuvwxyz",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "github_pat_11ABCDEFG0abcdefghijklmnop",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "xoxb-1234567890-abcdefghij",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY----- after",
+   "expected": "[REDACTED] after"
+  },
+  {
+   "input": "-----BEGIN PRIVATE KEY-----\ntruncated no end",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+   "expected": "[REDACTED]"
+  },
+  {
+   "input": "plain text with nothing secret",
+   "expected": "plain text with nothing secret"
+  },
+  {
+   "input": "uuid 123e4567-e89b-12d3-a456-426614174000 here",
+   "expected": "uuid [REDACTED] here"
+  },
+  {
+   "input": "multi   space\n\nnewline   collapse",
+   "expected": "multi space newline collapse"
+  },
+  {
+   "input": "ok zzzzzzzzzz sk-abcdefghijklmnopqrstuvwxyz0123456789 tail",
+   "expected": "ok zzzzzzzzzz [REDACTED] tail"
+  },
+  {
+   "input": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a sk-abcdefghijklmnopqrstuvwxyz",
+   "expected": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a [REDACTE"
+  }
+ ]
+}
