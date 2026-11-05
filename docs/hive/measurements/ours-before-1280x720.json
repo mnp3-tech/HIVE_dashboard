@@ -1,0 +1,418 @@
+{
+ "viewport": {
+  "w": 1280,
+  "h": 720
+ },
+ "panels": {
+  "chats": {
+   "x0": 11.515625,
+   "y0": 71,
+   "x1": 261.515625,
+   "y1": 230.109375,
+   "w": 250,
+   "h": 159.109375
+  },
+  "projects": {
+   "x0": 11.515625,
+   "y0": 241.625,
+   "x1": 261.515625,
+   "y1": 325.5625,
+   "w": 250,
+   "h": 83.9375
+  },
+  "agents": {
+   "x0": 11.515625,
+   "y0": 492.609375,
+   "x1": 261.515625,
+   "y1": 708.484375,
+   "w": 250,
+   "h": 215.875
+  },
+  "card_current": {
+   "x0": 273.03125,
+   "y0": 71,
+   "x1": 425.890625,
+   "y1": 129.96875,
+   "w": 152.859375,
+   "h": 58.96875
+  },
+  "card_next": {
+   "x0": 437.40625,
+   "y0": 71,
+   "x1": 590.265625,
+   "y1": 129.96875,
+   "w": 152.859375,
+   "h": 58.96875
+  },
+  "card_context": {
+   "x0": 601.78125,
+   "y0": 71,
+   "x1": 754.640625,
+   "y1": 129.96875,
+   "w": 152.859375,
+   "h": 58.96875
+  },
+  "card_external": {
+   "x0": 766.15625,
+   "y0": 71,
+   "x1": 919.015625,
+   "y1": 129.96875,
+   "w": 152.859375,
+   "h": 58.96875
+  },
+  "card_layout": {
+   "x0": 930.53125,
+   "y0": 71,
+   "x1": 1006.96875,
+   "y1": 129.96875,
+   "w": 76.4375,
+   "h": 58.96875
+  },
+  "activity": {
+   "x0": 1018.484375,
+   "y0": 71,
+   "x1": 1268.484375,
+   "y1": 291.359375,
+   "w": 250,
+   "h": 220.359375
+  },
+  "approvals": {
+   "x0": 1018.484375,
+   "y0": 509.375,
+   "x1": 1268.484375,
+   "y1": 708.484375,
+   "w": 250,
+   "h": 199.109375
+  },
+  "resources": {
+   "x0": 273.03125,
+   "y0": 500.578125,
+   "x1": 634.234375,
+   "y1": 650.578125,
+   "w": 361.203125,
+   "h": 150
+  },
+  "limits": {
+   "x0": 645.75,
+   "y0": 500.578125,
+   "x1": 1006.96875,
+   "y1": 650.578125,
+   "w": 361.21875,
+   "h": 150
+  },
+  "composer": {
+   "x0": 273.03125,
+   "y0": 662.09375,
+   "x1": 1006.96875,
+   "y1": 708.484375,
+   "w": 733.9375,
+   "h": 46.390625
+  }
+ },
+ "text": {
+  "panel_title": {
+   "font_px": 10.8,
+   "weight": "600",
+   "letter_spacing": "1.728px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "card_title": {
+   "font_px": 7.92,
+   "weight": "600",
+   "letter_spacing": "1.0296px",
+   "family": "Inter",
+   "colour": "rgb(207, 227, 245)"
+  },
+  "card_main": {
+   "font_px": 10.08,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(234, 244, 255)"
+  },
+  "body_row": {
+   "font_px": 10.56,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "approval_label": {
+   "font_px": 10.2,
+   "weight": "700",
+   "letter_spacing": "0.816px",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "button": {
+   "font_px": 8.64,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(125, 240, 197)"
+  },
+  "gauge_label": {
+   "font_px": 10,
+   "weight": "400",
+   "letter_spacing": "1px",
+   "family": "Inter",
+   "colour": "rgb(120, 145, 162)"
+  },
+  "limit_label": {
+   "font_px": 10.32,
+   "weight": "700",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(156, 194, 255)"
+  },
+  "node_name": {
+   "font_px": 11.64,
+   "weight": "600",
+   "letter_spacing": "3.1px",
+   "family": "Inter",
+   "colour": "rgb(242, 248, 255)"
+  },
+  "node_caption": {
+   "font_px": 7.89,
+   "weight": "400",
+   "letter_spacing": "1.68px",
+   "family": "Inter",
+   "colour": "rgb(79, 240, 192)"
+  },
+  "ctx_label": {
+   "font_px": 10.52,
+   "weight": "400",
+   "letter_spacing": "0.56px",
+   "family": "Inter",
+   "colour": "rgb(169, 188, 205)"
+  },
+  "internet_label": {
+   "font_px": 11.64,
+   "weight": "600",
+   "letter_spacing": "3.1px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "composer_input": {
+   "font_px": 11.4,
+   "weight": "400",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "top_brand": {
+   "font_px": 18,
+   "weight": "650",
+   "letter_spacing": "3.6px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "chip": {
+   "font_px": 9.36,
+   "weight": "600",
+   "letter_spacing": "0.5616px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  }
+ },
+ "colours": {
+  ".hive-panel": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(4, 16, 29, 0.46)",
+   "border": "rgba(90, 190, 255, 0.4)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.approve": {
+   "color": "rgb(125, 240, 197)",
+   "background": "rgba(79, 240, 192, 0.1)",
+   "border": "rgba(79, 240, 192, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-actions .ap-btn:nth-child(2)": {
+   "color": "rgb(140, 196, 255)",
+   "background": "rgba(90, 168, 255, 0.1)",
+   "border": "rgba(90, 168, 255, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.reject": {
+   "color": "rgb(255, 143, 155)",
+   "background": "rgba(255, 92, 108, 0.1)",
+   "border": "rgba(255, 92, 108, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".source-chip": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(242, 184, 75)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".hp-chip": {
+   "color": "rgb(79, 240, 192)",
+   "background": "rgba(79, 240, 192, 0.08)",
+   "border": "rgb(79, 240, 192)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".gauge[data-k=\"cpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(79, 227, 196)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"ram\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(90, 168, 255)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"gpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(181, 140, 255)",
+   "border_width": "0px"
+  },
+  ".limit-row .bar span": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgb(79, 240, 192)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "none",
+   "border_width": "0px"
+  },
+  ".ring-orbit": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "url(\"#ringGrad\")",
+   "border_width": "0px"
+  },
+  "#ultron-ring": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(127, 147, 163)",
+   "border_width": "0px"
+  },
+  ".photon": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(255, 179, 107)",
+   "border_width": "0px"
+  }
+ },
+ "core": {
+  "ultron_ring": {
+   "cx": 640,
+   "cy": 315.3,
+   "r": 142.7
+  },
+  "orbit_ring": {
+   "cx": 640,
+   "cy": 315.3,
+   "r": 107
+  },
+  "horizon": {
+   "cx": 640,
+   "cy": 315.3,
+   "r": 27
+  },
+  "planet": {
+   "cx": 820.3,
+   "cy": 195.1,
+   "r": 21
+  },
+  "nodes": {
+   "FURY": {
+    "cx": 640,
+    "cy": 208.2,
+    "r": 12.8
+   },
+   "SHURI": {
+    "cx": 547.3,
+    "cy": 261.8,
+    "r": 12.8
+   },
+   "THOR": {
+    "cx": 732.7,
+    "cy": 261.8,
+    "r": 12.8
+   },
+   "VISION": {
+    "cx": 547.3,
+    "cy": 368.8,
+    "r": 12.8
+   },
+   "FALCON": {
+    "cx": 732.7,
+    "cy": 368.8,
+    "r": 12.8
+   },
+   "UATU": {
+    "cx": 533.2,
+    "cy": 308.4,
+    "r": 12.8
+   },
+   "ULTRON": {
+    "cx": 640,
+    "cy": 172.6,
+    "r": 10.5
+   }
+  },
+  "polar": {
+   "FURY": {
+    "angle_deg": -90,
+    "r_over_ring": 0.751
+   },
+   "SHURI": {
+    "angle_deg": -150,
+    "r_over_ring": 0.75
+   },
+   "THOR": {
+    "angle_deg": -30,
+    "r_over_ring": 0.75
+   },
+   "VISION": {
+    "angle_deg": 150,
+    "r_over_ring": 0.75
+   },
+   "FALCON": {
+    "angle_deg": 30,
+    "r_over_ring": 0.75
+   },
+   "UATU": {
+    "angle_deg": -176.3,
+    "r_over_ring": 0.75
+   },
+   "ULTRON": {
+    "angle_deg": -90,
+    "r_over_ring": 1
+   },
+   "INTERNET_planet": {
+    "angle_deg": -33.7,
+    "r_over_ring": 1.519
+   }
+  }
+ },
+ "gutters": {
+  "chats_to_projects_y": 11.5,
+  "projects_to_agents_y": 167,
+  "activity_to_approvals_y": 218,
+  "resources_to_limits_x": 11.5,
+  "card_current_to_next_x": 11.5,
+  "card_next_to_context_x": 11.5,
+  "card_context_to_external_x": 11.5,
+  "card_external_to_layout_x": 11.5,
+  "left_rail_to_center_x": 11.5,
+  "center_to_right_rail_x": 11.5,
+  "resources_to_composer_y": 11.5
+ }
+}

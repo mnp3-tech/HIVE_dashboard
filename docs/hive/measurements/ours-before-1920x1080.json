@@ -1,0 +1,418 @@
+{
+ "viewport": {
+  "w": 1920,
+  "h": 1080
+ },
+ "panels": {
+  "chats": {
+   "x0": 17.265625,
+   "y0": 89.03125,
+   "x1": 343.65625,
+   "y1": 247.0625,
+   "w": 326.390625,
+   "h": 158.03125
+  },
+  "projects": {
+   "x0": 17.265625,
+   "y0": 264.328125,
+   "x1": 343.65625,
+   "y1": 357.359375,
+   "w": 326.390625,
+   "h": 93.03125
+  },
+  "agents": {
+   "x0": 17.265625,
+   "y0": 824.765625,
+   "x1": 343.65625,
+   "y1": 1062.734375,
+   "w": 326.390625,
+   "h": 237.96875
+  },
+  "card_current": {
+   "x0": 360.921875,
+   "y0": 89.03125,
+   "x1": 611.828125,
+   "y1": 156.109375,
+   "w": 250.90625,
+   "h": 67.078125
+  },
+  "card_next": {
+   "x0": 629.09375,
+   "y0": 89.03125,
+   "x1": 880,
+   "y1": 156.109375,
+   "w": 250.90625,
+   "h": 67.078125
+  },
+  "card_context": {
+   "x0": 897.265625,
+   "y0": 89.03125,
+   "x1": 1148.171875,
+   "y1": 156.109375,
+   "w": 250.90625,
+   "h": 67.078125
+  },
+  "card_external": {
+   "x0": 1165.4375,
+   "y0": 89.03125,
+   "x1": 1416.34375,
+   "y1": 156.109375,
+   "w": 250.90625,
+   "h": 67.078125
+  },
+  "card_layout": {
+   "x0": 1433.609375,
+   "y0": 89.03125,
+   "x1": 1559.078125,
+   "y1": 156.109375,
+   "w": 125.46875,
+   "h": 67.078125
+  },
+  "activity": {
+   "x0": 1576.34375,
+   "y0": 89.03125,
+   "x1": 1902.734375,
+   "y1": 311.453125,
+   "w": 326.390625,
+   "h": 222.421875
+  },
+  "approvals": {
+   "x0": 1576.34375,
+   "y0": 848.890625,
+   "x1": 1902.734375,
+   "y1": 1062.734375,
+   "w": 326.390625,
+   "h": 213.84375
+  },
+  "resources": {
+   "x0": 360.921875,
+   "y0": 777.96875,
+   "x1": 951.359375,
+   "y1": 993.96875,
+   "w": 590.4375,
+   "h": 216
+  },
+  "limits": {
+   "x0": 968.625,
+   "y0": 777.96875,
+   "x1": 1559.078125,
+   "y1": 993.96875,
+   "w": 590.453125,
+   "h": 216
+  },
+  "composer": {
+   "x0": 360.921875,
+   "y0": 1011.234375,
+   "x1": 1559.078125,
+   "y1": 1062.734375,
+   "w": 1198.15625,
+   "h": 51.5
+  }
+ },
+ "text": {
+  "panel_title": {
+   "font_px": 12.1,
+   "weight": "600",
+   "letter_spacing": "1.93536px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "card_title": {
+   "font_px": 8.87,
+   "weight": "600",
+   "letter_spacing": "1.15315px",
+   "family": "Inter",
+   "colour": "rgb(207, 227, 245)"
+  },
+  "card_main": {
+   "font_px": 11.29,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(234, 244, 255)"
+  },
+  "body_row": {
+   "font_px": 11.83,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "approval_label": {
+   "font_px": 11.42,
+   "weight": "700",
+   "letter_spacing": "0.91392px",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "button": {
+   "font_px": 9.68,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(125, 240, 197)"
+  },
+  "gauge_label": {
+   "font_px": 10,
+   "weight": "400",
+   "letter_spacing": "1px",
+   "family": "Inter",
+   "colour": "rgb(120, 145, 162)"
+  },
+  "limit_label": {
+   "font_px": 11.56,
+   "weight": "700",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(156, 194, 255)"
+  },
+  "node_name": {
+   "font_px": 15.38,
+   "weight": "600",
+   "letter_spacing": "2.4px",
+   "family": "Inter",
+   "colour": "rgb(242, 248, 255)"
+  },
+  "node_caption": {
+   "font_px": 10.89,
+   "weight": "400",
+   "letter_spacing": "1.36px",
+   "family": "Inter",
+   "colour": "rgb(79, 240, 192)"
+  },
+  "ctx_label": {
+   "font_px": 14.73,
+   "weight": "400",
+   "letter_spacing": "0.46px",
+   "family": "Inter",
+   "colour": "rgb(169, 188, 205)"
+  },
+  "internet_label": {
+   "font_px": 15.38,
+   "weight": "600",
+   "letter_spacing": "2.4px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "composer_input": {
+   "font_px": 12.77,
+   "weight": "400",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "top_brand": {
+   "font_px": 20.16,
+   "weight": "650",
+   "letter_spacing": "4.032px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "chip": {
+   "font_px": 10.48,
+   "weight": "600",
+   "letter_spacing": "0.628992px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  }
+ },
+ "colours": {
+  ".hive-panel": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(4, 16, 29, 0.46)",
+   "border": "rgba(90, 190, 255, 0.4)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.approve": {
+   "color": "rgb(125, 240, 197)",
+   "background": "rgba(79, 240, 192, 0.1)",
+   "border": "rgba(79, 240, 192, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-actions .ap-btn:nth-child(2)": {
+   "color": "rgb(140, 196, 255)",
+   "background": "rgba(90, 168, 255, 0.1)",
+   "border": "rgba(90, 168, 255, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.reject": {
+   "color": "rgb(255, 143, 155)",
+   "background": "rgba(255, 92, 108, 0.1)",
+   "border": "rgba(255, 92, 108, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".source-chip": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(242, 184, 75)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".hp-chip": {
+   "color": "rgb(79, 240, 192)",
+   "background": "rgba(79, 240, 192, 0.08)",
+   "border": "rgb(79, 240, 192)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".gauge[data-k=\"cpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(79, 227, 196)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"ram\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(90, 168, 255)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"gpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(181, 140, 255)",
+   "border_width": "0px"
+  },
+  ".limit-row .bar span": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgb(79, 240, 192)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "none",
+   "border_width": "0px"
+  },
+  ".ring-orbit": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "url(\"#ringGrad\")",
+   "border_width": "0px"
+  },
+  "#ultron-ring": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(127, 147, 163)",
+   "border_width": "0px"
+  },
+  ".photon": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(255, 179, 107)",
+   "border_width": "0px"
+  }
+ },
+ "core": {
+  "ultron_ring": {
+   "cx": 960,
+   "cy": 467,
+   "r": 243.4
+  },
+  "orbit_ring": {
+   "cx": 960,
+   "cy": 467,
+   "r": 182.6
+  },
+  "horizon": {
+   "cx": 960,
+   "cy": 467,
+   "r": 46.1
+  },
+  "planet": {
+   "cx": 1267.5,
+   "cy": 262,
+   "r": 35.9
+  },
+  "nodes": {
+   "FURY": {
+    "cx": 960,
+    "cy": 284.5,
+    "r": 21.8
+   },
+   "SHURI": {
+    "cx": 801.9,
+    "cy": 375.7,
+    "r": 21.8
+   },
+   "THOR": {
+    "cx": 1118.1,
+    "cy": 375.7,
+    "r": 21.8
+   },
+   "VISION": {
+    "cx": 801.9,
+    "cy": 558.3,
+    "r": 21.8
+   },
+   "FALCON": {
+    "cx": 1118.1,
+    "cy": 558.3,
+    "r": 21.8
+   },
+   "UATU": {
+    "cx": 777.8,
+    "cy": 455.3,
+    "r": 21.8
+   },
+   "ULTRON": {
+    "cx": 960,
+    "cy": 223.6,
+    "r": 17.9
+   }
+  },
+  "polar": {
+   "FURY": {
+    "angle_deg": -90,
+    "r_over_ring": 0.75
+   },
+   "SHURI": {
+    "angle_deg": -150,
+    "r_over_ring": 0.75
+   },
+   "THOR": {
+    "angle_deg": -30,
+    "r_over_ring": 0.75
+   },
+   "VISION": {
+    "angle_deg": 150,
+    "r_over_ring": 0.75
+   },
+   "FALCON": {
+    "angle_deg": 30,
+    "r_over_ring": 0.75
+   },
+   "UATU": {
+    "angle_deg": -176.3,
+    "r_over_ring": 0.75
+   },
+   "ULTRON": {
+    "angle_deg": -90,
+    "r_over_ring": 1
+   },
+   "INTERNET_planet": {
+    "angle_deg": -33.7,
+    "r_over_ring": 1.518
+   }
+  }
+ },
+ "gutters": {
+  "chats_to_projects_y": 17.3,
+  "projects_to_agents_y": 467.4,
+  "activity_to_approvals_y": 537.4,
+  "resources_to_limits_x": 17.3,
+  "card_current_to_next_x": 17.3,
+  "card_next_to_context_x": 17.3,
+  "card_context_to_external_x": 17.3,
+  "card_external_to_layout_x": 17.3,
+  "left_rail_to_center_x": 17.3,
+  "center_to_right_rail_x": 17.3,
+  "resources_to_composer_y": 17.3
+ }
+}

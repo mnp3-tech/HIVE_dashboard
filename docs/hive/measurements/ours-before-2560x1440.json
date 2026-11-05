@@ -1,0 +1,418 @@
+{
+ "viewport": {
+  "w": 2560,
+  "h": 1440
+ },
+ "panels": {
+  "chats": {
+   "x0": 23.03125,
+   "y0": 116.6875,
+   "x1": 458.21875,
+   "y1": 322.1875,
+   "w": 435.1875,
+   "h": 205.5
+  },
+  "projects": {
+   "x0": 23.03125,
+   "y0": 345.21875,
+   "x1": 458.21875,
+   "y1": 468.90625,
+   "w": 435.1875,
+   "h": 123.6875
+  },
+  "agents": {
+   "x0": 23.03125,
+   "y0": 1102.03125,
+   "x1": 458.21875,
+   "y1": 1416.96875,
+   "w": 435.1875,
+   "h": 314.9375
+  },
+  "card_current": {
+   "x0": 481.25,
+   "y0": 116.6875,
+   "x1": 815.765625,
+   "y1": 204.4375,
+   "w": 334.515625,
+   "h": 87.75
+  },
+  "card_next": {
+   "x0": 838.796875,
+   "y0": 116.6875,
+   "x1": 1173.328125,
+   "y1": 204.4375,
+   "w": 334.53125,
+   "h": 87.75
+  },
+  "card_context": {
+   "x0": 1196.359375,
+   "y0": 116.6875,
+   "x1": 1530.890625,
+   "y1": 204.4375,
+   "w": 334.53125,
+   "h": 87.75
+  },
+  "card_external": {
+   "x0": 1553.921875,
+   "y0": 116.6875,
+   "x1": 1888.453125,
+   "y1": 204.4375,
+   "w": 334.53125,
+   "h": 87.75
+  },
+  "card_layout": {
+   "x0": 1911.484375,
+   "y0": 116.6875,
+   "x1": 2078.734375,
+   "y1": 204.4375,
+   "w": 167.25,
+   "h": 87.75
+  },
+  "activity": {
+   "x0": 2101.78125,
+   "y0": 116.6875,
+   "x1": 2536.96875,
+   "y1": 407.21875,
+   "w": 435.1875,
+   "h": 290.53125
+  },
+  "approvals": {
+   "x0": 2101.78125,
+   "y0": 1135.015625,
+   "x1": 2536.96875,
+   "y1": 1416.96875,
+   "w": 435.1875,
+   "h": 281.953125
+  },
+  "resources": {
+   "x0": 481.25,
+   "y0": 1046.609375,
+   "x1": 1268.484375,
+   "y1": 1326.609375,
+   "w": 787.234375,
+   "h": 280
+  },
+  "limits": {
+   "x0": 1291.515625,
+   "y0": 1046.609375,
+   "x1": 2078.75,
+   "y1": 1326.609375,
+   "w": 787.234375,
+   "h": 280
+  },
+  "composer": {
+   "x0": 481.25,
+   "y0": 1349.640625,
+   "x1": 2078.75,
+   "y1": 1416.96875,
+   "w": 1597.5,
+   "h": 67.328125
+  }
+ },
+ "text": {
+  "panel_title": {
+   "font_px": 16.13,
+   "weight": "600",
+   "letter_spacing": "2.58048px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "card_title": {
+   "font_px": 11.83,
+   "weight": "600",
+   "letter_spacing": "1.53754px",
+   "family": "Inter",
+   "colour": "rgb(207, 227, 245)"
+  },
+  "card_main": {
+   "font_px": 15.05,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(234, 244, 255)"
+  },
+  "body_row": {
+   "font_px": 15.77,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "approval_label": {
+   "font_px": 15.23,
+   "weight": "700",
+   "letter_spacing": "1.21856px",
+   "family": "Inter",
+   "colour": "rgb(238, 246, 255)"
+  },
+  "button": {
+   "font_px": 12.9,
+   "weight": "600",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(125, 240, 197)"
+  },
+  "gauge_label": {
+   "font_px": 12.54,
+   "weight": "400",
+   "letter_spacing": "1.2544px",
+   "family": "Inter",
+   "colour": "rgb(120, 145, 162)"
+  },
+  "limit_label": {
+   "font_px": 15.41,
+   "weight": "700",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(156, 194, 255)"
+  },
+  "node_name": {
+   "font_px": 20.85,
+   "weight": "600",
+   "letter_spacing": "2.4px",
+   "family": "Inter",
+   "colour": "rgb(242, 248, 255)"
+  },
+  "node_caption": {
+   "font_px": 14.77,
+   "weight": "400",
+   "letter_spacing": "1.36px",
+   "family": "Inter",
+   "colour": "rgb(79, 240, 192)"
+  },
+  "ctx_label": {
+   "font_px": 19.98,
+   "weight": "400",
+   "letter_spacing": "0.46px",
+   "family": "Inter",
+   "colour": "rgb(169, 188, 205)"
+  },
+  "internet_label": {
+   "font_px": 20.85,
+   "weight": "600",
+   "letter_spacing": "2.4px",
+   "family": "Inter",
+   "colour": "rgb(230, 244, 255)"
+  },
+  "composer_input": {
+   "font_px": 17.02,
+   "weight": "400",
+   "letter_spacing": "normal",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "top_brand": {
+   "font_px": 26.88,
+   "weight": "650",
+   "letter_spacing": "5.376px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  },
+  "chip": {
+   "font_px": 13.98,
+   "weight": "600",
+   "letter_spacing": "0.838656px",
+   "family": "Inter",
+   "colour": "rgb(225, 239, 247)"
+  }
+ },
+ "colours": {
+  ".hive-panel": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(4, 16, 29, 0.46)",
+   "border": "rgba(90, 190, 255, 0.4)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.approve": {
+   "color": "rgb(125, 240, 197)",
+   "background": "rgba(79, 240, 192, 0.1)",
+   "border": "rgba(79, 240, 192, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-actions .ap-btn:nth-child(2)": {
+   "color": "rgb(140, 196, 255)",
+   "background": "rgba(90, 168, 255, 0.1)",
+   "border": "rgba(90, 168, 255, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".ap-btn.reject": {
+   "color": "rgb(255, 143, 155)",
+   "background": "rgba(255, 92, 108, 0.1)",
+   "border": "rgba(255, 92, 108, 0.7)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".source-chip": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(242, 184, 75)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".hp-chip": {
+   "color": "rgb(79, 240, 192)",
+   "background": "rgba(79, 240, 192, 0.08)",
+   "border": "rgb(79, 240, 192)",
+   "stroke": "none",
+   "border_width": "1px"
+  },
+  ".gauge[data-k=\"cpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(79, 227, 196)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"ram\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(90, 168, 255)",
+   "border_width": "0px"
+  },
+  ".gauge[data-k=\"gpu\"] .g-val": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(181, 140, 255)",
+   "border_width": "0px"
+  },
+  ".limit-row .bar span": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgb(79, 240, 192)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "none",
+   "border_width": "0px"
+  },
+  ".ring-orbit": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "url(\"#ringGrad\")",
+   "border_width": "0px"
+  },
+  "#ultron-ring": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(127, 147, 163)",
+   "border_width": "0px"
+  },
+  ".photon": {
+   "color": "rgb(225, 239, 247)",
+   "background": "rgba(0, 0, 0, 0)",
+   "border": "rgb(225, 239, 247)",
+   "stroke": "rgb(255, 179, 107)",
+   "border_width": "0px"
+  }
+ },
+ "core": {
+  "ultron_ring": {
+   "cx": 1280,
+   "cy": 625.5,
+   "r": 330.1
+  },
+  "orbit_ring": {
+   "cx": 1280,
+   "cy": 625.5,
+   "r": 247.6
+  },
+  "horizon": {
+   "cx": 1280,
+   "cy": 625.5,
+   "r": 62.5
+  },
+  "planet": {
+   "cx": 1697,
+   "cy": 347.6,
+   "r": 48.6
+  },
+  "nodes": {
+   "FURY": {
+    "cx": 1280,
+    "cy": 378,
+    "r": 29.5
+   },
+   "SHURI": {
+    "cx": 1065.6,
+    "cy": 501.7,
+    "r": 29.5
+   },
+   "THOR": {
+    "cx": 1494.4,
+    "cy": 501.7,
+    "r": 29.5
+   },
+   "VISION": {
+    "cx": 1065.6,
+    "cy": 749.3,
+    "r": 29.5
+   },
+   "FALCON": {
+    "cx": 1494.4,
+    "cy": 749.3,
+    "r": 29.5
+   },
+   "UATU": {
+    "cx": 1033,
+    "cy": 609.5,
+    "r": 29.5
+   },
+   "ULTRON": {
+    "cx": 1280,
+    "cy": 295.4,
+    "r": 24.3
+   }
+  },
+  "polar": {
+   "FURY": {
+    "angle_deg": -90,
+    "r_over_ring": 0.75
+   },
+   "SHURI": {
+    "angle_deg": -150,
+    "r_over_ring": 0.75
+   },
+   "THOR": {
+    "angle_deg": -30,
+    "r_over_ring": 0.75
+   },
+   "VISION": {
+    "angle_deg": 150,
+    "r_over_ring": 0.75
+   },
+   "FALCON": {
+    "angle_deg": 30,
+    "r_over_ring": 0.75
+   },
+   "UATU": {
+    "angle_deg": -176.3,
+    "r_over_ring": 0.75
+   },
+   "ULTRON": {
+    "angle_deg": -90,
+    "r_over_ring": 1
+   },
+   "INTERNET_planet": {
+    "angle_deg": -33.7,
+    "r_over_ring": 1.518
+   }
+  }
+ },
+ "gutters": {
+  "chats_to_projects_y": 23,
+  "projects_to_agents_y": 633.1,
+  "activity_to_approvals_y": 727.8,
+  "resources_to_limits_x": 23,
+  "card_current_to_next_x": 23,
+  "card_next_to_context_x": 23,
+  "card_context_to_external_x": 23,
+  "card_external_to_layout_x": 23,
+  "left_rail_to_center_x": 23,
+  "center_to_right_rail_x": 23,
+  "resources_to_composer_y": 23
+ }
+}
