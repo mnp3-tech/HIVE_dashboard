@@ -179,6 +179,41 @@ class MetricContractTests(unittest.TestCase):
         self.assertIn("Win32_PerfFormattedData_PerfOS_Processor", hs.POWERSHELL_SCRIPT)
 
 
+class SmokeToolTests(unittest.TestCase):
+    """The Windows smoke checker must pass honest data and fail every dishonest shape (logic only; Windows path is run by the owner)."""
+
+    def setUp(self):
+        import importlib.util
+        from pathlib import Path
+        spec = importlib.util.spec_from_file_location("smoke", Path(hs.__file__).parent / "tools/smoke_system_windows.py")
+        self.smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.smoke)
+
+    def good(self):
+        with patch.dict("os.environ", {"SystemDrive": "C:"}):
+            return hs.collect_system(adapter=hs.MockAdapter(RAW))
+
+    def test_honest_result_passes(self):
+        self.assertEqual(self.smoke.check(self.good()), [])
+
+    def test_dishonest_shapes_fail(self):
+        import copy
+        r = self.good(); r["items"]["gpu"].update(validity="valid", value=50.0, source="windows:powershell/Win32_VideoController", observed_at="x")
+        self.assertTrue(any("gpu" in m for m in self.smoke.check(r)))
+        r = self.good(); r["items"]["cpu"]["observed_at"] = None
+        self.assertTrue(any("cpu: valid without observed_at" in m for m in self.smoke.check(r)))
+        r = self.good(); r["items"]["temperature"].update(value=40.0)
+        self.assertTrue(any("temperature: value present" in m for m in self.smoke.check(r)))
+        r = self.good(); r["items"]["memory"]["reason"] = None; r["items"]["memory"].update(validity="unavailable", value=None)
+        self.assertTrue(any("memory: unavailable without a reason" in m for m in self.smoke.check(r)))
+
+    def test_refuses_to_run_the_real_adapter_off_windows(self):
+        import io, contextlib
+        buf = io.StringIO()
+        with patch("os.name", "posix"), contextlib.redirect_stdout(buf):
+            self.assertEqual(self.smoke.main([]), 2)
+        self.assertIn("must run on Windows", buf.getvalue())
+
+
 class CollectTests(unittest.TestCase):
     def test_non_windows_reports_unknown_for_everything_and_never_runs_a_process(self):
         called = []
