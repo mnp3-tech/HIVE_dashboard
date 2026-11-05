@@ -102,3 +102,6 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## GAP-9 narrow fix: Core preflight gate (GAP-8/GAP-9 open)
 - server.py (preflight gate in core_json + snapshot wrapper), tests/test_snapshot_latency.py (+9), docs. No timeout increased. Full suite once: Python 310, ui_contract 20, Node 95, Playwright 7+10+11+7+15 green. Effort ~$2 (rough); running total about $92.5 of $100 - remaining budget is small; further Windows rounds should stay run-then-fix. Subagents 5 of 8. P1.2/P1.3 not started.
+
+## Windows result record + Playwright procedure (GAP-9 resolved on this configuration, GAP-8 open)
+- .gitignore (node_modules/), tools/live_check_windows.mjs (NOT_RUN + install hint), tests/live_check.test.mjs (+1), docs. No application code changed; full suite not re-run (last green at 4456991). Effort ~$1 (rough); running total about $93.5 of $100 - only ~$6 remain, so the next round should be the Windows browser run and, if needed, one small fix. Subagents 5 of 8. P1.2/P1.3 not started.

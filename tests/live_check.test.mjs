@@ -63,3 +63,19 @@ test('a slow /api/dashboard/snapshot with valid system metrics is reported as SN
   assert.equal(r.code, 6, r.out); assert.match(last(r.out), /^SYSTEM PASS but SNAPSHOT SLOW \(\d+ ms > 300 ms\).*separate finding/); assert.match(r.out, /SLOW .*diagnose_snapshot/);
   assert.doesNotMatch(r.out, /^PASS$/m); assert.doesNotMatch(r.out, /^FAIL/m);
 });
+
+test('Playwright missing or Chromium not launchable is NOT_RUN (exit 3) with the install hint, never a FAIL and never a PASS', async () => {
+  const http = await import('node:http');
+  const ok = { value: 41, unit: '%', validity: 'valid', source: 'windows:powershell/x', observed_at: '2026-11-05T00:00:00Z', reason: null };
+  const unk = { value: null, unit: '%', validity: 'unavailable', source: 'none', observed_at: null, reason: 'no reliable local source' };
+  const body = JSON.stringify({ items: { cpu: ok, memory: ok, disk: ok, gpu: unk, temperature: unk }, evidence: { source: 'windows:powershell', validity: 'valid', observed_at: '2026-11-05T00:00:00Z', reason: null } });
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }); res.end(req.url.startsWith('/api/system/resources') ? body : '{}'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  // a browser-path that does not exist makes chromium.launch() fail when Playwright is installed; when it is not installed the require fails: both are NOT_RUN
+  const child = spawn(process.execPath, [TOOL, '--base', `http://127.0.0.1:${srv.address().port}`], { cwd: root, env: { ...process.env, HIVE_API_TOKEN: '', PLAYWRIGHT_BROWSERS_PATH: join(root, 'no-such-browser-dir') } });
+  let out = ''; child.stdout.on('data', d => { out += d; }); child.stderr.on('data', d => { out += d; });
+  const code = await new Promise(res => child.on('close', res)); srv.close();
+  assert.equal(code, 3, out); assert.match(out, /NOT_RUN: (Playwright is not installed|Chromium could not be launched)/);
+  assert.match(out, /npm install --no-save --no-package-lock playwright@1\.63\.0/); assert.match(out, /npx playwright install chromium/);
+  assert.match(last(out), /^API PASS; browser NOT_RUN$/); assert.doesNotMatch(out, /^PASS$/m); assert.doesNotMatch(out, /^FAIL/m);
+});

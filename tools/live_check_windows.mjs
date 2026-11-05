@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const expectUnknown = process.argv.includes('--expect-unknown');
+const PW_HINT = 'to run the browser checks install Playwright once in the repo root: npm install --no-save --no-package-lock playwright@1.63.0   then: npx playwright install chromium';
 const baseArg = process.argv.indexOf('--base') > 0 ? process.argv[process.argv.indexOf('--base') + 1] : null;
 const PORT = 4195, BASE = baseArg || `http://127.0.0.1:${PORT}`;
 let stderrTail = ''; let finished = false;
@@ -72,10 +73,11 @@ try {
   let chromium;
   try { ({ chromium } = createRequire(import.meta.url)('playwright')); } catch { chromium = null; }
   if (process.argv.includes('--skip-browser')) chromium = null;
-  if (!chromium) { console.log(process.argv.includes('--skip-browser') ? 'NOT_RUN: browser checks skipped by --skip-browser' : 'NOT_RUN: Playwright is not installed; browser checks skipped'); exit = fails.length ? 1 : 3; }
+  if (!chromium) { console.log(process.argv.includes('--skip-browser') ? 'NOT_RUN: browser checks skipped by --skip-browser' : `NOT_RUN: Playwright is not installed; browser checks skipped; ${PW_HINT}`); exit = fails.length ? 1 : 3; }
   else {
-    const browser = await chromium.launch();
-    try {
+    let browser = null;
+    try { browser = await chromium.launch(); } catch (e) { console.log(`NOT_RUN: Chromium could not be launched (${String(e && e.message).split('\n')[0].slice(0, 160)}); ${PW_HINT}`); exit = fails.length ? 1 : 3; }
+    if (browser) try {
       for (const vp of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }]) {
         const tag = `${vp.width}x${vp.height}`; const ctx = await browser.newContext({ viewport: vp }); const p = await ctx.newPage();
         const errors = []; p.on('pageerror', e => errors.push('pageerror: ' + e)); p.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); }); p.on('requestfailed', r => { if (r.url().startsWith(BASE) && !r.url().endsWith('/api/events/stream')) errors.push('requestfailed: ' + r.url()); });
@@ -113,7 +115,7 @@ try {
         await ctx.close();
       }
     } finally { await browser.close(); }
-    exit = fails.length ? 1 : 0;
+    if (browser) exit = fails.length ? 1 : 0;
   }
   }
 } catch (e) {

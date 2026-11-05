@@ -3,3 +3,4 @@ __pycache__/
 .dashboard.launch.json
 .fixture-dashboard.pid
 .fixture-dashboard.launch.json
+node_modules/
