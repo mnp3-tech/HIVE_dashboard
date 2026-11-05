@@ -77,3 +77,7 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Files: new assets/hive-wallpaper.jpg, tools/{make_wallpaper.py,make_stage.py,make_compare.mjs}, stage.css, stage-layout.css, tests/test_assets.py, measurements (stage-layout-final.json, ours-after-*.json), screenshots (hybrid-*, overlay-after-*); changed index.html, app.js, hive-core.js, hive-ops.js, tests (core, ops, e2e shell/chat/system/visual), docs (HANDOFF_REPORT s15, ACCEPTANCE GAP-5).
 - Tests: Python 280, ui_contract 20, Node 88, Playwright 7+10+11+5+15, all green on Linux.
 - Subagents: still 5 of 8 (none used). Effort ~$14 (rough, not observed spend); running total about $77 of $100. Not started: P1.2, P1.3, any further visual iteration.
+
+## Supplied wallpaper integration (GAP-5 stays OPEN)
+- Verified SHA-256 of assets/src/hive-wallpaper-v1.png, added tools/convert_wallpaper.py, regenerated assets/hive-wallpaper.jpg (356 KB), updated tests/test_assets.py (+2 tests, reproducibility test re-pointed, nothing weakened), docs (HANDOFF_REPORT s16). One screenshot pass, full suite once (all green). No core/svg/icon/token assets used.
+- Subagents: still 5 of 8. Effort ~$2 (rough); running total about $79 of $100.

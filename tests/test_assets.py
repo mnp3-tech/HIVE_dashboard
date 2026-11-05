@@ -17,7 +17,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WALLPAPER = ROOT / "assets/hive-wallpaper.jpg"
-GENERATOR = ROOT / "tools/make_wallpaper.py"
+GENERATOR = ROOT / "tools/make_wallpaper.py"  # superseded; its never-draws-text guarantee is still tested
+CONVERTER = ROOT / "tools/convert_wallpaper.py"
+SOURCE = ROOT / "assets/src/hive-wallpaper-v1.png"
+SOURCE_SHA256 = "8ad50b3ba7f39462c0bd032a69be97391388df71fbc492023e60e48670d3a7a8"
 SHIPPED = ["index.html", "styles.css", "stage.css", "stage-layout.css", "app.js", "hive-core.js", "hive-ops.js"]
 
 
@@ -56,7 +59,17 @@ class WallpaperTests(unittest.TestCase):
         draw_calls = set(re.findall(r"\bd\.(\w+)\(", code))
         self.assertTrue(draw_calls <= {"line", "ellipse"}, draw_calls)
 
-    def test_wallpaper_is_reproducible_from_the_committed_generator(self):
+    def test_source_png_matches_the_pinned_sha256_and_the_converter_pins_the_same_hash(self):
+        import hashlib
+        self.assertEqual(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), SOURCE_SHA256)
+        self.assertIn(SOURCE_SHA256.upper(), CONVERTER.read_text(encoding="utf-8"))
+
+    def test_converter_draws_nothing_and_uses_no_text_api(self):
+        code = CONVERTER.read_text(encoding="utf-8")
+        for forbidden in ("ImageDraw", ".text(", "ImageFont", "textbbox", "textlength", "truetype", "load_default", "putText"):
+            self.assertNotIn(forbidden, code)
+
+    def test_wallpaper_is_reproducible_from_the_pinned_source_by_the_converter(self):
         try:
             import numpy  # noqa: F401
             import PIL  # noqa: F401
@@ -64,14 +77,13 @@ class WallpaperTests(unittest.TestCase):
             self.skipTest("Pillow/numpy not installed (dev-time tools)")
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "w.jpg"
-            subprocess.run([sys.executable, str(GENERATOR), "--out", str(out)], check=True, capture_output=True, timeout=120)
-            # same bytes on the same platform; JPEG encoders can differ across Pillow builds, so compare decoded size and a
-            # coarse content hash if the bytes differ
+            subprocess.run([sys.executable, str(CONVERTER), "--out", str(out)], check=True, capture_output=True, timeout=120)
+            # same bytes on the same Pillow build; JPEG encoders can differ across builds, so fall back to a coarse content check
             if out.read_bytes() != WALLPAPER.read_bytes():
                 from PIL import Image
                 a, b = Image.open(out).convert("L").resize((64, 36)), Image.open(WALLPAPER).convert("L").resize((64, 36))
                 diff = sum(abs(x - y) for x, y in zip(a.getdata(), b.getdata())) / (64 * 36)
-                self.assertLess(diff, 2.0, "generated wallpaper differs from the committed one")
+                self.assertLess(diff, 2.0, "converted wallpaper differs from the committed one")
 
     def test_wallpaper_is_dark_in_the_middle_where_live_art_sits(self):
         try:
@@ -106,7 +118,7 @@ class LocalOnlyTests(unittest.TestCase):
     def test_no_baked_text_assets_other_than_the_wallpaper_and_reference_images(self):
         images = sorted(p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif"} and ".git" not in p.parts
                         and not p.as_posix().startswith(str(ROOT / "docs/hive/screenshots")) and "node_modules" not in p.parts)
-        self.assertEqual(images, ["assets/hive-wallpaper.jpg", "docs/assets/hive-core-reference.png", "docs/assets/hive-dashboard-target.png"])
+        self.assertEqual(images, ["assets/hive-wallpaper.jpg", "assets/src/hive-wallpaper-v1.png", "docs/assets/hive-core-reference.png", "docs/assets/hive-dashboard-target.png"])
 
 
 class LayoutFileTests(unittest.TestCase):

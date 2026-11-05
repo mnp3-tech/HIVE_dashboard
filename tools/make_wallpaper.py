@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate assets/hive-wallpaper.jpg: a purely decorative space + circuit wallpaper.
+"""SUPERSEDED as the served wallpaper source by tools/convert_wallpaper.py (kept for history; not run by the dashboard).
+Generate assets/hive-wallpaper.jpg: a purely decorative space + circuit wallpaper.
 
 Contents: nebula clouds, stars, faint circuit traces, a vignette. NOTHING ELSE:
 no text, digits, gauges, rings, panels, icons, logos or state colours. This script never calls any
