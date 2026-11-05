@@ -10,22 +10,22 @@ Existing test files: `tests/e2e/shell.e2e.mjs`, `tests/ui_contract.test.mjs`, `t
 
 | ID | Requirement | Phase | Verification | Status |
 |----|-------------|-------|--------------|--------|
-| S15.1 | Dashboard visually matches the supplied reference direction (docs/assets/hive-dashboard-target.png, hive-core-reference.png) | P0.1 | MANUAL: compare 1920x1080 screenshot (docs/hive/screenshots/shell-1920x1080.png) with reference on the Windows PC; e2e takes screenshots but asserts no visual match | NOT_RUN |
+| S15.1 | Dashboard visually matches the supplied reference direction (docs/assets/hive-dashboard-target.png, hive-core-reference.png) | P0.1 | Visual parity is NOT claimed. UX review + own screenshot inspection: layout skeleton matches; vortex art, connector lines, list icons, top task-card row, Layout card absent; rails sparse (GAP-5). | NOT_VERIFIED |
 | S15.2 | Panels have visible empty space and never touch | P0.1 | tests/e2e/shell.e2e.mjs `P0.1 shell @ WxH` (pairwise overlap + min gutter + edge margin, 10 boxes) | PASS_AUTOMATED |
 | S15.3 | Layout adapts at 1280x720, 1920x1080, 2560x1440 (no page scroll) | P0.1 | tests/e2e/shell.e2e.mjs (3 resolution tests, scroll check) | PASS_AUTOMATED |
-| S15.4 | CORE remains centered and is the primary animation | P0.1/P0.2 | Centering: tests/e2e/shell.e2e.mjs (horizontal +-2px only). "Primary animation": tests/core_visual.e2e.mjs (planned) + MANUAL | NOT_RUN |
-| S15.5 | ULTRON has a static agent-style icon and a state-changing security ring | P0.2 | tests/core_visual.e2e.mjs (planned): icon node present, ring class changes per state; MANUAL visual check | NOT_RUN |
-| S15.6 | GPT and Claude (and Codex) have equal architectural and visual weight | P0.1/P0.2 | Chip width equality: tests/e2e/shell.e2e.mjs (covers top-bar chips only); node size/provider parity: tests/core_state.test.mjs (planned) | NOT_RUN |
-| S15.7 | Agents move only in response to logical interactions or observed state transitions | P0.2 | tests/core_movement.test.mjs (planned) | NOT_RUN |
-| S15.8 | Ambient outer animation is sparse, slow, visually subordinate | P0.2 | tests/core_visual.e2e.mjs (planned: ambient opacity/duration bounds, distinct class from event pulses) + MANUAL | NOT_RUN |
-| S15.9 | No activity invented when telemetry is missing (UNKNOWN, never WORKING) | P0.2 | tests/core_state.test.mjs (planned); shell.e2e.mjs covers only ULTRON "NOT CONNECTED" and NOT_PROVIDED limits | NOT_RUN |
-| S15.10 | Chat attachments and send states work honestly | P0.3 | tests/chat.test.mjs + tests/e2e/chat.e2e.mjs (planned) | NOT_RUN |
-| S15.11 | Activity and Approvals readable and sanitized | P0.3 | tests/activity_sanitize.test.mjs (planned) + MANUAL readability at 1280x720 | NOT_RUN |
+| S15.4 | CORE remains centered and is the primary animation | P0.1/P0.2 | Horizontal centring tested at 3 resolutions (tests/e2e/shell.e2e.mjs); CORE is the only state-driven animation (tests/e2e/core.e2e.mjs). Vertical centring not asserted. | PARTIAL |
+| S15.5 | ULTRON has a static agent-style icon and a state-changing security ring | P0.2 | Static icon + ring exist; ring colour rule unit-tested (tests/core.test.mjs) and stays gray without a fresh ULTRON event. Green/amber/red ring not exercised end-to-end with real ULTRON events (guard is P1.3). | PARTIAL |
+| S15.6 | GPT and Claude (and Codex) have equal architectural and visual weight | P0.1/P0.2 | Equal chip widths, equal approval/limit rows, no provider-specific code paths (tests/e2e/shell.e2e.mjs, chat.e2e.mjs). "Architectural" equality is by inspection, not by test. | PARTIAL |
+| S15.7 | Agents move only in response to logical interactions or observed state transitions | P0.2 | Movement unit-tested and exercised on fixture events only (see P0.2 PARTIAL items, GAP-1, GAP-7). | PARTIAL |
+| S15.8 | Ambient outer animation is sparse, slow, visually subordinate | P0.2 | Ambient style distinct from event links and disabled under reduced motion (tests/e2e/core.e2e.mjs); "sparse/subordinate" is a visual judgement, not asserted. | PARTIAL |
+| S15.9 | No activity invented when telemetry is missing (UNKNOWN, never WORKING) | P0.2 | tests/core.test.mjs + tests/e2e/core.e2e.mjs (live adapter, Core unreachable => UNKNOWN, nothing moves/active). Says nothing about a reachable live Core (GAP-4). | PASS_AUTOMATED |
+| S15.10 | Chat attachments and send states work honestly | P0.3 | Attachments, chips, Enter/Shift+Enter, QUEUED/FAILED/NOT_CONNECTED tested. SENT only with a mock connector; no real send route (GAP-2). | PARTIAL |
+| S15.11 | Activity and Approvals readable and sanitized | P0.3 | Rows sanitized and tested; approvals local-only with truthful label (GAP-3). Redaction is best-effort (GAP-6). | PARTIAL |
 | S15.12 | Hardware and model values show UNKNOWN when unavailable | P1.1 | tests/test_server.py (system metrics, planned cases); shell.e2e.mjs asserts NOT_PROVIDED in limits panel only (not hardware) | NOT_RUN |
 | S15.13 | Obsidian/WONG authority boundaries preserved (no vault path guess, no write unless connector enabled) | P1.2 | tests/test_server.py (planned cases) + tests/ui_contract.test.mjs | NOT_RUN |
 | S15.14 | EVOLVE changes only an isolated branch and produces evidence (diff, test result, backup) | P1.3 | tests/test_evolve.py (planned) | NOT_RUN |
-| S15.15 | Existing tests remain passing or regressions are reported | All | Run `node --test tests/ui_contract.test.mjs`, `python -m pytest tests/test_server.py tests/test_fixture_server.py`, `node --test tests/e2e/shell.e2e.mjs`; record exact results | NOT_RUN |
-| S15.16 | No production, WONG, ROCKET, deployment, or release state modified | All | MANUAL: `git diff --stat` shows only dashboard checkout files; tests/test_fixture_server.py (fixture server has no write routes) | NOT_RUN |
+| S15.15 | Existing tests remain passing or regressions are reported | All | Baseline 211 Python + 12 fixture + 20 UI contract tests all pass. One baseline test (OpenCode workspace) was made platform-independent without weakening it, and a Linux import fix was added; see BUDGET_LEDGER.md. Windows behavior not run. | PASS_AUTOMATED |
+| S15.16 | No production, WONG, ROCKET, deployment, or release state modified | All | `git diff --name-only 107d880..HEAD` inspected: only dashboard files, docs and tests changed; no PROD/WONG/ROCKET/deploy/release/secret-like paths. Agent-inspected, not independently reviewed. | PASS_MANUAL |
 
 ## B. Derived sub-items
 

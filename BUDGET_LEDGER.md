@@ -35,3 +35,11 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Totals now: Python 242/242 OK; ui_contract 20/20; Node unit 45+22+3; Playwright 7+10+11. py_compile + git diff --check clean.
 - Preserved: all P0.2 PARTIAL statuses and GAP-1 (correlation_id), unchanged.
 - Subagents: 3 total. Effort: P0.3 now ~$15 of $18 (including review fixes).
+
+## Final QA (P0 checkpoint) - allocation $9 reserve
+- Verified remote: branch `hive/dashboard-v1` at 11439e5 before QA; tags `backup/pre-p0.1`, `pre-p0.2`, `pre-p0.3` present; `backup/pre-p1.1` intentionally not created.
+- Final suite once (+ the E2E re-runs needed for stability): Python 242/242; ui_contract 20/20; core 45/45; ops 22/22; html_ids 3/3; Playwright shell 7/7, core 10/10, chat 11/11; py_compile and git diff --check clean.
+- Screenshots inspected at 1280x720, 1920x1080, 2560x1440 for both the fixture shell and the LIVE adapter (Core unreachable): no clipping/overlap/scroll; every value reads UNKNOWN / NOT PROVIDED / NOT CONNECTED. Not parity with the target.
+- QA found and fixed one more honesty defect: the server's static label "LOCAL / HIVE CORE" displayed next to an unreachable Core; the tag now appends "UNVERIFIED" unless Core health was observed (test added).
+- ACCEPTANCE.md: spec section 15 rows updated honestly (39 PASS_AUTOMATED, 1 PASS_MANUAL, 12 PARTIAL, 1 NOT_VERIFIED, 22 NOT_RUN of 75). GAP-1..GAP-7 all remain OPEN. docs/hive/HANDOFF_REPORT.md written.
+- Effort: ~$3 of $9 reserve so far; running total about $38 of $100 (rough). P1.x not started.

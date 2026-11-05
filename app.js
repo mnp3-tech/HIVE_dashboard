@@ -340,7 +340,7 @@ function gaugeMarkup(label, metric){
   return `<div class="gauge ${known?'':'unknown'}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(label)} ${known?pct.toFixed(0)+'%':'UNKNOWN'}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${known?pct.toFixed(0)+' %':'UNKNOWN'}</text></svg><label>${esc(label)}</label></div>`;
 }
 function renderShell(snapshot){
-  setText('env-tag', snapshot.environment || 'UNVERIFIED');
+  setText('env-tag', (snapshot.environment || 'UNVERIFIED') + ((snapshot.core && snapshot.core.observed_at) || demoMode || /FIXTURE|DEMO|UNVERIFIED/i.test(snapshot.environment||'') ? '' : ' · UNVERIFIED')); // a static server label must not read as a connection claim
   SHELL_PROVIDERS.forEach(([key])=>{ const chip=$(`.source-chip[data-provider="${key}"]`); if(!chip) return; const o=providerObservation(snapshot,key); chip.className=`source-chip ${o.tone}`; const em=chip.querySelector('em'); if(em) em.textContent=o.label; });
   const sessions=(state.chat&&state.chat.sessions)||[];
   const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';

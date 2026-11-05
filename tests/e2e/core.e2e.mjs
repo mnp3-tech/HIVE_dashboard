@@ -59,6 +59,7 @@ test('live adapter with HIVE Core unreachable: CORE is UNKNOWN (never WORKING), 
   for (const r of Object.keys(homes)) assert.ok(sameSpot(await agentPos(p, r), homes[r]), `${r} must not move without events`);
   assert.equal(await p.$$eval('.event-link', e => e.length), 0);
   assert.equal(await p.$eval('#internet-state', e => e.textContent), 'NO ACTIVITY OBSERVED');
+  assert.match(await p.$eval('#env-tag', e => e.textContent), /UNVERIFIED/, 'static server label must not read as a live Core connection');
   assert.equal(await p.$eval('#ultron-ring', e => e.getAttribute('class').includes('gray')), true);
   assert.deepEqual(errors, []); await ctx.close();
 });
