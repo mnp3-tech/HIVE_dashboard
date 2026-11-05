@@ -185,3 +185,17 @@ body.reduced-motion .core-arms,body.reduced-motion .core-ambient path,body.reduc
 .ob-reason{display:block;color:var(--muted);font-size:max(.68rem,10px);overflow-wrap:anywhere;margin:.1rem 0}
 .ob-actions{display:flex;gap:.35rem;margin:.2rem 0}.ob-actions .ap-btn{flex:1 1 0;min-width:0;white-space:nowrap}
 .composer-status{white-space:normal;max-width:24%;line-height:1.2}
+
+/* ===== P1.1 system resources + model limits ===== */
+.hive-panel#panel-resources .hp-body.gauges{flex:1 1 auto;padding-bottom:.2rem}
+.g-sub{font-size:max(.62rem,9px);color:var(--muted);text-align:center;max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sys-summary{padding:.3rem .9rem .5rem;font-size:max(.68rem,10px);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid rgba(90,190,255,.12)}
+.limit-row .bar{position:relative;overflow:hidden}.limit-row .bar span{position:absolute;left:0;top:0;bottom:0;background:var(--c-ok);border-radius:.2rem}
+.limit-row .bar.est span{background:repeating-linear-gradient(90deg,var(--c-warn) 0 4px,transparent 4px 7px)}
+.limit-row .dot{width:.6rem;height:.6rem;border-radius:50%;background:var(--c-unknown)}.limit-row .dot.ok{background:var(--c-ok)}.limit-row .dot.warn{background:var(--c-warn)}
+.limit-row{grid-template-columns:.7rem 4.2rem minmax(2rem,1fr) auto}.limit-row span.v{white-space:nowrap}
+/* summary may wrap to two lines so "Storage metrics unavailable" stays visible at 1280x720 */
+.sys-summary{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;line-height:1.3}
+.res-row .hive-panel{height:clamp(150px,20vh,280px)}
+.sys-summary{flex:0 0 auto}
+.res-row .hive-panel{height:clamp(164px,20vh,280px)}

@@ -78,3 +78,25 @@ Run by the project owner; the agent has not seen logs or screenshots and cannot 
 - NOT_RUN: Node tests; fixture UI (home, `?scenario=approval`, `?scenario=secrets`); live UI and chat checks; live adapter with a token; visual comparison with the target; Playwright.
 - Not reported: whether `start.ps1` auto-enabled AO session listing.
 Consequences: GAP-1 through GAP-7 all remain OPEN. GAP-4 has partial progress only. The P1.1 recommendation in section 11 is unchanged: the browser-level Windows checks (steps 2-3 UI, and 5) that it depends on have not been run. `backup/pre-p1.1` has not been created and no P1 work has started.
+
+## 13. P1.1 narrow implementation (system resources, devices, model limits)
+Backup tag `backup/pre-p1.1` (146cb56) was created by the owner and verified remote before work started. Scope was kept narrow: no profiles, Obsidian, ULTRON, EVOLVE or layout editor.
+
+**What was built**
+- `hive_system.py` (new, stdlib): Windows adapter boundary. One fixed PowerShell script (CPU load, RAM, volumes with bus/read-only, GPU adapter names, USB/WPD devices, ACPI thermal zone) plus an optional fixed `nvidia-smi` argv; `shell=False`, 8 s timeout, bounded output, 5 s cache, no request-derived text in any argv. Strict validation: non-finite, boolean, out-of-range or inconsistent values become UNKNOWN with a reason; nothing is clamped or defaulted. Non-Windows hosts report UNKNOWN for everything and run no process. MTP/PTP phones (WPD/Image classes) are listed under USB with "Storage metrics unavailable" and are never disks. Empty lists are only "none" when the probe actually returned a list (`usb_known`/`disks_known`).
+- Model limits: `model_limits()` always yields four equal rows (GPT, CLAUDE, CODEX, LOCAL) with status KNOWN (limits.basis == provider), ESTIMATED (basis == estimate), NOT_PROVIDED (record without usable limits), UNKNOWN (no record). Never inferred from model names.
+- `server.py`: `GET /api/system/resources` (no parameters reach the probe), snapshot `model_limits`, worker `limits` pass-through (whitelisted keys only). `fixture_server.py`: synthetic, labelled fixture versions that exercise every state.
+- UI: SYSTEM RESOURCES gauges (OS value first, Core metric only if a valid percent, else UNKNOWN), disk free-space and RAM sublabels, one-line USB/external summary, LOCAL DEVICES node text, a System section in the Details console, AI MODELS / LIMITS rows with distinct drawing for ESTIMATED.
+
+**Tests (final run, Linux container; all OS/provider output mocked or synthetic)**
+Python (`test_server`, `test_fixture_server`, `test_events`, `test_system`) 268/268 OK; UI contract 20/20; Node `core` 45/45, `ops` 30/30, `html_ids` 3/3; Playwright `shell` 7/7, `core` 10/10, `chat` 11/11, `system` 5/5; `py_compile` and `git diff --check` clean.
+
+**Defects found while building (fixed, tested):** failed probe rendered "USB 0"; removable media classified as external; phone note truncated at 1280x720 (panel slightly taller now: resources row min height 164px).
+
+**NOT verified (GAP-8, OPEN):** the PowerShell script was never executed anywhere (no PowerShell in the cloud container; no Windows run yet); real USB/external-disk detection; real MTP/PTP classification; nvidia-smi; elevation requirements for disk/temperature queries; the `limits` object shape from HIVE Core/providers (an assumption); any live Core or provider data. GAP-1..GAP-7 are unchanged and OPEN.
+
+**Windows verification to run before relying on P1.1 (owner, no secrets involved)**
+1. In a normal (non-admin) PowerShell, from the worktree: `python -c "import hive_system,json; print(json.dumps(hive_system.collect_system(), indent=1))"` - expected: `evidence.validity` valid or degraded; CPU/RAM/DISK numbers close to Task Manager; any field the OS refuses (often TEMP, GPU) is UNKNOWN with a reason. Report the validity words and which fields are UNKNOWN; do not paste hostnames, serial numbers or device names you consider private.
+2. Plug in a USB disk and a phone (MTP/PTP) and re-run: the disk should appear with `kind` external or removable, size/free matching Explorer, drive letter correct; the phone must appear only under `usb` with "Storage metrics unavailable" and never in `disks`. Report if the phone is missing or classified differently (its class may not be WPD/Image).
+3. Open the live dashboard (`.\start.ps1`) and compare the SYSTEM RESOURCES panel with Task Manager; confirm GPU/TEMP read UNKNOWN unless the OS returned values; confirm AI MODELS / LIMITS reads UNKNOWN or NOT_PROVIDED unless Core returns a `limits` object.
+

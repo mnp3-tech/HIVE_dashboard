@@ -12,7 +12,7 @@ function loadPrefs(){
 }
 const DENSITY_CYCLE = ['full', 'reduced', 'minimal'];
 const prefs = loadPrefs();
-const state = {snapshot:null, workerPolicy:null, capabilities:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
+const state = {system:null, snapshot:null, workerPolicy:null, capabilities:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
 function savePrefs(){ localStorage.setItem(PREFS_KEY, JSON.stringify({density:state.density, mode:state.mode})); }
 
 const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
@@ -51,6 +51,7 @@ function normalize(raw){
     environment: source.environment || 'LOCAL / UNVERIFIED',
     core: source.core || {status:'unknown', reason:'No application health payload'},
     metrics,
+    model_limits: source.model_limits && Array.isArray(source.model_limits.items) ? source.model_limits : null,
     events, eventsEvidence,
     projects, projectsEvidence,
     projectRegistry, projectRegistryEvidence, selfEvolution,
@@ -75,6 +76,8 @@ async function load(){
     catch(_error){ state.capabilities = null; }
     try { const response = await fetch('/api/local-workers/cli-status', {headers:{Accept:'application/json'}, cache:'no-store'}); state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; }
     catch(error){ state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }
+    try { const response = await fetch('/api/system/resources', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(6000)}); state.system = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
+    catch(error){ state.system = {error:String(error.message||error)}; }
     await loadChat();
   }
   render(); $('#refresh-button').disabled = false;
@@ -334,10 +337,35 @@ function providerObservation(snapshot, key){
   if(!hit.length) return {tone:'unknown', label:'UNKNOWN'};
   const status=hit[0].status||'unknown'; return {tone:tone(status), label:stateLabel(status)};
 }
-function gaugeMarkup(label, metric){
-  const known=metric && metric.value!=null && Number.isFinite(Number(metric.value)) && metric.unit==='%';
-  const pct=known?Math.max(0,Math.min(100,Number(metric.value))):0; const c=2*Math.PI*40;
-  return `<div class="gauge ${known?'':'unknown'}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(label)} ${known?pct.toFixed(0)+'%':'UNKNOWN'}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${known?pct.toFixed(0)+' %':'UNKNOWN'}</text></svg><label>${esc(label)}</label></div>`;
+function gaugeMarkup(v){
+  const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
+  return `<div class="gauge ${v.known?'':'unknown'}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(v.text)}</text></svg><label>${esc(v.label)}</label>${v.sub?`<small class="g-sub">${esc(v.sub)}</small>`:''}</div>`;
+}
+function renderResources(snapshot){
+  const views=OPS.resourceViews(state.system, snapshot.metrics);
+  const g=$('#resource-gauges'); if(g) g.innerHTML=views.map(gaugeMarkup).join('');
+  const sum=OPS.deviceSummary(state.system); const el=$('#sys-summary');
+  if(el){ const text=sum?sum:'USB / devices: UNKNOWN'+(state.system&&state.system.evidence&&state.system.evidence.reason?' · '+state.system.evidence.reason:''); el.textContent=text; el.title=text; }
+  setSvgText('devices-state', OPS.devicesNodeText(state.system));
+  renderSystemConsole();
+}
+function renderSystemConsole(){
+  const sys=state.system; const list=$('#system-devices'); if(!list) return;
+  const ev=(sys&&sys.evidence)||null; const vd=ev?ev.validity:(sys&&sys.error?'unavailable':'unknown');
+  const badge=$('#system-validity'); if(badge){ badge.textContent=stateLabel(vd); badge.className=`panel-status ${tone(vd==='fixture'?'valid':vd)}`; }
+  setText('system-evidence', sys&&sys.error?`System endpoint error: ${sys.error}`:evidenceLine(ev));
+  const known=(sys&&sys.items)||{}; const disks=known.disks_known===true?(known.disks||[]):[], usb=known.usb_known===true?(known.usb||[]):[];
+  const row=(a,b,c)=>`<div class="rail-row"><div class="grow"><strong>${esc(a)}</strong><small>${esc(b)}</small></div><span class="state">${esc(c)}</span></div>`;
+  list.innerHTML=(disks.length||usb.length)?
+    disks.map(d=>row(`${d.id} ${d.label||''}`.trim(), `${d.kind}${d.access?' · '+d.access:''}`, d.validity==='unavailable'?'size unavailable':`${OPS.formatBytes(d.total_bytes)} · ${OPS.formatBytes(d.free_bytes)} free`)).join('')
+    +usb.map(u=>row(u.name, `USB · ${u.kind==='phone_mtp_ptp'?'phone (MTP/PTP) — not a disk':'device'}`, u.kind==='phone_mtp_ptp'?'Storage metrics unavailable':u.status)).join('')
+    :`<div class="empty-state compact"><strong>${known.disks_known===true||known.usb_known===true?'NONE REPORTED':'UNKNOWN'}</strong><small>${known.disks_known===true||known.usb_known===true?'The OS probe returned no disks or USB devices.':'The OS probe did not return disks or USB devices.'}</small></div>`;
+}
+function renderLimits(snapshot){
+  const items=(snapshot.model_limits&&snapshot.model_limits.items&&snapshot.model_limits.items.length)?snapshot.model_limits.items:OPS.EMPTY_LIMITS;
+  const lim=$('#limit-rows'); if(!lim) return;
+  lim.innerHTML=items.map(it=>{ const v=OPS.limitView(it); const fill=v.fill!==null?Math.round(Math.max(0,Math.min(1,v.fill))*100):0;
+    return `<div class="limit-row" title="${esc(v.title)}" data-status="${esc(v.status)}"><i class="dot ${v.tone}"></i><strong>${esc(v.label)}</strong><div class="bar ${v.dashed?'est':''}"><span style="width:${fill}%"></span></div><span class="v">${esc(v.text)}</span></div>`; }).join('');
 }
 function renderShell(snapshot){
   setText('env-tag', (snapshot.environment || 'UNVERIFIED') + ((snapshot.core && snapshot.core.observed_at) || demoMode || /FIXTURE|DEMO|UNVERIFIED/i.test(snapshot.environment||'') ? '' : ' · UNVERIFIED')); // a static server label must not read as a connection claim
@@ -348,8 +376,7 @@ function renderShell(snapshot){
   if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map(item=>`<div class="rail-row"><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
   const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>`<div class="rail-row"><i class="dot"></i><div class="grow"><strong>${role}</strong></div><span class="state">PROVIDER UNKNOWN</span></div>`).join('');
   ingestActivity(snapshot); renderActivity(); renderApprovals();
-  const g=$('#resource-gauges'); if(g) g.innerHTML=gaugeMarkup('CPU',snapshot.metrics.cpu)+gaugeMarkup('RAM',snapshot.metrics.memory)+gaugeMarkup('DISK',snapshot.metrics.disk)+gaugeMarkup('GPU',null)+gaugeMarkup('TEMP',null);
-  const lim=$('#limit-rows'); if(lim) lim.innerHTML=[...SHELL_PROVIDERS.map(([k,l])=>[k,l]),['local','LOCAL']].map(([k,l])=>{ const o=k==='local'?{tone:'unknown'}:providerObservation(snapshot,k); return `<div class="limit-row"><i class="dot ${o.tone}"></i><strong>${l}</strong><div class="bar"></div><span class="v">Limit: NOT_PROVIDED</span></div>`; }).join('');
+  renderResources(snapshot); renderLimits(snapshot);
 }
 function renderShellTail(snapshot){ if(demoMode){ core.tstate={status:'live', lastMessageAt:Date.now(), sourceValidity:'fixture'}; ingestSnapshotEvents(snapshot); } recomputeCore(); }
 function setConsole(open){ const c=$('#console'); if(c) c.hidden=!open; }

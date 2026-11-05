@@ -54,13 +54,13 @@
         <g class="core-agent ultron-icon" id="ultron-icon" data-agent="ULTRON" transform="translate(800 70)"><circle r="26"/><text class="ca-glyph" y="8" text-anchor="middle">⛨</text><text class="ca-name" x="46" y="6" text-anchor="start">ULTRON</text></g>
         <g class="core-node" id="node-internet" transform="translate(1280 130)"><circle class="planet" r="56" fill="url(#planet)"/><text class="ca-name" y="90" text-anchor="middle">INTERNET</text><text class="ca-state" y="112" text-anchor="middle" id="internet-state">NO ACTIVITY OBSERVED</text></g>
         <g class="core-node" id="node-obsidian" transform="translate(330 300)"><rect x="-26" y="-26" width="52" height="52" rx="10"/><text class="ca-name" y="52" text-anchor="middle">OBSIDIAN</text><text class="ca-state" y="74" text-anchor="middle" id="obsidian-state">NOT CONFIGURED</text></g>
-        <g class="core-node" id="node-devices" transform="translate(330 640)"><rect x="-26" y="-18" width="52" height="36" rx="6"/><text class="ca-name" y="46" text-anchor="middle">LOCAL DEVICES</text><text class="ca-state" y="68" text-anchor="middle">UNKNOWN</text></g>
+        <g class="core-node" id="node-devices" transform="translate(330 640)"><rect x="-26" y="-18" width="52" height="36" rx="6"/><text class="ca-name" y="46" text-anchor="middle">LOCAL DEVICES</text><text class="ca-state" y="68" text-anchor="middle" id="devices-state">UNKNOWN</text></g>
         <g id="core-overlay"></g>
       </svg>
     </section>
 
     <div class="res-row" id="res-row">
-      <section class="hive-panel" id="panel-resources"><div class="hp-head"><h2>SYSTEM RESOURCES</h2></div><div class="hp-body gauges" id="resource-gauges"></div></section>
+      <section class="hive-panel" id="panel-resources"><div class="hp-head"><h2>SYSTEM RESOURCES</h2></div><div class="hp-body gauges" id="resource-gauges"></div><div class="sys-summary" id="sys-summary" title="">USB / devices: UNKNOWN</div></section>
       <section class="hive-panel" id="panel-limits"><div class="hp-head"><h2>AI MODELS / LIMITS</h2></div><div class="hp-body" id="limit-rows"></div></section>
     </div>
 
@@ -96,6 +96,7 @@
           <button class="nav-item" data-view="tasks"><span>☰</span>Tasks</button>
           <button class="nav-item" data-view="adapters"><span>⌁</span>Adapters</button>
           <button class="nav-item" data-view="workers"><span>⚙</span>Workers</button>
+          <button class="nav-item" data-view="system"><span>▤</span>System</button>
           <button class="nav-item" data-view="proposals"><span>✎</span>Proposals</button>
         </nav>
         <div class="sidebar-spacer"></div>
@@ -179,6 +180,12 @@
           <section class="panel adapters-panel" id="adapters-panel" data-views="overview adapters">
             <div class="panel-heading"><div><p class="eyebrow">ADAPTER HEALTH</p><h2>Configured, authenticated, reachable</h2></div><span class="panel-status">PER-ADAPTER EVIDENCE</span></div>
             <div class="adapter-grid" id="adapter-cards"></div>
+          </section>
+
+          <section class="panel system-panel" id="system-panel" data-views="overview system">
+            <div class="panel-heading"><div><p class="eyebrow">SYSTEM &amp; DEVICES</p><h2>OS-returned resources, disks and USB devices</h2></div><span class="panel-status" id="system-validity">UNKNOWN</span></div>
+            <div class="evidence-line" id="system-evidence">No system evidence received.</div>
+            <div class="catalog-list" id="system-devices"></div>
           </section>
 
           <section class="panel worker-panel" id="workers-panel" data-views="overview workers">

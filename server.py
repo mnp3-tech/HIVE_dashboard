@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import hmac
 import hive_events
+import hive_system
 import ipaddress
 import json
 import mimetypes
@@ -1326,6 +1327,9 @@ def normalize_workers(items) -> list:
             "model": item.get("model", "unknown"),
             "status": item.get("status", "unknown"),
         })
+        lim = item.get("limits")
+        if isinstance(lim, dict):  # pass through only the fields hive_system.limit_record understands
+            workers[-1]["limits"] = {k: lim[k] for k in ("limit", "available", "basis", "unit") if k in lim}
     return workers
 
 
@@ -1849,6 +1853,7 @@ def snapshot():
         "self_evolution": evolution,
         "tasks": {"items": tasks, "evidence": tasks_evidence},
         "workers": {"items": workers, "evidence": workers_evidence},
+        "model_limits": {"items": hive_system.model_limits(workers), "evidence": workers_evidence},
         "local_workers": {"items": local_workers, "evidence": local_workers_evidence},
         "events": {"items": normalized_events[:50], "evidence": events_evidence},
         "readiness": readiness,
@@ -1977,6 +1982,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         try:
+            if path == "/api/system/resources":
+                return self.json_response(hive_system.cached_system())
             if path == "/api/events/stream":
                 return self.stream_events(parse_qs(urlparse(self.path).query))
             if path == "/api/dashboard/snapshot":

@@ -152,3 +152,61 @@ test('approval decisions are per request: same task, new event => new key; recon
 test('approvals: events for an unrecognised provider are never attributed to GPT/CODEX/CLAUDE', () => {
   assert.deepEqual(O.pendingApprovals([evt({ provider: 'mistral' }), evt({ provider: 'local' })], now), { gpt: [], codex: [], claude: [] });
 });
+
+/* ======== P1.1 view helpers: resources, devices, model limits ======== */
+test('formatBytes / formatCount: decimal units, invalid input => null', () => {
+  assert.equal(O.formatBytes(1.31e12), '1.31 TB'); assert.equal(O.formatBytes(370e9), '370 GB'); assert.equal(O.formatBytes(0), '0 B'); assert.equal(O.formatBytes(1500), '1.5 KB');
+  for (const bad of [-1, NaN, Infinity, '5', null, undefined, true]) assert.equal(O.formatBytes(bad), null, String(bad));
+  assert.equal(O.formatCount(100000), '100K'); assert.equal(O.formatCount(999), '999'); assert.equal(O.formatCount(-1), null); assert.equal(O.formatCount('x'), null);
+});
+test('resourceViews: nothing known => five UNKNOWN gauges, never zero', () => {
+  for (const v of O.resourceViews(null, null)) { assert.equal(v.known, false); assert.equal(v.text, 'UNKNOWN'); assert.equal(v.pct, null); }
+  assert.deepEqual(O.resourceViews(null, null).map(v => v.label), ['CPU', 'RAM', 'DISK', 'GPU', 'TEMP']);
+});
+test('resourceViews: OS value preferred; Core metric only if valid percent; stale/other rejected', () => {
+  const os = { items: { cpu: { value: 17, unit: '%', validity: 'valid', source: 'windows:powershell' } } };
+  assert.equal(O.resourceViews(os, { cpu: { value: 90, unit: '%', validity: 'valid' } })[0].from, 'os');
+  assert.equal(O.resourceViews(os, null)[0].text, '17 %');
+  const core = O.resourceViews(null, { cpu: { value: 55, unit: '%', validity: 'valid', source: 'hive' } })[0]; assert.equal(core.from, 'hive-core'); assert.equal(core.text, '55 %');
+  for (const m of [{ value: 55, unit: '%', validity: 'stale' }, { value: 55, unit: '%', validity: 'unavailable' }, { value: 55, unit: '%', validity: 'unknown' }, { value: 55, unit: 'GB', validity: 'valid' }, { value: null, unit: '%', validity: 'valid' }, { value: '55', unit: '%', validity: 'valid' }])
+    assert.equal(O.resourceViews(null, { cpu: m })[0].known, false, JSON.stringify(m));
+});
+test('resourceViews: OS values with invalid validity/range/units are rejected; fixture is accepted', () => {
+  const mk = (cpu, extra) => O.resourceViews({ items: { cpu: Object.assign({ unit: '%', validity: 'valid' }, cpu) } }, null)[0];
+  assert.equal(mk({ value: 101 }).known, false); assert.equal(mk({ value: -1 }).known, false); assert.equal(mk({ value: 0 }).known, true, 'zero is a real value');
+  assert.equal(mk({ value: 5, validity: 'unavailable' }).known, false); assert.equal(mk({ value: 5, validity: 'fixture' }).known, true); assert.equal(mk({ value: 5, unit: 'furlongs' }).known, false);
+  const temp = O.resourceViews({ items: { temperature: { value: 46.2, unit: 'C', validity: 'valid' } } }, null)[4]; assert.equal(temp.text, '46 °C');
+  assert.equal(O.resourceViews({ items: { temperature: { value: 400, unit: 'C', validity: 'valid' } } }, null)[4].known, false);
+});
+test('resourceViews: sublabels (disk free space, RAM used/total) only from real numbers', () => {
+  const v = O.resourceViews({ items: { disk: { value: 60, unit: '%', validity: 'valid', drive: 'C:\\', free_bytes: 400e9 }, memory: { value: 75, unit: '%', validity: 'valid', used_bytes: 12e9, total_bytes: 16e9 } } }, null);
+  assert.equal(v[2].sub, 'C:\\ 400 GB free'); assert.equal(v[1].sub, '12 GB / 16 GB');
+  assert.equal(O.resourceViews({ items: { disk: { value: 60, unit: '%', validity: 'valid', free_bytes: 'lots' } } }, null)[2].sub, null);
+});
+test('deviceSummary: external disks with free space; MTP/PTP phone says Storage metrics unavailable and is not a disk', () => {
+  const sys = { items: { usb_known: true, disks_known: true, disks: [{ id: 'C:\\', kind: 'fixed', validity: 'valid', total_bytes: 1e12, free_bytes: 4e11 }, { id: 'E:\\', kind: 'external', validity: 'valid', total_bytes: 2e12, free_bytes: 1.31e12, access: 'Read/Write' }],
+    usb: [{ name: 'USB Storage', kind: 'usb_device' }, { name: 'Pixel 8', kind: 'phone_mtp_ptp', protocol: 'MTP/PTP', storage_metrics: 'unavailable' }] } };
+  const s = O.deviceSummary(sys);
+  assert.match(s, /USB 2/); assert.match(s, /E:\\ 2 TB, 1\.31 TB free/); assert.doesNotMatch(s, /Read\/Write/, 'access mode lives in the console list'); assert.match(s, /Pixel 8: MTP\/PTP · Storage metrics unavailable/); assert.doesNotMatch(s, /C:\\/, 'fixed system disk is not an external disk');
+  assert.doesNotMatch(s, /Pixel 8.*\d+ (GB|TB)/, 'phone has no size');
+  assert.equal(O.deviceSummary(null), null); assert.equal(O.deviceSummary({ error: 'x', items: {} }), null);
+  // empty-but-unknown is not zero
+  assert.equal(O.deviceSummary({ items: { usb: [], disks: [], usb_known: false, disks_known: false } }), null);
+  assert.equal(O.devicesNodeText({ items: { usb: [], disks: [] } }), 'UNKNOWN');
+  assert.match(O.deviceSummary({ items: { usb: [], disks: [], usb_known: false, disks_known: true } }), /USB UNKNOWN/);
+  assert.equal(O.devicesNodeText({ items: { usb: [], disks: [], usb_known: true, disks_known: false } }), '0 USB · DISKS UNKNOWN');
+  assert.equal(O.devicesNodeText({ items: { usb: [], disks: [], usb_known: true, disks_known: true } }), '0 USB · 0 EXT DISK', 'a successful empty probe really is zero');
+  assert.equal(O.devicesNodeText(sys), '2 USB · 1 EXT DISK'); assert.equal(O.devicesNodeText(null), 'UNKNOWN');
+  const bad = O.deviceSummary({ items: { usb_known: true, disks_known: true, disks: [{ id: 'F:\\', kind: 'removable', validity: 'unavailable', total_bytes: null, free_bytes: null }], usb: [] } }); assert.match(bad, /size unavailable/);
+});
+test('limitView: only KNOWN/ESTIMATED show numbers; others are status words; malformed numbers are rejected', () => {
+  assert.equal(O.limitView({ label: 'GPT', status: 'KNOWN', limit: 200000, available: 187000 }).text, 'Limit 200K · Avail 187K · KNOWN');
+  const est = O.limitView({ label: 'X', status: 'ESTIMATED', limit: 100000, available: 40000 }); assert.equal(est.text, 'Limit ~100K · Avail ~40K · ESTIMATED'); assert.equal(est.dashed, true); assert.equal(est.fill, 0.4); assert.equal(est.tone, 'warn');
+  assert.equal(O.limitView({ label: 'C', status: 'NOT_PROVIDED', limit: 5 }).text, 'Limit: NOT_PROVIDED'); assert.equal(O.limitView({ label: 'L', status: 'UNKNOWN', limit: 5 }).text, 'Limit: UNKNOWN');
+  assert.equal(O.limitView({ label: 'G', status: 'KNOWN', limit: 100, available: null }).text, 'Limit 100 · Avail n/a · KNOWN'); assert.equal(O.limitView({ label: 'G', status: 'KNOWN', limit: 100, available: null }).fill, null);
+  for (const bad of [{ status: 'KNOWN', limit: 'x' }, { status: 'KNOWN', limit: -1 }, { status: 'KNOWN', limit: 10, available: 20 }, { status: 'KNOWN', limit: NaN }, { status: 'WEIRD', limit: 5 }, null, undefined, {}])
+    assert.equal(O.limitView(bad).status === 'UNKNOWN' || O.limitView(bad).status === 'NOT_PROVIDED', true, JSON.stringify(bad)), assert.doesNotMatch(O.limitView(bad).text, /\d/, 'no number shown for ' + JSON.stringify(bad));
+});
+test('EMPTY_LIMITS: four equal UNKNOWN rows (no provider privileged)', () => {
+  assert.deepEqual(O.EMPTY_LIMITS.map(r => r.label), ['GPT', 'CLAUDE', 'CODEX', 'LOCAL']); assert.ok(O.EMPTY_LIMITS.every(r => r.status === 'UNKNOWN'));
+});

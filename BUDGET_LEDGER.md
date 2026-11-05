@@ -45,3 +45,10 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 - Effort: ~$3 of $9 reserve so far; running total about $38 of $100 (rough). P1.x not started.
 - Independent final reviewer (subagent #4, fresh context): re-ran all suites, counts matched; verified behavioural claims (a)-(h) by reading code; no problems reported. Own follow-ups: py_compile + diff --check re-run clean; content scan found secret-shaped strings only in synthetic redaction test inputs; demo banner assertion exists.
 - Subagents total: 4 of 8. Final QA effort ~$4 of the $9 reserve. Running total about $39 of $100 (rough, not observed). P1.1 not started; recommendation recorded in HANDOFF_REPORT.md section 11.
+
+## P1.1 System resources + model limits (allocation $10, narrow scope)
+- Files: hive_system.py (new), server.py (`/api/system/resources`, snapshot `model_limits`, worker `limits` whitelist), fixture_server.py (synthetic system + limits), hive-ops.js (view helpers), app.js, index.html, styles.css, tests/test_system.py (new, 26), tests/ops.test.mjs (+8), tests/e2e/system.e2e.mjs (new, 5), docs (ACCEPTANCE P1.1 rows PARTIAL + GAP-8, HANDOFF_REPORT section 13).
+- Tests: Python 268/268; ui_contract 20/20; core 45; ops 30; html_ids 3; Playwright shell 7, core 10, chat 11, system 5. All OS/provider output mocked or synthetic; Windows script never executed.
+- Defects found and fixed: "USB 0" shown for a failed probe; removable media classified external; phone note truncated at 1280x720.
+- Not started: P1.2 (profiles, Obsidian/WONG/Internet), P1.3 (ULTRON, EVOLVE), layout editor. GAP-1..GAP-7 unchanged and OPEN; GAP-8 added.
+- Subagents: 4 total (none used in P1.1). Effort: ~$7 of $10 for P1.1; running total about $46 of $100 (rough, not observed spend).

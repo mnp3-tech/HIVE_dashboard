@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import hive_events
+import hive_system
 from urllib.parse import parse_qs, unquote, urlsplit
 
 
@@ -161,6 +162,7 @@ def build_snapshot(now: datetime | None = None) -> dict:
             ],
             "evidence": _evidence(now, "fixture:workers"),
         },
+        "model_limits": fixture_model_limits(now),
         "events": {
             "items": [
                 {"event_id": "fx-snap-1", "timestamp": _observed(now, 5), "timestamp_validity": "valid", "kind": "TASK_ROUTED", "title": "Task routed to Claude", "source": "fixture event bus", "component_id": "claude-subscription", "severity": "info"},
@@ -281,10 +283,46 @@ def _limit(query: dict[str, list[str]], default: int = 20, maximum: int = 50) ->
         return default
 
 
+
+def fixture_system(now: datetime) -> dict:
+    """Synthetic OS resources (validity 'fixture'); exercises every panel state. Not live data."""
+    obs = now.isoformat()
+    rec = lambda v, unit, **x: {"value": v, "unit": unit, "validity": "fixture", "source": "fixture:system", "observed_at": obs, "reason": "Synthetic fixture value", **x}
+    unk = lambda unit, why, **x: {"value": None, "unit": unit, "validity": "unavailable", "source": "fixture:system", "observed_at": None, "reason": why, **x}
+    TB = 1000 ** 4
+    return {"fixture_only": True, "items": {
+        "cpu": rec(17.0, "%"), "memory": rec(44.0, "%", used_bytes=7 * 1024 ** 3, total_bytes=16 * 1024 ** 3),
+        "disk": rec(63.0, "%", drive="C:\\", free_bytes=int(0.37 * TB), total_bytes=TB),
+        "gpu": unk("%", "GPU utilization not provided (fixture exercises UNKNOWN)", adapters=["Fixture GPU"]),
+        "temperature": unk("C", "No valid temperature returned (fixture exercises UNKNOWN)"),
+        "disks": [
+            {"id": "C:\\", "label": "System", "kind": "fixed", "total_bytes": TB, "free_bytes": int(0.37 * TB), "access": "Read/Write", "validity": "fixture", "reason": None, "source": "fixture:system", "observed_at": obs},
+            {"id": "E:\\", "label": "Fixture External SSD", "kind": "external", "total_bytes": TB, "free_bytes": int(0.62 * TB), "access": "Read/Write", "validity": "fixture", "reason": None, "source": "fixture:system", "observed_at": obs},
+        ],
+        "disks_known": True, "usb_known": True,
+        "usb": [
+            {"name": "Fixture External SSD", "kind": "usb_device", "status": "Connected", "protocol": None, "storage_metrics": "not_applicable", "storage_note": None, "source": "fixture:system", "observed_at": obs},
+            {"name": "Fixture Phone", "kind": "phone_mtp_ptp", "status": "Connected", "protocol": "MTP/PTP", "storage_metrics": "unavailable", "storage_note": "Storage metrics unavailable", "source": "fixture:system", "observed_at": obs},
+        ]},
+        "evidence": {"source": "fixture:system", "validity": "fixture", "observed_at": obs, "reason": "Synthetic fixture; not live OS data"}}
+
+
+def fixture_model_limits(now: datetime) -> dict:
+    """One row per status KNOWN / ESTIMATED / NOT_PROVIDED / UNKNOWN, built by the real normaliser. Synthetic."""
+    workers = [
+        {"provider": "gpt", "model": "fixture-gpt", "limits": {"limit": 100000, "available": 61000, "basis": "provider", "unit": "tokens"}},
+        {"provider": "claude", "model": "fixture-claude", "limits": {"limit": 100000, "available": 40000, "basis": "estimate", "unit": "tokens"}},
+        {"provider": "codex", "model": "fixture-codex"},
+    ]
+    return {"items": hive_system.model_limits(workers), "evidence": _evidence(now, "fixture:model-limits")}
+
+
 def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = None) -> tuple[dict, int]:
     now = now or datetime.now(timezone.utc)
     if path == "/api/fixture/metadata":
         return fixture_metadata(now), 200
+    if path == "/api/system/resources":
+        return fixture_system(now), 200
     if path == "/api/dashboard/snapshot":
         return build_snapshot(now), 200
     if path == "/api/control/worker-policy":

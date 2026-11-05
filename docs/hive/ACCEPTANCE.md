@@ -21,7 +21,7 @@ Existing test files: `tests/e2e/shell.e2e.mjs`, `tests/ui_contract.test.mjs`, `t
 | S15.9 | No activity invented when telemetry is missing (UNKNOWN, never WORKING) | P0.2 | tests/core.test.mjs + tests/e2e/core.e2e.mjs (live adapter, Core unreachable => UNKNOWN, nothing moves/active). Says nothing about a reachable live Core (GAP-4). | PASS_AUTOMATED |
 | S15.10 | Chat attachments and send states work honestly | P0.3 | Attachments, chips, Enter/Shift+Enter, QUEUED/FAILED/NOT_CONNECTED tested. SENT only with a mock connector; no real send route (GAP-2). | PARTIAL |
 | S15.11 | Activity and Approvals readable and sanitized | P0.3 | Rows sanitized and tested; approvals local-only with truthful label (GAP-3). Redaction is best-effort (GAP-6). | PARTIAL |
-| S15.12 | Hardware and model values show UNKNOWN when unavailable | P1.1 | tests/test_server.py (system metrics, planned cases); shell.e2e.mjs asserts NOT_PROVIDED in limits panel only (not hardware) | NOT_RUN |
+| S15.12 | Hardware and model values show UNKNOWN when unavailable | P1.1 | Mocked/fixture tests show UNKNOWN for every missing value (tests/e2e/system.e2e.mjs live host: all UNKNOWN, no "USB 0"). No real Windows OS values or real provider limits verified (GAP-8). | PARTIAL |
 | S15.13 | Obsidian/WONG authority boundaries preserved (no vault path guess, no write unless connector enabled) | P1.2 | tests/test_server.py (planned cases) + tests/ui_contract.test.mjs | NOT_RUN |
 | S15.14 | EVOLVE changes only an isolated branch and produces evidence (diff, test result, backup) | P1.3 | tests/test_evolve.py (planned) | NOT_RUN |
 | S15.15 | Existing tests remain passing or regressions are reported | All | Baseline 211 Python + 12 fixture + 20 UI contract tests all pass. One baseline test (OpenCode workspace) was made platform-independent without weakening it, and a Linux import fix was added; see BUDGET_LEDGER.md. Windows behavior not run. | PASS_AUTOMATED |
@@ -95,10 +95,10 @@ Note on P0.1.6: the e2e asserts every listed label; the bottom ASK HIVE input, a
 
 | ID | Requirement | Phase | Verification | Status |
 |----|-------------|-------|--------------|--------|
-| P1.1.1 | CPU/RAM/GPU/disk/free space/temperature shown only from OS-returned values; otherwise UNKNOWN | P1.1 | tests/test_server.py (planned) + tests/ui_contract.test.mjs | NOT_RUN |
-| P1.1.2 | External USB disk shown with size, free space, drive letter, R/W | P1.1 | tests/test_server.py (planned, mocked OS data) + MANUAL with a real USB disk on Windows PC | NOT_RUN |
-| P1.1.3 | Phone over MTP/PTP shown as "MTP, Storage metrics unavailable", never as a block disk | P1.1 | tests/test_server.py (planned) + MANUAL with a phone | NOT_RUN |
-| P1.1.4 | Model limits use only KNOWN/UNKNOWN/NOT_PROVIDED/ESTIMATED; no invented quotas | P1.1 | tests/e2e/shell.e2e.mjs (NOT_PROVIDED present in default state only) + tests/ui_contract.test.mjs (planned cases) | NOT_RUN |
+| P1.1.1 | CPU/RAM/GPU/disk/free space/temperature shown only from OS-returned values; otherwise UNKNOWN | P1.1 | tests/test_system.py (parse/validate/collect with MOCKED PowerShell+nvidia-smi output; invalid, NaN, out-of-range, bool, inconsistent values => UNKNOWN), tests/ops.test.mjs (view helpers), tests/e2e/system.e2e.mjs (fixture values; live non-Windows host => all UNKNOWN). The real Windows PowerShell script and nvidia-smi were NEVER executed (no PowerShell in the cloud container; Windows run pending) | PARTIAL |
+| P1.1.2 | External USB disk shown with size, free space, drive letter, R/W | P1.1 | tests/test_system.py + tests/e2e/system.e2e.mjs with MOCKED/FIXTURE data: size, free space, drive letter, kind (external/removable/fixed), access. Summary line omits R/W for space (shown in the System console list). Real USB disk on Windows NOT VERIFIED | PARTIAL |
+| P1.1.3 | Phone over MTP/PTP shown as "MTP, Storage metrics unavailable", never as a block disk | P1.1 | tests/test_system.py + ops.test.mjs + system.e2e.mjs: MOCKED/FIXTURE phone (class WPD/Image) is listed under USB only, never as a disk, text "Storage metrics unavailable". Real phone, and whether Windows reports it with these classes, NOT VERIFIED | PARTIAL |
+| P1.1.4 | Model limits use only KNOWN/UNKNOWN/NOT_PROVIDED/ESTIMATED; no invented quotas | P1.1 | tests/test_system.py (normaliser), ops.test.mjs, system.e2e.mjs: statuses KNOWN/ESTIMATED/NOT_PROVIDED/UNKNOWN only; malformed numbers rejected; four equal rows. The `limits` object schema read from HIVE Core worker records is MY ASSUMPTION; no real provider/Core response was ever seen (GAP-8) | PARTIAL |
 
 ### P1.2 Profiles and shared context
 
@@ -166,3 +166,11 @@ Reported by the project owner after running the section 9 checklist on the real 
 | 6 Playwright | NOT_RUN | - | Browser tests on Windows |
 
 Effect on tracked items (statuses unchanged unless stated): S15.15 gains a user-reported Windows Python result (242/242) but remains PASS_AUTOMATED on the Linux evidence plus this partial Windows evidence; it does not cover the Node suites on Windows. GAP-4 has partial progress noted in its row and stays OPEN. GAP-1, GAP-2, GAP-3, GAP-5, GAP-6 and GAP-7 are unaffected by this run and stay OPEN. No P1 item changed.
+| GAP-8 | P1.1 is verified only against MOCKED OS/provider output and the synthetic fixture. NOT verified: the real PowerShell script (cmdlet availability, permissions/elevation for Get-Disk and MSAcpi temperature), real USB/external-disk detection, real MTP/PTP classification (WPD/Image classes are best-effort), nvidia-smi on a real GPU, and the shape of any provider/Core limits (the `limits` object is an assumption). No live Core or provider was queried. | P1.1 | OPEN |
+
+## P1.1 follow-up findings (found while building, all fixed with tests)
+- A failed/unavailable OS probe rendered "USB 0" (a false claim of zero devices); adapter now returns `usb_known`/`disks_known` and the UI shows UNKNOWN unless the probe actually returned a list.
+- Removable USB media was classified "external" instead of "removable"; classifier order fixed.
+- The compact summary truncated the phone note at 1280x720; the line now wraps and the panel is slightly taller (resources row min height 164px); a test asserts the text is not truncated.
+- Not done in P1.1 (still NOT_RUN): GPU utilization without nvidia-smi, per-core/other temperature sources, any provider quota fetching.
+

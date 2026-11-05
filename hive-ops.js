@@ -88,6 +88,86 @@
   /* Edit is available only with a valid adapter/deep link; none exists yet. */
   function editAvailable(item, connector) { return Boolean(connector && connector.supports && connector.supports(item.provider, 'edit') && item.editUrl); }
 
-  const api = { STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
+
+  /* ---- P1.1 system resources / model limits view helpers (pure) ---- */
+  const TRUSTED = ['valid', 'fixture'];
+  const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  function formatBytes(n) {
+    const v = num(n); if (v === null || v < 0) return null;
+    const u = [['TB', 1e12], ['GB', 1e9], ['MB', 1e6], ['KB', 1e3]];
+    for (const [name, size] of u) if (v >= size) { const x = v / size; return (x >= 100 ? Math.round(x) : Math.round(x * 100) / 100) + ' ' + name; }
+    return Math.round(v) + ' B';
+  }
+  function formatCount(n) {
+    const v = num(n); if (v === null || v < 0) return null;
+    if (v >= 1e6) return (Math.round(v / 1e5) / 10) + 'M'; if (v >= 1e3) return (Math.round(v / 100) / 10) + 'K'; return String(Math.round(v));
+  }
+  const metricKnown = m => Boolean(m && TRUSTED.includes(m.validity) && num(m.value) !== null);
+  /* OS value first; else HIVE Core's own host metric (percent only, valid only); else unknown. Never a default. */
+  function pickMetric(osItem, coreMetric) {
+    if (metricKnown(osItem)) return { metric: osItem, from: 'os' };
+    if (coreMetric && coreMetric.validity === 'valid' && num(coreMetric.value) !== null && coreMetric.unit === '%') return { metric: coreMetric, from: 'hive-core' };
+    return { metric: null, from: null, reason: (osItem && osItem.reason) || (coreMetric && coreMetric.reason) || 'not provided' };
+  }
+  function resourceViews(system, coreMetrics) {
+    const items = (system && system.items) || {}; const cm = coreMetrics || {};
+    const mk = (key, label, os, core, extra) => {
+      const p = pickMetric(os, core); const v = p.metric ? num(p.metric.value) : null;
+      const unit = p.metric && p.metric.unit;
+      const view = { key, label, known: v !== null, value: v, unit: unit || null, pct: null, text: 'UNKNOWN', sub: null, from: p.from, title: p.metric ? `${p.from} · ${p.metric.source || 'source n/a'}` : (p.reason || 'not provided') };
+      if (v !== null) {
+        if (unit === '%') { if (v < 0 || v > 100) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = v; view.text = Math.round(v) + ' %'; }
+        else if (unit === 'C') { if (v < -40 || v > 150) { view.known = false; view.text = 'UNKNOWN'; view.title = 'out-of-range value rejected'; return view; } view.pct = Math.max(0, Math.min(100, v)); view.text = Math.round(v) + ' °C'; }
+        else { view.known = false; view.text = 'UNKNOWN'; view.title = 'unrecognised unit'; return view; }
+        if (extra) view.sub = extra(p.metric);
+      }
+      return view;
+    };
+    return [
+      mk('cpu', 'CPU', items.cpu, cm.cpu),
+      mk('ram', 'RAM', items.memory, cm.memory, m => (formatBytes(m.used_bytes) && formatBytes(m.total_bytes) ? `${formatBytes(m.used_bytes)} / ${formatBytes(m.total_bytes)}` : null)),
+      mk('disk', 'DISK', items.disk, cm.disk, m => (formatBytes(m.free_bytes) ? `${m.drive ? m.drive + ' ' : ''}${formatBytes(m.free_bytes)} free` : null)),
+      mk('gpu', 'GPU', items.gpu, null, null),
+      mk('temp', 'TEMP', items.temperature, null, null),
+    ];
+  }
+  /* One-line USB/external summary. Phones (MTP/PTP) are never counted as disks. An empty list from a probe
+     that did not return that list is UNKNOWN, never "0". */
+  function deviceSummary(system) {
+    if (!system || !system.items || system.error) return null;
+    const it = system.items; const usbKnown = it.usb_known === true, disksKnown = it.disks_known === true;
+    if (!usbKnown && !disksKnown) return null;
+    const disks = disksKnown && Array.isArray(it.disks) ? it.disks : []; const usb = usbKnown && Array.isArray(it.usb) ? it.usb : [];
+    const ext = disks.filter(d => d.kind === 'external' || d.kind === 'removable');
+    const phones = usb.filter(u => u.kind === 'phone_mtp_ptp');
+    const parts = [usbKnown ? `USB ${usb.length}` : 'USB UNKNOWN'];
+    ext.forEach(d => { const f = d.validity !== 'unavailable' ? formatBytes(d.free_bytes) : null; const t = d.validity !== 'unavailable' ? formatBytes(d.total_bytes) : null; parts.push(`${d.id} ${t && f ? `${t}, ${f} free` : 'size unavailable'}`); }); // access mode (Read/Write) is shown in the System console list
+    if (!disksKnown) parts.push('disks UNKNOWN');
+    phones.forEach(p => parts.push(`${p.name}: ${p.protocol || 'MTP/PTP'} · Storage metrics unavailable`));
+    return parts.join(' · ');
+  }
+  function devicesNodeText(system) {
+    if (!system || !system.items || system.error) return 'UNKNOWN';
+    const it = system.items; const usbKnown = it.usb_known === true, disksKnown = it.disks_known === true;
+    if (!usbKnown && !disksKnown) return 'UNKNOWN';
+    const ext = disksKnown && Array.isArray(it.disks) ? it.disks.filter(d => d.kind === 'external' || d.kind === 'removable').length : null;
+    return `${usbKnown && Array.isArray(it.usb) ? it.usb.length + ' USB' : 'USB UNKNOWN'} · ${ext === null ? 'DISKS UNKNOWN' : ext + ' EXT DISK'}`;
+  }
+  /* Model-limit row. Only KNOWN (provider) and ESTIMATED carry numbers; everything else is a status word. */
+  function limitView(item) {
+    const base = { label: (item && item.label) || '?', status: 'UNKNOWN', tone: 'unknown', text: 'Limit: UNKNOWN', fill: null, dashed: false, title: (item && item.reason) || '' };
+    if (!item || !['KNOWN', 'ESTIMATED', 'NOT_PROVIDED', 'UNKNOWN'].includes(item.status)) return base;
+    if (item.status === 'NOT_PROVIDED') return Object.assign(base, { status: 'NOT_PROVIDED', text: 'Limit: NOT_PROVIDED' });
+    if (item.status === 'UNKNOWN') return base;
+    const limit = num(item.limit), avail = item.available === null || item.available === undefined ? null : num(item.available);
+    if (limit === null || limit < 0 || (avail !== null && (avail < 0 || avail > limit))) return Object.assign(base, { title: 'malformed limit rejected' });
+    const est = item.status === 'ESTIMATED';
+    return { label: base.label, status: item.status, tone: est ? 'warn' : 'ok', dashed: est, title: base.title,
+      text: `Limit ${est ? '~' : ''}${formatCount(limit)} · Avail ${avail === null ? 'n/a' : (est ? '~' : '') + formatCount(avail)} · ${item.status}`,
+      fill: avail !== null && limit > 0 ? avail / limit : null };
+  }
+  const EMPTY_LIMITS = [['gpt', 'GPT'], ['claude', 'CLAUDE'], ['codex', 'CODEX'], ['local', 'LOCAL']].map(([provider, label]) => ({ provider, label, status: 'UNKNOWN', reason: 'No limit data received' }));
+
+  const api = { formatBytes, formatCount, metricKnown, pickMetric, resourceViews, deviceSummary, devicesNodeText, limitView, EMPTY_LIMITS, STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveOps = api;
 })(typeof window !== 'undefined' ? window : globalThis);
