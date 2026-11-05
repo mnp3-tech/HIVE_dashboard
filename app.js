@@ -12,7 +12,7 @@ function loadPrefs(){
 }
 const DENSITY_CYCLE = ['full', 'reduced', 'minimal'];
 const prefs = loadPrefs();
-const state = {system:null, snapshot:null, workerPolicy:null, capabilities:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
+const state = {memory:null, system:null, snapshot:null, workerPolicy:null, capabilities:null, cliWorkers:{items:[],evidence:null,error:null}, chat:{sessions:[],history:[],selected:null,evidence:null,error:null}, view:'overview', density:prefs.density, mode:prefs.mode, error:null};
 function savePrefs(){ localStorage.setItem(PREFS_KEY, JSON.stringify({density:state.density, mode:state.mode})); }
 
 const TASK_BUCKETS = ['queued', 'active', 'completed', 'blocked', 'unknown'];
@@ -76,6 +76,8 @@ async function load(){
     catch(_error){ state.capabilities = null; }
     try { const response = await fetch('/api/local-workers/cli-status', {headers:{Accept:'application/json'}, cache:'no-store'}); state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; }
     catch(error){ state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }
+    try { const response = await fetch('/api/memory/status', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(6000)}); state.memory = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
+    catch(error){ state.memory = {error:String(error.message||error)}; }
     try { const response = await fetch('/api/system/resources', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(6000)}); state.system = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
     catch(error){ state.system = {error:String(error.message||error)}; }
     await loadChat();
@@ -125,7 +127,7 @@ function render(){
   $('#connection-dot').className = state.error ? 'fail' : snapshot.received_at ? 'live' : '';
   setText('connection-label', state.error ? 'Adapter offline' : `Snapshot received ${age(snapshot.received_at)} ago`);
   evidenceByKey.projects = snapshot.projectsEvidence; evidenceByKey.projectRegistry = snapshot.projectRegistryEvidence; evidenceByKey.evolution = snapshot.selfEvolution && snapshot.selfEvolution.evidence; evidenceByKey.tasks = snapshot.tasksEvidence; evidenceByKey.events = snapshot.eventsEvidence; evidenceByKey.workerPolicy = state.workerPolicy ? state.workerPolicy.evidence : null; evidenceByKey.localWorkers = snapshot.localWorkersEvidence; evidenceByKey.cliWorkers = state.cliWorkers.evidence;
-  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderShell(snapshot); renderShellTail(snapshot); renderView();
+  renderSummary(snapshot); renderHiveOrbit(snapshot); renderProjects(snapshot); renderEvolution(snapshot); renderTasks(snapshot); renderAdapters(snapshot); renderWorkerPolicy(); renderLocalWorkers(snapshot); renderCliWorkers(); renderHandoff(snapshot); renderEvents(snapshot); renderChat(); renderTargets(snapshot); renderShell(snapshot); renderCards(snapshot); renderShellTail(snapshot); renderView();
 }
 
 function renderWorkerPolicy(){
@@ -331,6 +333,10 @@ function renderTargets(snapshot){
 
 // ---- P0.1 cockpit shell: every value below comes from the snapshot or reads UNKNOWN / NOT PROVIDED ----
 const SHELL_ROLES = ['FURY','SHURI','THOR','VISION','FALCON','UATU'];
+const ROLE_COLORS = {FURY:'#ffd36b',SHURI:'#b58cff',THOR:'#5aa8ff',VISION:'#ff9a5c',FALCON:'#6fe0ff',UATU:'#8f9bff'};
+const PROVIDER_ACCENT = {gpt:'#6fa8ff',codex:'#b58cff',claude:'#f08cd8',local:'#8ad8ff'}; // identity colours: deliberately NOT the status hues (ok/warn/fail)
+const PROJECT_COLORS = ['#4fe3a1','#ffb347','#ff6f7d','#5aa8ff','#b58cff','#6fd0ff'];
+const roleIcon=(role)=>`<span class="role-ava" style="--role:${ROLE_COLORS[role]||'#6fb4ff'}"><svg aria-hidden="true"><use href="#ico-${role.toLowerCase()}"/></svg></span>`;
 const SHELL_PROVIDERS = [['gpt','GPT'],['codex','CODEX'],['claude','CLAUDE']];
 function providerObservation(snapshot, key){
   const hit=(snapshot.workers||[]).filter(item=>item && String(item.provider||item.name||item.id||'').toLowerCase().includes(key));
@@ -339,7 +345,7 @@ function providerObservation(snapshot, key){
 }
 function gaugeMarkup(v){
   const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
-  return `<div class="gauge ${v.known?'':'unknown'}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(v.text)}</text></svg><label>${esc(v.label)}</label>${v.sub?`<small class="g-sub">${esc(v.sub)}</small>`:''}</div>`;
+  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" title="${esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(v.text)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${v.sub?`<small class="g-sub">${esc(v.sub)}</small>`:''}</div>`;
 }
 function renderResources(snapshot){
   const views=OPS.resourceViews(state.system, snapshot.metrics);
@@ -365,22 +371,22 @@ function renderLimits(snapshot){
   const items=(snapshot.model_limits&&snapshot.model_limits.items&&snapshot.model_limits.items.length)?snapshot.model_limits.items:OPS.EMPTY_LIMITS;
   const lim=$('#limit-rows'); if(!lim) return;
   lim.innerHTML=items.map(it=>{ const v=OPS.limitView(it); const fill=v.fill!==null?Math.round(Math.max(0,Math.min(1,v.fill))*100):0;
-    return `<div class="limit-row" title="${esc(v.title)}" data-status="${esc(v.status)}"><i class="dot ${v.tone}"></i><strong>${esc(v.label)}</strong><div class="bar ${v.dashed?'est':''}"><span style="width:${fill}%"></span></div><span class="v">${esc(v.text)}</span></div>`; }).join('');
+    return `<div class="limit-row" title="${esc(v.title)}" data-status="${esc(v.status)}" data-p="${esc(it.provider||'')}"><i class="dot ${v.tone}"></i><strong>${esc(v.label)}</strong><div class="bar ${v.dashed?'est':''}"><span style="width:${fill}%"></span></div><span class="v">${esc(v.text)}</span></div>`; }).join('');
 }
 function renderShell(snapshot){
   setText('env-tag', (snapshot.environment || 'UNVERIFIED') + ((snapshot.core && snapshot.core.observed_at) || demoMode || /FIXTURE|DEMO|UNVERIFIED/i.test(snapshot.environment||'') ? '' : ' · UNVERIFIED')); // a static server label must not read as a connection claim
   SHELL_PROVIDERS.forEach(([key])=>{ const chip=$(`.source-chip[data-provider="${key}"]`); if(!chip) return; const o=providerObservation(snapshot,key); chip.className=`source-chip ${o.tone}`; const em=chip.querySelector('em'); if(em) em.textContent=o.label; });
   const sessions=(state.chat&&state.chat.sessions)||[];
-  const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';
+  const chats=$('#chat-list'); if(chats) chats.innerHTML=sessions.length?sessions.slice(0,8).map(item=>`<div class="rail-row"><svg class="row-ico" aria-hidden="true"><use href="#ico-chat"/></svg><i class="dot ${tone(item.status)}"></i><div class="grow"><strong>${esc(item.name||item.id)}</strong><small>${esc(item.harness||'provider unknown')} · ${esc(stateLabel(item.status))}</small></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div>';
   const projects=(snapshot.projects||[]).filter(item=>item&&(item.id||item.name)); const pr=$('#project-rail');
-  if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map(item=>`<div class="rail-row"><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
-  const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>`<div class="rail-row"><i class="dot"></i><div class="grow"><strong>${role}</strong></div><span class="state">PROVIDER UNKNOWN</span></div>`).join('');
+  if(pr) pr.innerHTML=projects.length?projects.slice(0,8).map((item,i)=>`<div class="rail-row"><svg class="row-ico" style="--ic:${PROJECT_COLORS[i%PROJECT_COLORS.length]}" aria-hidden="true"><use href="#ico-folder"/></svg><div class="grow"><strong>${esc(item.name||item.id)}</strong></div></div>`).join(''):'<div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div>';
+  const roster=$('#agent-roster'); if(roster) roster.innerHTML=SHELL_ROLES.map(role=>{ const rs=core.roleStates&&core.roleStates.get(role); const fresh=HC.roleFresh(core.roleStates,role,Date.now()); const t=fresh?HC.visualClass(rs.state).tone:'unknown'; return `<div class="rail-row">${roleIcon(role)}<div class="grow"><strong>${role}</strong>${fresh?`<small class="obs ${t==='unknown'?'':t}">${esc(stateLabel(rs.state))} · observed</small>`:''}</div><span class="state">PROVIDER UNKNOWN</span><i class="dot ${fresh&&t!=='unknown'?t:'hollow'}" title="${fresh?esc(stateLabel(rs.state)):'state not observed'}"></i></div>`; }).join('');
   ingestActivity(snapshot); renderActivity(); renderApprovals();
   renderResources(snapshot); renderLimits(snapshot);
 }
 function renderShellTail(snapshot){ if(demoMode){ core.tstate={status:'live', lastMessageAt:Date.now(), sourceValidity:'fixture'}; ingestSnapshotEvents(snapshot); } recomputeCore(); }
 function setConsole(open){ const c=$('#console'); if(c) c.hidden=!open; }
-function tickClock(){ const el=$('#clock-tag'); if(el) el.textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+function tickClock(){ const el=$('#clock-tag'); if(!el) return; const d=new Date(); el.innerHTML=`<b>${esc(d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}))}</b><small>${esc(d.toLocaleDateString([], {day:'numeric',month:'short',year:'numeric'}))}</small>`; }
 
 
 // ---- P0.2 CORE: transport -> buffer -> derived state -> movement -> SVG overlay (see hive-core.js) ----
@@ -413,13 +419,14 @@ function applyCoreState(){
   stage.dataset.coreState=s; stage.dataset.tone=vis.tone; stage.className=`core-stage ${vis.cls}`;
   const envEl=$('#env-tag'); if(envEl && core.tstate.sourceValidity==='fixture' && !/FIXTURE/i.test(envEl.textContent)) envEl.textContent='FIXTURE DATA'; // never show fixture-driven state unlabelled, even before the snapshot loads
   setText('core-center-state', stateLabel(s)); setText('core-state', GLOBAL_LABEL[s]); setText('core-state-detail', core.view.reason);
+  const chip=$('#activity-chip'); if(chip){ chip.textContent=GLOBAL_LABEL[s]; chip.className=`hp-chip ${vis.tone==='review'?'warn':vis.tone}`; }
   const dot=$('#core-dot'); if(dot) dot.className=`status-dot ${vis.tone==='review'?'warn':vis.tone}`;
   const lock=$('#core-lock'); if(lock) lock.hidden=!vis.lock;
   const ring=$('#ultron-ring'); if(ring) ring.setAttribute('class',`ultron-ring ${HC.ultronRingClass(s,HC.roleFresh(core.roleStates,'ULTRON',now))}`);
   const fresh = s!=='UNKNOWN' && s!=='OFFLINE';
   $$('#core-agents .core-agent').forEach(g=>{
     const role=g.dataset.agent; const rs=core.roleStates.get(role); const st=(fresh&&rs&&now-rs.at<120000)?rs.state:'UNKNOWN';
-    const label=g.querySelector('.ca-state'); if(label) label.textContent=stateLabel(st);
+    const label=g.querySelector('.ca-state'); if(label){ label.textContent=`${g.dataset.desc||''} · ${({WAITING_APPROVAL:'WAITING',SECURITY_BLOCKED:'BLOCKED'})[st]||stateLabel(st)}`; label.setAttribute('class',`ca-state ${HC.visualClass(st).tone==='unknown'?'':HC.visualClass(st).tone}`); }
     g.setAttribute('class',`core-agent ${HC.visualClass(st).tone==='unknown'?'':HC.visualClass(st).tone}`);
   });
   drawCoreFrame(); renderActivity(); renderApprovals();
@@ -443,9 +450,12 @@ function drawCoreFrame(){
     else { const tp=HC.HOME_ANGLES[m.target_node]; const q={x:HC.CENTER.x+HC.ORBIT_R*Math.cos(tp*Math.PI/180), y:HC.CENTER.y+HC.ORBIT_R*Math.sin(tp*Math.PI/180)}; d=`M${m.x.toFixed(1)} ${m.y.toFixed(1)} L${q.x.toFixed(1)} ${q.y.toFixed(1)}`; }
     return `<path class="event-link ${kind}" d="${d}"><title>${esc(m.role)} → ${esc(m.target_node)} · ${esc(m.interaction_id)}</title></path>`;
   }).join('');
+  const ctxOn=HC.activeContextNodes(core.buffer.list(), t, 20000, core.tstate.sourceValidity);
+  $$('.ctx-item').forEach(el=>el.classList.toggle('on',ctxOn.has(el.dataset.node)));
   const activeTo=id=>movers.some(m=>m.target_kind==='node'&&m.target_node===id&&m.movement_state!=='returning');
   $('#node-internet')?.classList.toggle('active',activeTo('internet')); $('#node-obsidian')?.classList.toggle('active',activeTo('obsidian'));
-  setSvgText('internet-state', activeTo('internet')?'ACTIVE · VIA ULTRON':'NO ACTIVITY OBSERVED'); setSvgText('obsidian-state', activeTo('obsidian')?'READ OBSERVED':'NOT CONFIGURED');
+  setSvgText('internet-state', activeTo('internet')?'ACTIVE · VIA ULTRON':'NO ACTIVITY OBSERVED'); setSvgText('obsidian-state', activeTo('obsidian')?'READ OBSERVED':OPS.obsidianNodeText(state.memory));
+  { const on=activeTo('internet'); setText('card-external-main', on?'INTERNET: ACTIVE':'INTERNET'); setText('card-external-sub', on?'via ULTRON · observed event':'NO ACTIVITY OBSERVED'); const m=$('#card-external-main'); if(m) m.className=`tc-main ${on?'ok':'unknown'}`; }
 }
 function setSvgText(id,value){ const el=document.getElementById(id); if(el) el.textContent=value; }
 function ingestSnapshotEvents(snapshot, validity){
@@ -475,7 +485,7 @@ function ingestActivity(snapshot){ (snapshot.events||[]).forEach(raw=>{ const ev
 function renderActivity(){
   const el=$('#activity-rows'); if(!el) return;
   const rows=core.activity.list().map(HC.sanitizeActivityRow).filter(r=>r&&r.time).sort((a,b)=>Date.parse(b.time)-Date.parse(a.time)).slice(0,10);
-  el.innerHTML=rows.length?rows.map(r=>`<div class="act-row"><time>${esc(isoTime(r.time))}</time><div><div class="act-meta"><b>${esc(r.role||'role n/a')}</b><span>${esc(r.provider||'provider n/a')}</span><span class="state ${tone(r.state)}">${esc(stateLabel(r.state))}</span></div><div class="act-action">${esc(r.action)}</div></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
+  el.innerHTML=rows.length?rows.map(r=>`<div class="act-row"><time>${esc(isoTime(r.time))}</time><div><div class="act-meta"><b style="${ROLE_COLORS[String(r.role||'').toUpperCase()]?`color:${ROLE_COLORS[String(r.role).toUpperCase()]}`:''}">${esc(r.role||'role n/a')}</b><span>${esc(r.provider||'provider n/a')}</span><span class="state ${tone(r.state)}">${esc(stateLabel(r.state))}</span></div><div class="act-action">${esc(r.action)}</div></div></div>`).join(''):'<div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div>';
 }
 const APPROVAL_KEY='hive.approvals.local.v1';
 function loadLocalDecisions(){ try{ const v=JSON.parse(localStorage.getItem(APPROVAL_KEY)||'{}'); return v&&typeof v==='object'?v:{}; }catch(_e){ return {}; } }
@@ -490,7 +500,7 @@ function renderApprovals(){
     const items=pending[k]; const item=items[0]; const dec=item&&core.localDecisions[item.key];
     const status = item ? (dec ? `${dec.decision==='APPROVED'?'Approved':'Rejected'} locally, source not updated` : `${items.length} PENDING · ${esc(item.summary||'approval requested')}`) : (telemetryOk ? 'NO PENDING APPROVAL OBSERVED' : 'UNKNOWN · no fresh telemetry');
     const can=Boolean(item&&!dec);
-    return `<div class="approval-row" data-provider="${k}"><strong>${label}</strong><span class="ap-state">${status}</span><span class="ap-actions"><button class="ap-btn approve" data-act="approve" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}>Approve</button><button class="ap-btn" data-act="edit" ${OPS.editAvailable(item||{provider:k},approvalConnector)?'':'disabled'} title="${OPS.editAvailable(item||{provider:k},approvalConnector)?'Open source task':'No source adapter or deep link available'}">Edit</button><button class="ap-btn reject" data-act="reject" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}>Reject</button></span></div>`;
+    return `<div class="approval-row" data-provider="${k}" style="--acc:${PROVIDER_ACCENT[k]}"><i class="ap-ring ${item&&!dec?'pending':''}"></i><strong>${label}</strong><span class="ap-state">${status}</span><span class="ap-actions"><button class="ap-btn approve" data-act="approve" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-ok"/></svg>Approve</button><button class="ap-btn" data-act="edit" ${OPS.editAvailable(item||{provider:k},approvalConnector)?'':'disabled'} title="${OPS.editAvailable(item||{provider:k},approvalConnector)?'Open source task':'No source adapter or deep link available'}"><svg aria-hidden="true"><use href="#ico-edit"/></svg>Edit</button><button class="ap-btn reject" data-act="reject" data-key="${esc(item?item.key:'')}" ${can?'':'disabled'}><svg aria-hidden="true"><use href="#ico-x"/></svg>Reject</button></span></div>`;
   }).join('');
 }
 document.addEventListener('click', async event=>{
@@ -535,6 +545,49 @@ function initComposer(){
     const draft=event.target.closest('[data-draft]')?.dataset.draft; if(draft){ const m=composer.outbox.list().find(x=>x.id===draft); const t=$('#delegate-prompt'); if(m&&t) t.value=m.text; state.view='proposals'; setConsole(true); render(); }
   });
   renderChips(); renderOutbox([]);
+}
+
+
+// ---- Visual parity A/B: procedural, static, decorative artwork (never data) ----
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function svgEl(name, attrs){ const el=document.createElementNS(SVGNS,name); Object.entries(attrs||{}).forEach(([k,v])=>el.setAttribute(k,v)); return el; }
+function buildArtwork(){
+  const arms=$('#core-arms');
+  if(arms && !arms.childElementCount){
+    for(let k=0;k<6;k++){
+      const th0=k*Math.PI/3; let d='';
+      for(let i=0;i<=44;i++){ const t=i/44, th=th0+t*Math.PI*1.45, r=78+t*t*26+t*88; d+=`${i?'L':'M'}${(800+r*Math.cos(th)).toFixed(1)} ${(450+r*Math.sin(th)).toFixed(1)} `; }
+      arms.appendChild(svgEl('path',{d,class:'arm-glow'})); arms.appendChild(svgEl('path',{d,class:'arm'}));
+    }
+  }
+  const nodes=$('#ring-nodes');
+  if(nodes && !nodes.childElementCount){
+    const cols=['#4fe3a1','#3fb8ff','#ff9b4a','#a77bff'];
+    [-120,-60,0,60,120,180].forEach((a,i)=>nodes.appendChild(svgEl('circle',{class:'ring-dot big',cx:(800+285*Math.cos(a*Math.PI/180)).toFixed(1),cy:(450+285*Math.sin(a*Math.PI/180)).toFixed(1),r:7,fill:cols[i%4]})));
+    for(let a=-165;a<180;a+=30) nodes.appendChild(svgEl('circle',{class:'ring-dot',cx:(800+335*Math.cos(a*Math.PI/180)).toFixed(1),cy:(450+335*Math.sin(a*Math.PI/180)).toFixed(1),r:3.5,fill:'#6fb4ff'}));
+  }
+  const space=$('.space-bg');
+  if(space && !space.querySelector('.stars')){
+    const rnd=mulberry32(20261104);
+    const neb=svgEl('svg',{class:'neb',viewBox:'0 0 1600 900',preserveAspectRatio:'xMidYMid slice','aria-hidden':'true'});
+    const defs=svgEl('defs'); const blobs=[[260,200,520,300,'#6a2fc4',.26],[1350,160,480,260,'#2b6fd8',.24],[1180,720,560,300,'#b23fa8',.20],[420,760,520,260,'#1aa6a6',.16],[800,430,700,380,'#3a2a9a',.16],[100,520,300,240,'#2b6fd8',.14]];
+    blobs.forEach((b,i)=>{ const g=svgEl('radialGradient',{id:'nb'+i}); g.appendChild(svgEl('stop',{offset:0,'stop-color':b[4],'stop-opacity':b[5]})); g.appendChild(svgEl('stop',{offset:1,'stop-color':b[4],'stop-opacity':0})); defs.appendChild(g); });
+    neb.appendChild(defs); blobs.forEach((b,i)=>neb.appendChild(svgEl('ellipse',{cx:b[0],cy:b[1],rx:b[2],ry:b[3],fill:`url(#nb${i})`,transform:`rotate(${(i*37)%60-30} ${b[0]} ${b[1]})`})));
+    for(let i=0;i<3;i++) neb.appendChild(svgEl('ellipse',{cx:200+i*600,cy:300+i*180,rx:700,ry:34,fill:'#8aa6ff',opacity:.05,transform:`rotate(${-18+i*14} ${200+i*600} ${300+i*180})`}));
+    const stars=svgEl('svg',{class:'stars',viewBox:'0 0 1600 900',preserveAspectRatio:'xMidYMid slice','aria-hidden':'true'});
+    const tint=['#ffffff','#cfe3ff','#ffe9c8','#bfd4ff'];
+    for(let i=0;i<340;i++){ const big=rnd()<.05; stars.appendChild(svgEl('circle',{cx:(rnd()*1600).toFixed(1),cy:(rnd()*900).toFixed(1),r:(big?1.5+rnd()*1.2:.35+rnd()*.9).toFixed(2),fill:tint[Math.floor(rnd()*4)],opacity:(.25+rnd()*.75).toFixed(2)})); }
+    for(let i=0;i<14;i++){ const x=(rnd()*1600).toFixed(1), y=(rnd()*900).toFixed(1); stars.appendChild(svgEl('circle',{cx:x,cy:y,r:5,fill:'#9fc4ff',opacity:.18,class:'glow-star'})); stars.appendChild(svgEl('circle',{cx:x,cy:y,r:1.6,fill:'#fff'})); }
+    space.insertBefore(stars,space.firstChild); space.insertBefore(neb,space.firstChild);
+  }
+}
+
+// ---- Visual parity C: top task-card row (truthful: snapshot / memory evidence only) ----
+function renderCards(snapshot){
+  const v=OPS.taskCardViews(snapshot, state.memory, HC.redactSummary);
+  const set=(id,view)=>{ const m=$(`#${id}-main`), sub=$(`#${id}-sub`), card=$(`#${id}`); if(!m) return; m.textContent=view.text; m.className=`tc-main ${view.tone}`; if(sub) sub.textContent=view.sub||''; if(card) card.title=view.title||''; };
+  set('card-current',v.current); set('card-next',v.next); set('card-context',v.context);
+  const bar=$('#card-current-progress'); if(bar){ const p=v.current.progress; bar.hidden=p===null; if(p!==null){ bar.firstElementChild.style.width=p+'%'; bar.title=`${Math.round(p)}% (progress_percent reported by the task record)`; } }
 }
 
 function renderView(){
@@ -633,4 +686,4 @@ initComposer();
 $('#evidence-drawer-close').addEventListener('click',()=>$('#evidence-drawer').close());
 document.addEventListener('click', event => { const trigger = event.target.closest('[data-evidence-key]'); if(trigger) openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
 document.addEventListener('keydown', event => { if(event.key !== 'Enter' && event.key !== ' ') return; const trigger = event.target.closest('[data-evidence-key]'); if(!trigger) return; event.preventDefault(); openEvidenceDrawer(trigger.dataset.evidenceKey, trigger.closest('.panel')?.querySelector('h2')?.textContent || trigger.dataset.evidenceKey); });
-startCore(); load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);
+buildArtwork(); startCore(); load(); setInterval(()=>{if(document.visibilityState==='visible')load();},15000);

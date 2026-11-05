@@ -210,3 +210,46 @@ test('limitView: only KNOWN/ESTIMATED show numbers; others are status words; mal
 test('EMPTY_LIMITS: four equal UNKNOWN rows (no provider privileged)', () => {
   assert.deepEqual(O.EMPTY_LIMITS.map(r => r.label), ['GPT', 'CLAUDE', 'CODEX', 'LOCAL']); assert.ok(O.EMPTY_LIMITS.every(r => r.status === 'UNKNOWN'));
 });
+
+
+/* ======== visual parity C: task-card row view models (truthful: no invented task, progress, context or version) ======== */
+const snapT = (tasks, ev) => ({ tasks, tasksEvidence: ev === undefined ? { validity: 'valid', source: 'hive:/tasks' } : ev });
+test('cards: without trusted task evidence both task cards are UNKNOWN (never "no tasks")', () => {
+  for (const ev of [null, undefined, { validity: 'unavailable', reason: 'connection refused' }, { validity: 'auth_required' }, { validity: 'stale' }, { validity: 'unknown' }]) {
+    const v = O.taskCardViews({ tasks: [{ status: 'active', title: 'x' }], tasksEvidence: ev }, null);
+    assert.equal(v.current.text, 'UNKNOWN', JSON.stringify(ev)); assert.equal(v.next.text, 'UNKNOWN'); assert.equal(v.current.progress, null);
+  }
+  assert.equal(O.taskCardViews(null, null).current.text, 'UNKNOWN');
+});
+test('cards: valid evidence with no active/queued task says so explicitly', () => {
+  const v = O.taskCardViews(snapT([{ status: 'completed', title: 'old' }]), null);
+  assert.equal(v.current.text, 'NO ACTIVE TASK OBSERVED'); assert.equal(v.next.text, 'NONE OBSERVED');
+  assert.equal(O.taskCardViews(snapT([]), null).current.text, 'NO ACTIVE TASK OBSERVED');
+});
+test('cards: active and queued tasks are shown from the records (redacted, clipped), first item wins', () => {
+  const red = s => s.replace(/sk-[a-z0-9]+/g, '[REDACTED]');
+  const v = O.taskCardViews(snapT([{ status: 'queued', title: 'Second' }, { status: 'active', title: 'Use sk-abc123def now', worker: 'w1', project_id: 'p1' }, { status: 'queued', title: 'Third' }, { status: 'active', title: 'Other active' }]), null, red);
+  assert.equal(v.current.text, 'Use [REDACTED] now'); assert.equal(v.current.sub, 'w1 · p1'); assert.match(v.current.title, /\+1 more active/);
+  assert.equal(v.next.text, 'Second'); assert.equal(v.next.sub, '2 queued');
+  assert.ok(O.taskCardViews(snapT([{ status: 'active', title: 'x'.repeat(500) }]), null).current.text.length <= 60);
+});
+test('cards: a progress bar exists only for an explicit numeric progress_percent in 0..100', () => {
+  const p = v => O.taskCardViews(snapT([{ status: 'active', title: 't', ...v }]), null).current.progress;
+  assert.equal(p({}), null); assert.equal(p({ progress: 80 }), null, 'other field names are ignored'); assert.equal(p({ percent: 80 }), null);
+  assert.equal(p({ progress_percent: 68 }), 68); assert.equal(p({ progress_percent: 0 }), 0); assert.equal(p({ progress_percent: 100 }), 100);
+  for (const bad of ['68', '', null, true, false, NaN, Infinity, -1, 101, {}, [5]]) assert.equal(p({ progress_percent: bad }), null, JSON.stringify(bad));
+});
+test('cards: shared context shows only real memory evidence (no vault, version or invented counts)', () => {
+  assert.equal(O.contextCardView(null).text, 'UNKNOWN'); assert.equal(O.contextCardView({ error: 'HTTP 500' }).text, 'UNKNOWN');
+  assert.equal(O.contextCardView({ items: [] }).text, 'UNKNOWN', 'no evidence object');
+  assert.equal(O.contextCardView({ evidence: { validity: 'unknown' } }).text, 'UNKNOWN');
+  assert.equal(O.contextCardView({ evidence: { validity: 'unavailable', reason: 'registry file not found' } }).text, 'UNAVAILABLE');
+  assert.equal(O.contextCardView({ evidence: { validity: 'auth_required' } }).text, 'AUTH REQUIRED');
+  const ok = O.contextCardView({ items: [{ record_count: 2 }, { record_count: 1 }], evidence: { validity: 'valid', source: 'obsidian:registry' } });
+  assert.equal(ok.text, 'CONTEXT READABLE'); assert.equal(ok.sub, '2 project(s) · 3 record(s) · read-only'); assert.equal(ok.tone, 'ok');
+  const fx = O.contextCardView({ status: 'ready', project_count: 1, record_count: 3, evidence: { validity: 'fixture' } }); assert.equal(fx.sub, '1 project(s) · 3 record(s) · read-only');
+  assert.equal(O.contextCardView({ evidence: { validity: 'valid' } }).sub, 'read-only', 'no counts => none shown');
+  assert.equal(O.contextCardView({ project_count: 'many', record_count: -1, evidence: { validity: 'valid' } }).sub, 'read-only');
+  assert.doesNotMatch(JSON.stringify(ok), /\bv\d|version|vault/i);
+  assert.equal(O.obsidianNodeText(null), 'UNKNOWN'); assert.equal(O.obsidianNodeText({ evidence: { validity: 'unavailable' } }), 'UNAVAILABLE'); assert.equal(O.obsidianNodeText({ evidence: { validity: 'valid' } }), 'CONTEXT READABLE');
+});

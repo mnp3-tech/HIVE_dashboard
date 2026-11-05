@@ -350,3 +350,24 @@ test('transport: a poll still in flight when SSE opens is discarded (cannot over
   release(); await h.advance(50);
   assert.equal(h.tr.state().sourceValidity, 'auth_required'); assert.equal(h.events.length, 0);
 });
+
+
+/* ======== visual parity B: context labels light up only from fresh, trusted, named events ======== */
+test('context labels: only a fresh trusted event naming a known node activates it', () => {
+  const e = (target_node, o = {}) => H.normalizeEvent({ event_id: 'c' + Math.random(), timestamp: iso(3), role_id: 'FURY', state: 'working', target_node, ...o });
+  const on = (events, v = 'valid', w) => [...H.activeContextNodes(events, NOW, w, v)].sort();
+  assert.deepEqual(on([]), []); assert.deepEqual(on([e('github')]), ['github']);
+  assert.deepEqual(on([e('GitHub'), e('social-media'), e('Online Tools')]), ['github', 'online_tools', 'social_media'], 'case/dash/space normalisation');
+  assert.deepEqual(on([e('github')], 'fixture'), ['github']);
+  for (const v of ['auth_required', 'unavailable', 'unknown', null]) assert.deepEqual(on([e('github')], v), [], String(v));
+  assert.deepEqual([...H.activeContextNodes([e('github')], NOW, undefined, undefined)], [], 'unset validity is untrusted');
+  assert.deepEqual(on([e('github', { timestamp: iso(60) })]), [], 'stale'); assert.deepEqual(on([e('github', { timestamp: iso(-3600) })]), [], 'future');
+  assert.deepEqual(on([e('github', { timestamp: null })]), [], 'undated');
+  assert.deepEqual(on([e('github', { provenance: { validity: 'unavailable' } })]), [], 'per-event provenance');
+  assert.deepEqual(on([e('nonsense'), e(null), e('internet'), e('obsidian')]), [], 'unknown / movement-only nodes do not light a label');
+  assert.deepEqual(on([e('files', { timestamp: iso(25) })], 'valid', 30000), ['files'], 'custom window');
+});
+test('context labels: the spec forbids a LOGS section, so no logs/patterns/anomalies label exists', () => {
+  for (const bad of ['logs', 'log', 'patterns', 'anomalies']) assert.ok(!H.CONTEXT_NODES.includes(bad), bad);
+  assert.equal(H.CONTEXT_NODES.length, 16); assert.equal(new Set(H.CONTEXT_NODES).size, 16);
+});

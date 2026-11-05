@@ -168,6 +168,52 @@
   }
   const EMPTY_LIMITS = [['gpt', 'GPT'], ['claude', 'CLAUDE'], ['codex', 'CODEX'], ['local', 'LOCAL']].map(([provider, label]) => ({ provider, label, status: 'UNKNOWN', reason: 'No limit data received' }));
 
-  const api = { formatBytes, formatCount, metricKnown, pickMetric, resourceViews, deviceSummary, devicesNodeText, limitView, EMPTY_LIMITS, STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
+
+  /* ---- visual parity C: top task-card row view models (pure; data only from the snapshot / memory status) ---- */
+  const clip = (v, n) => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+  function taskCardViews(snapshot, memory, redact) {
+    const red = typeof redact === 'function' ? redact : (x => x);
+    const tasks = Array.isArray(snapshot && snapshot.tasks) ? snapshot.tasks.filter(t => t && typeof t === 'object') : [];
+    const ev = snapshot && snapshot.tasksEvidence;
+    const trusted = Boolean(ev && TRUSTED.includes(ev.validity));
+    const unknown = (why) => ({ text: 'UNKNOWN', sub: why || 'No task evidence', tone: 'unknown', progress: null, title: why || '' });
+    const out = {};
+    if (!trusted) { out.current = unknown(ev && ev.reason ? clip(ev.reason, 60) : 'No valid task evidence'); out.next = unknown(ev && ev.reason ? clip(ev.reason, 60) : 'No valid task evidence'); }
+    else {
+      const active = tasks.filter(t => t.status === 'active'), queued = tasks.filter(t => t.status === 'queued');
+      if (!active.length) out.current = { text: 'NO ACTIVE TASK OBSERVED', sub: null, tone: 'unknown', progress: null, title: '' };
+      else {
+        const t = active[0]; const p = t.progress_percent;
+        // A progress bar exists only when the record carries an explicit numeric progress_percent in 0..100 (typeof number; no coercion).
+        const progress = typeof p === 'number' && Number.isFinite(p) && p >= 0 && p <= 100 ? p : null;
+        const who = [t.worker, t.project_id].filter(Boolean).map(x => clip(red(String(x)), 28)).join(' · ');
+        out.current = { text: clip(red(t.title || t.id || 'untitled task'), 60), sub: (who || null), tone: 'ok', progress, title: clip(red(t.title || ''), 160) + (active.length > 1 ? ` (+${active.length - 1} more active)` : '') };
+      }
+      if (!queued.length) out.next = { text: 'NONE OBSERVED', sub: null, tone: 'unknown', progress: null, title: '' };
+      else out.next = { text: clip(red(queued[0].title || queued[0].id || 'untitled task'), 60), sub: `${queued.length} queued`, tone: 'warn', progress: null, title: clip(red(queued[0].title || ''), 160) };
+    }
+    out.context = contextCardView(memory);
+    return out;
+  }
+  /* Shared context = read-only memory/Obsidian projection evidence. Never invents a vault, version or count. */
+  function contextCardView(memory) {
+    const u = (text, sub) => ({ text, sub: sub || null, tone: 'unknown', progress: null, title: sub || '' });
+    if (!memory || memory.error) return u('UNKNOWN', memory && memory.error ? clip(memory.error, 60) : 'Memory status not received');
+    const ev = memory.evidence; const v = ev && ev.validity;
+    if (!v || v === 'unknown') return u('UNKNOWN', 'No context evidence');
+    if (!TRUSTED.includes(v)) return u(v === 'auth_required' ? 'AUTH REQUIRED' : 'UNAVAILABLE', ev.reason ? clip(ev.reason, 70) : null);
+    const items = Array.isArray(memory.items) ? memory.items : null;
+    const projects = items ? items.length : num(memory.project_count);
+    const records = items ? items.reduce((s, i) => s + (num(i && i.record_count) || 0), 0) : num(memory.record_count);
+    const sub = projects !== null && records !== null ? `${projects} project(s) · ${records} record(s) · read-only` : 'read-only';
+    return { text: 'CONTEXT READABLE', sub, tone: 'ok', progress: null, title: ev.source || '' };
+  }
+  /* Obsidian node caption (SVG text) from the same evidence; 'READ OBSERVED' is decided by the caller from events. */
+  function obsidianNodeText(memory) {
+    const v = contextCardView(memory);
+    return v.text === 'CONTEXT READABLE' ? 'CONTEXT READABLE' : v.text === 'UNKNOWN' ? 'UNKNOWN' : v.text;
+  }
+
+  const api = { taskCardViews, contextCardView, obsidianNodeText, formatBytes, formatCount, metricKnown, pickMetric, resourceViews, deviceSummary, devicesNodeText, limitView, EMPTY_LIMITS, STATES, MAX_TEXT, MAX_FILES, sanitizeFileName, describeFiles, createOutbox, NO_CONNECTOR, pendingApprovals, decide, editAvailable, PROVIDERS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveOps = api;
 })(typeof window !== 'undefined' ? window : globalThis);

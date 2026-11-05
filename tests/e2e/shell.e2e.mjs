@@ -44,7 +44,7 @@ for (const res of RES) {
     const { page, errors } = await open(res);
     const rects = await page.$$eval(PANEL_SELECTOR, els => els.filter(e => e.offsetParent !== null || e.id === 'core-stage')
       .map(e => { const r = e.getBoundingClientRect(); return { id: e.id || e.className, l: r.left, t: r.top, r: r.right, b: r.bottom }; }));
-    assert.ok(rects.length === 10, `expected 10 shell boxes, got ${rects.length}`);
+    assert.ok(rects.length === 15, `expected 15 shell boxes, got ${rects.length}`);
     // no overlap + minimum gutter between every pair
     let minSep = Infinity;
     for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++) {
@@ -103,7 +103,7 @@ for (const res of RES) {
 test('panel material, equal provider chips, inactive JARVIS/VOICE', async () => {
   const { page } = await open(RES[1]);
   const mats = await page.$$eval('.hive-panel', els => els.map(e => { const s = getComputedStyle(e); return { id: e.id, bg: s.backgroundColor, bf: s.backdropFilter || s.webkitBackdropFilter, bc: s.borderTopColor }; }));
-  assert.equal(mats.length, 9);
+  assert.equal(mats.length, 14);
   for (const mat of mats) { assert.equal(mat.bg, 'rgba(4, 16, 29, 0.46)', mat.id); assert.match(mat.bf, /blur\(12px\)/, mat.id); assert.equal(mat.bc, 'rgba(90, 190, 255, 0.4)', mat.id); }
   const widths = await page.$$eval('.source-chip', els => els.map(e => Math.round(e.getBoundingClientRect().width)));
   assert.equal(widths.length, 3); assert.equal(new Set(widths).size, 1, `provider chips unequal: ${widths}`);

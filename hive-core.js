@@ -123,6 +123,18 @@
     const r = roleStates && roleStates.get(role); return Boolean(r && Number.isFinite(r.at) && now - r.at >= -5000 && now - r.at < (windowMs || 120000));
   }
 
+  /* Context labels around the CORE are 'not observed' until a fresh trusted event names them in target_node. */
+  const CONTEXT_NODES = ['files', 'github', 'development', 'data', 'documents', 'models', 'search', 'youtube', 'news', 'academic', 'social_media', 'online_tools', 'system', 'security', 'performance', 'uptime'];
+  function activeContextNodes(events, now, windowMs, sourceValidity) {
+    const w = windowMs || 20000; const out = new Set();
+    (events || []).forEach(ev => {
+      if (!eventTrusted(ev, sourceValidity)) return;
+      const key = String(ev.target_node || '').toLowerCase().replace(/[\s-]+/g, '_'); const t = Date.parse(ev.timestamp || '');
+      if (CONTEXT_NODES.includes(key) && Number.isFinite(t) && now - t <= w && t - now <= 5000) out.add(key);
+    });
+    return out;
+  }
+
   const STATE_VISUAL = {
     IDLE: { cls: 'core-state-idle', tone: 'ok', motion: 'slow' },
     WORKING: { cls: 'core-state-working', tone: 'ok', motion: 'active' },
@@ -281,6 +293,6 @@
     };
   }
 
-  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, eventTrusted, roleFresh, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
+  const api = { STATES, STATE_MAP, normalizeState, normalizeEvent, redactSummary, sanitizeActivityRow, createEventBuffer, classifyFreshness, eventTrusted, activeContextNodes, CONTEXT_NODES, roleFresh, deriveCoreState, visualClass, ultronRingClass, createMovementModel, createTransport, HOME_ANGLES, NODES, CENTER, ORBIT_R };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.HiveCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

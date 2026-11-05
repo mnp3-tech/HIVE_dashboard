@@ -8,60 +8,114 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+  <symbol id="ico-fury" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
+  <symbol id="ico-shuri" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 5l-3 14"/></symbol>
+  <symbol id="ico-thor" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></symbol>
+  <symbol id="ico-vision" viewBox="0 0 24 24"><path d="M5 20v-8M12 20V5M19 20v-5M3 20h18"/></symbol>
+  <symbol id="ico-falcon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12L19 5"/></symbol>
+  <symbol id="ico-uatu" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="ico-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+  <symbol id="ico-gem" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20M9 3l-2 6 5 12 5-12-2-6"/></symbol>
+  <symbol id="ico-usb" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 11h2M7 14h2M13 11h4"/></symbol>
+  <symbol id="ico-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></symbol>
+  <symbol id="ico-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z"/></symbol>
+  <symbol id="ico-agents" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 3.5-7 8-7s8 2.5 8 7"/></symbol>
+  <symbol id="ico-pulse" viewBox="0 0 24 24"><path d="M2 12h5l2-6 4 12 2-6h7"/></symbol>
+  <symbol id="ico-check" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12l3 3 5-6"/></symbol>
+  <symbol id="ico-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+  <symbol id="ico-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+  <symbol id="ico-ok" viewBox="0 0 24 24"><path d="M5 12l4 4 10-10"/></symbol>
+  <symbol id="ico-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></symbol>
+  <symbol id="ico-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="ico-temp" viewBox="0 0 24 24"><path d="M10 14V5a2 2 0 014 0v9a4 4 0 11-4 0z"/></symbol>
+  <symbol id="ico-disk" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="9" rx="2"/><path d="M7 14h.01M10 14h.01"/></symbol>
+  <symbol id="ico-task" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
+  <symbol id="ico-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></symbol>
+  <symbol id="ico-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></symbol>
+  <symbol id="ico-queue" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></symbol>
+  <symbol id="ico-context" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+</defs></svg>
   <div class="space-bg" aria-hidden="true"><svg class="circuit-bg" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"><defs><pattern id="circuit" width="240" height="240" patternUnits="userSpaceOnUse"><path d="M0 60h70l20 20h60M150 80v60l30 30h60M40 240v-70l25-25h45M200 0v40l-30 30M0 190h30l20-20" fill="none" stroke="rgba(90,190,255,.55)" stroke-width="1"/><circle cx="70" cy="60" r="2.5" fill="rgba(90,190,255,.7)"/><circle cx="150" cy="140" r="2.5" fill="rgba(90,190,255,.7)"/><circle cx="110" cy="145" r="2.5" fill="rgba(90,190,255,.7)"/></pattern></defs><rect width="100%" height="100%" fill="url(#circuit)"/></svg></div>
   <div class="hive-shell" id="hive-shell">
     <header class="hive-panel topbar-hive" id="topbar">
-      <div class="tb-brand"><span class="tb-mark" aria-hidden="true"></span><strong>HIVE</strong><span class="tb-status"><i class="status-dot unknown" id="core-dot"></i><span id="core-state">UNKNOWN</span></span><small class="visually-hidden" id="core-state-detail">Waiting for an application health payload</small></div>
+      <div class="tb-brand"><svg class="tb-logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l8.66 5v10L12 22l-8.66-5V7z"/><path d="M12 7l4.3 2.5v5L12 17l-4.3-2.5v-5z"/><circle cx="12" cy="12" r="1.6"/></svg><strong>HIVE</strong><span class="tb-status"><i class="status-dot unknown" id="core-dot"></i><span id="core-state">UNKNOWN</span></span><small class="visually-hidden" id="core-state-detail">Waiting for an application health payload</small></div>
       <div class="tb-sources" id="source-indicators" aria-label="Provider sources"><span class="tb-label">AI SOURCES</span>
         <span class="source-chip unknown" data-provider="gpt"><i></i>GPT <em>UNKNOWN</em></span>
         <span class="source-chip unknown" data-provider="codex"><i></i>CODEX <em>UNKNOWN</em></span>
         <span class="source-chip unknown" data-provider="claude"><i></i>CLAUDE <em>UNKNOWN</em></span></div>
       <div class="tb-title">AI ORCHESTRATION CONTROL ROOM</div>
-      <div class="tb-ultron" id="ultron-indicator"><span class="ultron-shield" aria-hidden="true">⛨</span><span><strong>ULTRON</strong><small>SECURITY: <b id="ultron-state">NOT CONNECTED</b></small></span></div>
+      <div class="tb-ultron" id="ultron-indicator"><svg class="ultron-shield" viewBox="0 0 24 24" aria-hidden="true"><use href="#ico-shield"/></svg><span><strong>ULTRON</strong><small>SECURITY: <b id="ultron-state">NOT CONNECTED</b></small></span></div>
       <div class="tb-jarvis inactive" id="jarvis-indicator"><i></i>JARVIS / VOICE LAYER — FUTURE</div>
       <span class="demo-banner" id="demo-banner" hidden>DEMO · SYNTHETIC FIXTURE DATA</span>
       <div class="tb-actions"><span class="top-tag" id="env-tag" title="Data environment">UNVERIFIED</span><span class="top-tag" id="clock-tag" aria-label="Local time">—</span><button class="button quiet" id="console-open" type="button" title="Open details console">DETAILS</button></div>
     </header>
 
     <aside class="rail rail-left" aria-label="Chats, projects and agents">
-      <section class="hive-panel" id="panel-chats"><div class="hp-head"><h2>CHATS</h2></div><div class="hp-body" id="chat-list"><div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div></div><div class="hp-head sub"><h3>LOCAL OUTBOX</h3></div><div class="hp-body outbox" id="chat-outbox"><div class="empty-state compact"><strong>Empty</strong><small>Sent and unsent messages appear here with their true state.</small></div></div></section>
-      <section class="hive-panel" id="panel-projects"><div class="hp-head"><h2>PROJECTS</h2></div><div class="hp-body" id="project-rail"><div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div></div></section>
-      <section class="hive-panel" id="panel-agents"><div class="hp-head"><h2>AGENTS / ROLES</h2></div><div class="hp-body" id="agent-roster"></div></section>
+      <section class="hive-panel" id="panel-chats"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-chat"/></svg><h2>CHATS</h2></div><div class="hp-body" id="chat-list"><div class="empty-state compact"><strong>NOT CONNECTED</strong><small>No provider chat sessions observed.</small></div></div><div class="hp-head sub"><h3>LOCAL OUTBOX</h3></div><div class="hp-body outbox" id="chat-outbox"><div class="empty-state compact"><strong>Empty</strong><small>Sent and unsent messages appear here with their true state.</small></div></div></section>
+      <section class="hive-panel" id="panel-projects"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-folder"/></svg><h2>PROJECTS</h2></div><div class="hp-body" id="project-rail"><div class="empty-state compact"><strong>NOT PROVIDED</strong><small>HIVE Core returned no project catalog.</small></div></div></section>
+      <section class="hive-panel" id="panel-agents"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-agents"/></svg><h2>AGENTS / ROLES</h2></div><div class="hp-body" id="agent-roster"></div></section>
     </aside>
+
+    <div class="cards-row" id="cards-row">
+      <section class="hive-panel task-card" id="card-current"><div class="tc-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-task"/></svg><h2>CURRENT TASK</h2></div><div class="tc-body"><strong class="tc-main" id="card-current-main">UNKNOWN</strong><small class="tc-sub" id="card-current-sub"></small><div class="tc-progress" id="card-current-progress" hidden><span></span></div></div></section>
+      <section class="hive-panel task-card" id="card-next"><div class="tc-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-queue"/></svg><h2>NEXT IN QUEUE</h2></div><div class="tc-body"><strong class="tc-main" id="card-next-main">UNKNOWN</strong><small class="tc-sub" id="card-next-sub"></small></div></section>
+      <section class="hive-panel task-card" id="card-context"><div class="tc-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-context"/></svg><h2>SHARED CONTEXT</h2></div><div class="tc-body"><strong class="tc-main" id="card-context-main">UNKNOWN</strong><small class="tc-sub" id="card-context-sub"></small></div></section>
+      <section class="hive-panel task-card" id="card-external"><div class="tc-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-link"/></svg><h2>EXTERNAL CONNECTION</h2></div><div class="tc-body"><strong class="tc-main unknown" id="card-external-main">INTERNET</strong><small class="tc-sub" id="card-external-sub" title="Allowed targets: NOT PROVIDED">NO ACTIVITY OBSERVED</small></div></section>
+      <section class="hive-panel task-card" id="card-layout"><div class="tc-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-grid"/></svg><h2>LAYOUT</h2></div><div class="tc-body lay-body"><button type="button" class="lay-btn ok" disabled aria-label="Confirm layout (editor not available)" title="Layout editor not available"><svg aria-hidden="true"><use href="#ico-ok"/></svg></button><button type="button" class="lay-btn no" disabled aria-label="Cancel layout (editor not available)" title="Layout editor not available"><svg aria-hidden="true"><use href="#ico-x"/></svg></button></div><small class="tc-sub lay-note">editor not available</small></section>
+    </div>
 
     <section class="core-stage" id="core-stage" aria-label="HIVE CORE">
       <svg id="hive-core-art" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" role="img" aria-label="HIVE CORE with agent roles, ULTRON ring, Obsidian and Internet nodes">
         <defs>
-          <radialGradient id="vortex" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000"/><stop offset=".28" stop-color="#02040a"/><stop offset=".55" stop-color="#3b1d7a"/><stop offset=".78" stop-color="#e0702a"/><stop offset="1" stop-color="#2b8cff" stop-opacity=".0"/></radialGradient>
-          <radialGradient id="planet" cx="38%" cy="35%" r="70%"><stop offset="0" stop-color="#7fd0ff"/><stop offset=".6" stop-color="#1c5fa8"/><stop offset="1" stop-color="#06203d"/></radialGradient>
+          <radialGradient id="vortex" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000"/><stop offset=".34" stop-color="#02040a"/><stop offset=".5" stop-color="#2a1366"/><stop offset=".66" stop-color="#6a2fc4" stop-opacity=".85"/><stop offset=".8" stop-color="#e0702a" stop-opacity=".75"/><stop offset=".92" stop-color="#2b8cff" stop-opacity=".35"/><stop offset="1" stop-color="#2b8cff" stop-opacity="0"/></radialGradient>
+          <linearGradient id="ringGrad" gradientUnits="userSpaceOnUse" x1="515" y1="0" x2="1085" y2="0"><stop offset="0" stop-color="#4fe3a1"/><stop offset=".3" stop-color="#3fb8ff"/><stop offset=".55" stop-color="#8a6cff"/><stop offset=".8" stop-color="#ff9b4a"/><stop offset="1" stop-color="#4fe3a1"/></linearGradient>
+          <linearGradient id="armGrad" gradientUnits="userSpaceOnUse" x1="610" y1="260" x2="990" y2="640"><stop offset="0" stop-color="#ffb066"/><stop offset=".5" stop-color="#a77bff"/><stop offset="1" stop-color="#4aa8ff"/></linearGradient>
+          <radialGradient id="planet" cx="38%" cy="35%" r="70%"><stop offset="0" stop-color="#9fe0ff"/><stop offset=".55" stop-color="#2b78c8"/><stop offset="1" stop-color="#06203d"/></radialGradient>
+          <radialGradient id="planetAura" cx="50%" cy="50%" r="50%"><stop offset=".6" stop-color="#4aa8ff" stop-opacity=".0"/><stop offset=".78" stop-color="#4aa8ff" stop-opacity=".35"/><stop offset="1" stop-color="#4aa8ff" stop-opacity="0"/></radialGradient>
+          <clipPath id="planetClip"><circle r="56"/></clipPath>
+          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3.5"/></filter>
         </defs>
-        <circle class="core-vortex" cx="800" cy="450" r="190" fill="url(#vortex)"/>
-        <g class="core-arms" id="core-arms" aria-hidden="true"><path d="M800 450 m0 -170 a170 170 0 0 1 150 90" /><path d="M800 450 m0 170 a170 170 0 0 1 -150 -90" /><path d="M800 450 m-150 -90 a170 170 0 0 1 150 -80" /><path d="M800 450 m150 90 a170 170 0 0 1 -150 80" /></g>
-        <g class="core-ambient" id="core-ambient" aria-hidden="true"><path d="M553 307 C 480 300 420 300 360 300"/><path d="M553 593 C 480 620 420 640 360 640"/><path d="M1047 307 C 1120 250 1200 190 1250 150"/><path d="M800 735 C 800 790 760 820 700 840"/></g>
-        <circle class="core-ring ring-orbit" cx="800" cy="450" r="285"/>
-        <circle class="core-ring ring-inner" cx="800" cy="450" r="215"/>
+        <g id="core-vortex-art">
+          <circle class="core-vortex" cx="800" cy="450" r="215" fill="url(#vortex)"/>
+          <g class="core-arms" id="core-arms" aria-hidden="true"></g>
+          <circle class="horizon" cx="800" cy="450" r="72"/>
+          <circle class="photon" cx="800" cy="450" r="76" filter="url(#glow)"/>
+        </g>
+        <g class="core-ambient" id="core-ambient" aria-hidden="true">
+          <path d="M310 232 C 400 240 480 270 553 307"/><path d="M300 770 C 400 740 480 660 553 593"/>
+          <path d="M1225 122 C 1120 96 960 84 826 72"/><path d="M1047 593 C 1120 600 1180 605 1230 600"/><path d="M1090 307 C 1140 310 1190 320 1230 330"/>
+        </g>
+        <g id="core-rings" aria-hidden="true">
+          <circle class="core-ring ring-outer" cx="800" cy="450" r="335"/>
+          <circle class="core-ring ring-orbit" cx="800" cy="450" r="285" filter="url(#glow)"/>
+          <circle class="core-ring ring-inner" cx="800" cy="450" r="215"/>
+          <g id="ring-nodes"></g>
+        </g>
         <circle class="ultron-ring gray" id="ultron-ring" cx="800" cy="450" r="380"/>
         <g class="core-lock" id="core-lock" hidden><rect x="780" y="500" width="40" height="30" rx="5"/><path d="M788 500 v-10 a12 12 0 0 1 24 0 v10"/></g>
         <g class="core-center" id="core-center"><text x="800" y="445" text-anchor="middle" class="core-center-title">HIVE CORE</text><text x="800" y="475" text-anchor="middle" class="core-center-state" id="core-center-state">UNKNOWN</text></g>
+        <g class="ctx-group" id="ctx-work" transform="translate(110 140)"><title>Context labels are not-observed until an event names them</title><g class="ctx-item" data-node="files" transform="translate(0 0)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Files</text></g><g class="ctx-item" data-node="github" transform="translate(0 36)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">GitHub</text></g><g class="ctx-item" data-node="development" transform="translate(0 72)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Development</text></g></g><g class="ctx-group" id="ctx-data" transform="translate(110 745)"><title>Context labels are not-observed until an event names them</title><g class="ctx-item" data-node="data" transform="translate(0 0)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Data</text></g><g class="ctx-item" data-node="documents" transform="translate(0 36)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Documents</text></g><g class="ctx-item" data-node="models" transform="translate(0 72)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Models</text></g></g><g class="ctx-group" id="ctx-web" transform="translate(1240 300)"><title>Context labels are not-observed until an event names them</title><g class="ctx-item" data-node="search" transform="translate(0 0)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Search</text></g><g class="ctx-item" data-node="youtube" transform="translate(0 36)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">YouTube</text></g><g class="ctx-item" data-node="news" transform="translate(0 72)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">News</text></g><g class="ctx-item" data-node="academic" transform="translate(0 108)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Academic</text></g><g class="ctx-item" data-node="social_media" transform="translate(0 144)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Social Media</text></g><g class="ctx-item" data-node="online_tools" transform="translate(0 180)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Online Tools</text></g></g><g class="ctx-group" id="ctx-sys" transform="translate(1240 575)"><title>Context labels are not-observed until an event names them</title><g class="ctx-item" data-node="system" transform="translate(0 0)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">System</text></g><g class="ctx-item" data-node="security" transform="translate(0 36)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Security</text></g><g class="ctx-item" data-node="performance" transform="translate(0 72)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Performance</text></g><g class="ctx-item" data-node="uptime" transform="translate(0 108)"><circle class="ctx-dot" cx="0" cy="-7" r="6"/><text x="18" y="0">Uptime</text></g></g>
         <g id="core-agents">
-          <g class="core-agent" data-agent="FURY" transform="translate(800 165)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">F</text><text class="ca-name" y="62" text-anchor="middle">FURY</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
-          <g class="core-agent" data-agent="SHURI" transform="translate(553 307)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">S</text><text class="ca-name" y="62" text-anchor="middle">SHURI</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
-          <g class="core-agent" data-agent="THOR" transform="translate(1047 307)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">T</text><text class="ca-name" y="62" text-anchor="middle">THOR</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
-          <g class="core-agent" data-agent="VISION" transform="translate(553 593)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">V</text><text class="ca-name" y="62" text-anchor="middle">VISION</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
-          <g class="core-agent" data-agent="FALCON" transform="translate(1047 593)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">F</text><text class="ca-name" y="62" text-anchor="middle">FALCON</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
-          <g class="core-agent" data-agent="UATU" transform="translate(800 735)"><circle r="34"/><text class="ca-glyph" y="9" text-anchor="middle">U</text><text class="ca-name" y="62" text-anchor="middle">UATU</text><text class="ca-state" y="84" text-anchor="middle">UNKNOWN</text></g>
+          <g class="core-agent" data-agent="FURY" data-desc="Planning" style="--role:#ffb347" transform="translate(800 165)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-fury" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">FURY</text><text class="ca-state" y="88" text-anchor="middle">Planning · UNKNOWN</text></g>
+          <g class="core-agent" data-agent="SHURI" data-desc="Coding" style="--role:#b58cff" transform="translate(553 307)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-shuri" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">SHURI</text><text class="ca-state" y="88" text-anchor="middle">Coding · UNKNOWN</text></g>
+          <g class="core-agent" data-agent="THOR" data-desc="Research" style="--role:#5aa8ff" transform="translate(1047 307)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-thor" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">THOR</text><text class="ca-state" y="88" text-anchor="middle">Research · UNKNOWN</text></g>
+          <g class="core-agent" data-agent="VISION" data-desc="Analysis" style="--role:#ff8a4c" transform="translate(553 593)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-vision" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">VISION</text><text class="ca-state" y="88" text-anchor="middle">Analysis · UNKNOWN</text></g>
+          <g class="core-agent" data-agent="FALCON" data-desc="Monitoring" style="--role:#4fe3a1" transform="translate(1047 593)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-falcon" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">FALCON</text><text class="ca-state" y="88" text-anchor="middle">Monitoring · UNKNOWN</text></g>
+          <g class="core-agent" data-agent="UATU" data-desc="Watching" style="--role:#8f9bff" transform="translate(800 735)"><circle class="halo" r="46"/><circle r="34"/><use class="ca-ico" href="#ico-uatu" x="-17" y="-17" width="34" height="34"/><text class="ca-name" y="66" text-anchor="middle">UATU</text><text class="ca-state" y="88" text-anchor="middle">Watching · UNKNOWN</text></g>
         </g>
-        <g class="core-agent ultron-icon" id="ultron-icon" data-agent="ULTRON" transform="translate(800 70)"><circle r="26"/><text class="ca-glyph" y="8" text-anchor="middle">⛨</text><text class="ca-name" x="46" y="6" text-anchor="start">ULTRON</text></g>
-        <g class="core-node" id="node-internet" transform="translate(1280 130)"><circle class="planet" r="56" fill="url(#planet)"/><text class="ca-name" y="90" text-anchor="middle">INTERNET</text><text class="ca-state" y="112" text-anchor="middle" id="internet-state">NO ACTIVITY OBSERVED</text></g>
-        <g class="core-node" id="node-obsidian" transform="translate(330 300)"><rect x="-26" y="-26" width="52" height="52" rx="10"/><text class="ca-name" y="52" text-anchor="middle">OBSIDIAN</text><text class="ca-state" y="74" text-anchor="middle" id="obsidian-state">NOT CONFIGURED</text></g>
-        <g class="core-node" id="node-devices" transform="translate(330 640)"><rect x="-26" y="-18" width="52" height="36" rx="6"/><text class="ca-name" y="46" text-anchor="middle">LOCAL DEVICES</text><text class="ca-state" y="68" text-anchor="middle" id="devices-state">UNKNOWN</text></g>
+        <g class="core-agent ultron-icon" id="ultron-icon" data-agent="ULTRON" transform="translate(800 70)"><circle r="28"/><use class="ca-ico" href="#ico-shield" x="-15" y="-15" width="30" height="30"/><text class="ca-name" x="48" y="7" text-anchor="start">ULTRON</text></g>
+        <g class="core-node" id="node-internet" transform="translate(1280 130)"><circle class="aura" r="92" fill="url(#planetAura)"/><g clip-path="url(#planetClip)"><circle class="planet" r="56" fill="url(#planet)"/><ellipse cx="-14" cy="-6" rx="24" ry="14" fill="#3f9a5a" opacity=".55" filter="url(#soft)"/><ellipse cx="22" cy="18" rx="18" ry="10" fill="#4a9a62" opacity=".5" filter="url(#soft)"/><ellipse cx="-4" cy="-28" rx="30" ry="6" fill="#fff" opacity=".35" filter="url(#soft)"/></g><circle class="planet-rim" r="56"/><text class="ca-name" y="96" text-anchor="middle">INTERNET</text><text class="ca-state" y="120" text-anchor="middle" id="internet-state">NO ACTIVITY OBSERVED</text></g>
+        <g class="core-node" id="node-obsidian" transform="translate(330 300)"><rect x="-26" y="-26" width="52" height="52" rx="10"/><use class="ca-ico" href="#ico-gem" x="-15" y="-15" width="30" height="30"/><text class="ca-name" y="54" text-anchor="middle">OBSIDIAN</text><text class="ca-state" y="76" text-anchor="middle" id="obsidian-state">NOT CONFIGURED</text></g>
+        <g class="core-node" id="node-devices" transform="translate(290 640)"><rect x="-26" y="-20" width="52" height="40" rx="7"/><use class="ca-ico" href="#ico-usb" x="-14" y="-14" width="28" height="28"/><text class="ca-name" y="48" text-anchor="middle">LOCAL DEVICES</text><text class="ca-state" y="70" text-anchor="middle" id="devices-state">UNKNOWN</text></g>
         <g id="core-overlay"></g>
       </svg>
     </section>
 
     <div class="res-row" id="res-row">
-      <section class="hive-panel" id="panel-resources"><div class="hp-head"><h2>SYSTEM RESOURCES</h2></div><div class="hp-body gauges" id="resource-gauges"></div><div class="sys-summary" id="sys-summary" title="">USB / devices: UNKNOWN</div></section>
-      <section class="hive-panel" id="panel-limits"><div class="hp-head"><h2>AI MODELS / LIMITS</h2></div><div class="hp-body" id="limit-rows"></div></section>
+      <section class="hive-panel" id="panel-resources"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-layers"/></svg><h2>SYSTEM RESOURCES</h2></div><div class="hp-body gauges" id="resource-gauges"></div><div class="sys-summary" id="sys-summary" title="">USB / devices: UNKNOWN</div></section>
+      <section class="hive-panel" id="panel-limits"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-cpu"/></svg><h2>AI MODELS / LIMITS</h2></div><div class="hp-body" id="limit-rows"></div></section>
     </div>
 
     <form class="hive-panel composer" id="chat-draft-form" autocomplete="off">
@@ -77,8 +131,8 @@
     </form>
 
     <aside class="rail rail-right" aria-label="Activity and approvals">
-      <section class="hive-panel" id="panel-activity"><div class="hp-head"><h2>ACTIVITY</h2></div><div class="hp-body" id="activity-rows"><div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div></div></section>
-      <section class="hive-panel" id="panel-approvals"><div class="hp-head"><h2>APPROVALS</h2></div><div class="hp-body" id="approval-rows"></div></section>
+      <section class="hive-panel" id="panel-activity"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-pulse"/></svg><h2>ACTIVITY</h2><span class="hp-chip unknown" id="activity-chip">UNKNOWN</span></div><div class="hp-body" id="activity-rows"><div class="empty-state compact"><strong>Nothing observed</strong><small>Rows appear only from timestamped events.</small></div></div></section>
+      <section class="hive-panel" id="panel-approvals"><div class="hp-head"><svg class="hp-ico" aria-hidden="true"><use href="#ico-check"/></svg><h2>APPROVALS</h2></div><div class="hp-body" id="approval-rows"></div></section>
     </aside>
   </div>
   <div class="console-overlay" id="console" role="dialog" aria-label="Details console" hidden>
