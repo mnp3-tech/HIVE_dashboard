@@ -145,6 +145,7 @@
           <button class="nav-item" data-view="system"><span>▤</span>System</button>
           <button class="nav-item" data-view="proposals"><span>✎</span>Proposals</button>
           <button class="nav-item" data-view="registry"><span>◎</span>Registry</button>
+          <button class="nav-item" data-view="control"><span>⌖</span>Control plane</button>
         </nav>
         <div class="sidebar-spacer"></div>
         <div class="sidebar-foot">
@@ -265,6 +266,11 @@
             <div class="panel-heading"><div><p class="eyebrow">READ-ONLY REGISTRY · NOTHING HERE IS EXECUTED</p><h2>Agents, workers, tasks, catalogs and evidence</h2></div><span class="panel-status unknown" id="registry-mode">NOT LOADED</span></div>
             <div class="evidence-line" id="registry-evidence">Open this view to load /api/registry.</div>
             <div class="registry-body" id="registry-body"></div>
+          </section>
+          <section class="panel registry-panel" id="control-panel" hidden data-views="control" aria-label="Read-only control plane">
+            <div class="panel-heading"><div><p class="eyebrow">CONTROL PLANE · OBSERVATION AND PROPOSALS ONLY</p><h2>Agents, roles, ULTRON observations and self-evolution</h2></div><span class="panel-status unknown" id="control-mode">NOT LOADED</span></div>
+            <div class="evidence-line" id="control-evidence">Open this view to load /api/registry.</div>
+            <div class="registry-body" id="control-body"></div>
           </section>
           <section class="delegate-view panel" id="delegate-view" hidden data-views="proposals">
             <div class="panel-heading"><div><p class="eyebrow">PROPOSAL-ONLY ACTIONS</p><h2>Draft a proposal for HIVE Core</h2></div><span class="panel-status">GOVERNOR / AUDITED</span></div>

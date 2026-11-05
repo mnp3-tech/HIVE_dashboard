@@ -351,3 +351,8 @@ body.reduced-motion .core-arms,body.reduced-motion .core-ambient path,body.reduc
 .reg-sub{margin:8px 0 2px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted,#8aa3b3)}
 .reg-line{margin:2px 0;font-size:12px;overflow-wrap:anywhere}
 .reg-section[aria-busy="true"]>summary small{font-style:italic}
+.matrix-wrap{max-width:100%;overflow-x:hidden}
+.reg-matrix{width:100%;table-layout:fixed;border-collapse:collapse;font-size:11.5px;margin:6px 0}
+.reg-matrix th,.reg-matrix td{border-top:1px solid var(--line-soft);padding:4px 5px;text-align:left;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
+.reg-matrix thead th{color:var(--muted,#8aa3b3);font-weight:600;letter-spacing:.03em}
+.reg-matrix td.better{color:var(--cyan,#5fd6e8)}.reg-matrix td.worse{color:#f3c56b}

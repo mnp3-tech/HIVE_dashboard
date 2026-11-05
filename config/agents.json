@@ -1,0 +1,241 @@
+{
+  "schema_version": "hive.agents.v1",
+  "note": "Reviewed agent configuration for the read-only control plane. Every non-empty field cites its source. Empty lists mean NOT_PROVIDED, never 'none'. Primary/secondary classification is UNKNOWN until an authoritative source or approved mapping exists. Editing this file is a reviewed change; nothing here activates an agent.",
+  "agents": [
+    {
+      "agent_id": "FURY",
+      "display_name": "FURY",
+      "classification": "UNKNOWN",
+      "role": "Planning",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: top"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "SHURI",
+      "display_name": "SHURI",
+      "classification": "UNKNOWN",
+      "role": "Coding",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: upper-left"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "THOR",
+      "display_name": "THOR",
+      "classification": "UNKNOWN",
+      "role": "Research",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: upper-right"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "VISION",
+      "display_name": "VISION",
+      "classification": "UNKNOWN",
+      "role": "Analysis",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: lower-left"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "FALCON",
+      "display_name": "FALCON",
+      "classification": "UNKNOWN",
+      "role": "Monitoring",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: lower-right"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "UATU",
+      "display_name": "UATU",
+      "classification": "UNKNOWN",
+      "role": "Watching",
+      "role_basis": "visual label on the CORE node (derived from the target image); not a documented responsibility",
+      "configured_status": "CONFIGURED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md orbit position: bottom"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "ULTRON",
+      "display_name": "ULTRON",
+      "classification": "UNKNOWN",
+      "role": "Security / containment guard (observation only in P1.3)",
+      "role_basis": "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 8",
+      "configured_status": "CONFIGURED",
+      "responsibilities": [
+        "monitor external connections",
+        "monitor provider adapters",
+        "monitor file attachments",
+        "monitor tool permissions",
+        "monitor path/sandbox violations",
+        "monitor approval requirements",
+        "monitor blocked actions"
+      ],
+      "capabilities": [],
+      "required_permissions": [
+        "read HIVE Core health/workers/tasks/events (loopback, read-only)",
+        "read dashboard connector states"
+      ],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [
+        "fresh trusted ULTRON event within 120 s (ACTIVE)",
+        "HIVE Core transport reachable"
+      ],
+      "excluded": [
+        "granting itself permissions",
+        "activating skills",
+        "changing external systems"
+      ],
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 8 (ULTRON MVP monitoring list)",
+        "dashboard implementation: hive_registry.ultron_status (permissions and health checks are what the observation layer actually uses)"
+      ]
+    },
+    {
+      "agent_id": "EVOLVE",
+      "display_name": "EVOLVE",
+      "classification": "UNKNOWN",
+      "role": "Self-evolution (proposals and fixture experiments only in P1.3)",
+      "role_basis": "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 11, narrowed by owner decision for P1.3",
+      "configured_status": "CONFIGURED",
+      "responsibilities": [
+        "analyze evidence",
+        "inspect statistics",
+        "inspect tests",
+        "inspect configuration",
+        "prepare a proposal",
+        "run fixture experiments"
+      ],
+      "capabilities": [],
+      "required_permissions": [
+        "read repository documentation and fixture datasets (read-only)"
+      ],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": [
+        "create an isolated branch (owner decision, P1.3)",
+        "apply a bounded patch (owner decision, P1.3)",
+        "direct production changes",
+        "silent WONG changes",
+        "automatic promotion",
+        "credential access",
+        "unbounded autonomous code changes"
+      ],
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 7 (AgentRole list)",
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 11 (EVOLVE allowed / not allowed)",
+        "owner decision 2026-11-05 (P1.3 read-only scope)"
+      ]
+    },
+    {
+      "agent_id": "JARVIS",
+      "display_name": "JARVIS",
+      "classification": "UNKNOWN",
+      "role": "Voice layer (future-only; not in the AgentRole list)",
+      "role_basis": "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 8",
+      "configured_status": "DISABLED",
+      "sources": [
+        "HIVE_DASHBOARD_CLAUDE_HANDOFF.md section 8 (JARVIS is future-only)"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    },
+    {
+      "agent_id": "BLACK_WIDOW",
+      "display_name": "Black Widow",
+      "classification": "UNKNOWN",
+      "role": null,
+      "role_basis": "no repository documentation; listed on owner instruction only",
+      "configured_status": "PROPOSED",
+      "sources": [
+        "owner instruction 2026-11-05 (no repository documentation; capabilities, permissions and runtime status are NOT_PROVIDED)"
+      ],
+      "responsibilities": [],
+      "capabilities": [],
+      "required_permissions": [],
+      "allowed_tools": [],
+      "preferred_task_types": [],
+      "worker_requirements": [],
+      "health_checks": [],
+      "excluded": []
+    }
+  ]
+}

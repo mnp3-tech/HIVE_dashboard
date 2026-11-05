@@ -735,6 +735,7 @@ for every variable, file format and bound. Example for a PowerShell session befo
 $env:ORCHESTRATOR_VAULT_ROOT = '<path to the Orchestrator.inc folder of your vault>'
 $env:CREATOR_OPS_DB_PATH     = '<path to creator_ops.sqlite3>'
 # optional: $env:HIVE_SKILLS_ROOTS, $env:HIVE_PROMPTS_ROOTS, $env:HIVE_BOTS_ROOTS (';'-separated), $env:HIVE_TOOL_MANIFEST_DIR
+# optional Internet health for ULTRON (https only, max 5, HEAD requests, no redirects): $env:HIVE_INTERNET_PROBES = 'https://example.org/'
 ```
 
 Without `HIVE_SKILLS_ROOTS` the skill catalog reads only `~/.codex/skills` and `~/.agents/skills`. Without

@@ -623,14 +623,14 @@ function renderView(){
     section.hidden = !views.includes(state.view);
   });
   $$('.nav-item').forEach(item=>item.classList.toggle('active',item.dataset.view===state.view));
-  if(state.view==='registry' && !registryBusy && (!state.registryAt || Date.now()-state.registryAt>15000)){ state.registryAt=Date.now(); loadRegistry(); }
+  if((state.view==='registry'||state.view==='control') && !registryBusy && (!state.registryAt || Date.now()-state.registryAt>15000)){ state.registryAt=Date.now(); loadRegistry(); }
 }
 
 // ---- Read-only registry v2 (GET /api/registry?part=...). Display only: nothing here executes, approves, activates or writes.
 // Each source part loads independently, so one slow or unavailable source never blocks the others.
-const REG_PARTS=['core','creator_ops','obsidian','catalogs','tools','proposals'];
+const REG_PARTS=['core','creator_ops','obsidian','catalogs','tools','proposals','internet'];
 const REG_TONE={OBSERVED:'ok',ACTIVE:'ok',FIXTURE:'deferred',STALE:'warn',UNVERIFIED:'warn',AUTH_REQUIRED:'warn',NOT_VERIFIED:'warn',CONFLICT:'fail',OFFLINE:'unknown',UNAVAILABLE:'unknown',UNKNOWN:'unknown',NOT_CONNECTED:'unknown',
-  PENDING_HUMAN_REVIEW:'deferred',APPROVED_FOR_PROTOTYPE:'ok',REJECTED:'fail',EXPIRED:'warn'};
+  PENDING_HUMAN_REVIEW:'deferred',APPROVED_FOR_PROTOTYPE:'ok',REJECTED:'fail',EXPIRED:'warn',CRITICAL:'fail',WARNING:'warn',INFO:'unknown'};
 let registryBusy=false;
 function loadRegistry(){
   registryBusy=true; state.registryParts=state.registryParts||{}; let pending=REG_PARTS.length;
@@ -640,9 +640,9 @@ function loadRegistry(){
       .then(r=>{ if(!r.ok) throw new Error(`registry part ${part} returned HTTP ${r.status}`); return r.json(); })
       .then(data=>{ state.registryParts[part]={status:'ok',data,at:Date.now()}; })
       .catch(e=>{ state.registryParts[part]={status:'error',error:String(e&&e.message||e)}; })
-      .finally(()=>{ pending-=1; if(pending===0) registryBusy=false; renderRegistry(); });
+      .finally(()=>{ pending-=1; if(pending===0) registryBusy=false; renderRegistry(); renderControl(); });
   });
-  renderRegistry();
+  renderRegistry(); renderControl();
 }
 const regTip=r=>`${r.display||'UNKNOWN'} — ${r.reason||'no reason given'} · source ${r.source||'none'} · observed ${r.observed_at||'none'}`;
 const regChip=(display,tip)=>`<span class="reg-chip ${REG_TONE[display]||'unknown'}" title="${esc(tip||display)}" aria-label="${esc(tip||display)}">${esc(display||'UNKNOWN')}</span>`;
@@ -661,6 +661,40 @@ function regSection(key,title,part,sec,rowFn,emptyText){
   const ev=(sec&&sec.evidence)||{}, items=(sec&&sec.items)||[];
   const chip=ev.display?regChip(ev.display,regTip(ev)):'';
   return `<details class="reg-section" data-section="${esc(key)}" open><summary><span>${esc(title)}</span>${chip}<small>${items.length} item(s) · ${esc(ev.source||'no source')}</small></summary>${ev.reason?`<p class="reg-reason">${esc(ev.reason)}</p>`:''}${items.length?items.map(rowFn).join(''):`<p class="reg-empty">${esc(emptyText||'Nothing from this source.')}</p>`}</details>`;
+}
+// ---- Control plane (P1.3, read-only): agent registry, role/capability matrix, ULTRON observations, self-evolution. Display only.
+const regList=(rec,name,v)=>Array.isArray(v)&&v.length?esc(v.join('; ')):regQ(rec,name);
+function renderControl(){
+  const body=$('#control-body'), mode=$('#control-mode'), evl=$('#control-evidence'); if(!body) return;
+  const parts=state.registryParts||{}; const loaded=REG_PARTS.filter(p=>parts[p]&&parts[p].status==='ok');
+  const d=k=>{ for(const p of REG_PARTS){ const x=parts[p]; if(x&&x.status==='ok'&&x.data[k]!==undefined) return x.data[k]; } return undefined; };
+  const any=loaded.length?parts[loaded[0]].data:null;
+  if(mode){ mode.textContent=!any?'LOADING':any.mode==='fixture'?'FIXTURE DATA':'LIVE · READ-ONLY'; mode.className=`panel-status ${any&&any.mode==='fixture'?'deferred':any?'ok':'unknown'}`; }
+  if(evl) evl.textContent=any?`${loaded.length} of ${REG_PARTS.length} sources loaded · observation and proposal phase: nothing is started, stopped, granted, applied or executed`:'Loading…';
+  const reg=d('agent_registry'), obs=(d('ultron_observations')||{}).items||[], u=d('ultron');
+  const agents=(reg&&reg.items)||[];
+  const obsRow=o=>`<div class="reg-row" data-kind="ultron_observation" data-id="${esc(o.id)}" data-display="${esc(o.display)}">${regChip(o.severity.toUpperCase(),regTip(o))}<div class="reg-text"><strong>${esc(o.category)} · ${esc(o.subject||'')}</strong><span>${esc(o.reason||'')}</span><small>${esc(regMeta(o))} · action: ${esc(o.action)}${(o.evidence_ids||[]).length?` · evidence ${esc(o.evidence_ids.join(', '))}`:''}</small></div></div>`;
+  const filt=cats=>({evidence:{source:'derived from ULTRON observations',reason:null},items:obs.filter(o=>cats.includes(o.category))});
+  const matrixCols=[['role','Role'],['responsibilities','Responsibilities'],['capabilities','Capabilities'],['required_permissions','Permissions'],['allowed_tools','Tools'],['preferred_task_types','Task types'],['worker_requirements','Worker req.'],['health_checks','Health checks']];
+  const matrix=regPart('core').status!=='ok'?regSection('matrix','Role and capability matrix','core',null,()=>''):
+    `<details class="reg-section" data-section="matrix" open><summary><span>Role and capability matrix</span><small>${agents.length} agent(s) · ? = NOT_PROVIDED by any source</small></summary><div class="matrix-wrap"><table class="reg-matrix"><thead><tr><th>Agent</th><th>Status / lifecycle</th><th>Primary / secondary</th>${matrixCols.map(([,t])=>`<th>${esc(t)}</th>`).join('')}</tr></thead><tbody>${agents.map(a=>`<tr data-agent="${esc(a.agent_id)}"><th scope="row">${esc(a.agent_id)}</th><td>${esc(a.status)} / ${esc(a.lifecycle)}</td><td>${esc(a.classification)}</td>${matrixCols.map(([k])=>`<td>${k==='role'?regVal(a,'role',a.role):regList(a,k,a[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
+  const ev=d('evolution')||{}, exps=(d('experiments')||{}).items||[];
+  const expHtml=e=>`<div class="reg-row" data-kind="experiment" data-id="${esc(e.id)}" data-display="${esc(e.display)}">${regChip(e.display,regTip(e))}<div class="reg-text"><strong>${esc(e.experiment_id)} · ${esc(e.domain)} · fixture only · adopted=${esc(e.adopted)}</strong><small>dataset ${esc(e.dataset_path)} ${esc((e.dataset_sha256||'').slice(0,19))}…</small>${e.baseline?`<div class="matrix-wrap"><table class="reg-matrix exp"><thead><tr><th>Metric</th><th>Better is</th><th>Baseline: ${esc(e.baseline.name)}</th>${(e.candidates||[]).map(c=>`<th>Candidate: ${esc(c.name)}</th>`).join('')}</tr></thead><tbody>${(e.candidates[0]?e.candidates[0].comparison:[]).map((r,i)=>`<tr><th scope="row">${esc(r.metric)}</th><td>${esc(r.direction)}</td><td>${esc(r.baseline)}</td>${e.candidates.map(c=>{ const x=c.comparison[i]; return `<td class="${x.better===true?'better':x.better===false?'worse':''}">${esc(x.candidate)}${x.better===true?' ▲ better':x.better===false?' ▼ worse':' = same'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`:''}<small class="reg-reason">${esc(e.reason||'')}</small></div></div>`;
+  const propHtml=r=>`<div class="reg-row" data-kind="proposal" data-id="${esc(r.id)}" data-display="${esc(r.display)}">${regChip(r.status,`${r.status} — ${r.reason||''}`)}<div class="reg-text"><strong>${esc(r.proposal_id)} · ${esc(r.domain)} · stage ${esc(r.stage)} · risk ${esc(r.risk)}</strong><span>${esc(r.problem||'')}</span><small>Baseline: ${esc(r.baseline||'')}</small><small>Candidate: ${esc(r.candidate||'')}</small><small>Hypothesis: ${esc(r.hypothesis||'')}</small><small>Expected benefit: ${esc(r.expected_benefit||'')}</small><small>Success metrics: ${esc((r.success_metrics||[]).map(m=>`${m.metric}${m.direction?` (${m.direction})`:''}`).join('; '))}${r.success_met?` · met on fixture: ${esc(r.success_met.filter(m=>m.met).length)} of ${esc(r.success_met.length)}`:''}</small><small>Evidence: ${esc((r.evidence||[]).map(e=>`${e.type} ${e.ref}${e.sha256?` ${e.sha256.slice(0,15)}…`:''}`).join('; '))}</small><small>Required permissions to adopt: ${esc((r.required_permissions||[]).join('; '))} · tests: ${esc((r.test_plan||[]).join('; '))}</small><small>Rollback: ${esc(r.rollback_plan||'')} (ref ${esc(r.rollback_ref||'none')}) · created ${esc(r.created_at||'?')} · expires ${esc(r.expires_at||'?')} · correlation ${esc(r.correlation_id||'none')} · applied=${esc(r.applied)}</small>${r.reason?`<small class="reg-reason">${esc(r.reason)}</small>`:''}</div></div>`;
+  const connectors=loaded.flatMap(p=>parts[p].data.connectors||[]);
+  const blockedConn=connectors.filter(c=>!['OBSERVED','FIXTURE'].includes(c.display));
+  const coverage=regPart('proposals').status!=='ok'?'':`<details class="reg-section" data-section="domains" open><summary><span>Self-evolution domains</span><small>${(ev.domains||[]).length} domain(s) · pipeline ${esc((ev.stages||[]).join(' → '))}</small></summary><div class="matrix-wrap"><table class="reg-matrix"><thead><tr><th>Domain</th><th>Proposals</th><th>Experiments</th><th>Note</th></tr></thead><tbody>${(ev.domains||[]).map(x=>`<tr><th scope="row">${esc(x.domain)}</th><td>${esc(x.proposals.join(', ')||'—')}</td><td>${esc(x.experiments.join(', ')||'—')}</td><td>${esc(x.note||'')}</td></tr>`).join('')}</tbody></table></div><p class="reg-reason">${esc((ev.rules||[]).join(' · '))}</p></details>`;
+  body.innerHTML=[
+    regSection('agent-registry','Agent registry (configuration + HIVE Core observations)','core',reg,a=>regRow(a,`${a.agent_id} · ${a.status} · ${a.lifecycle}`,`${esc(a.display_name||a.agent_id)} · primary/secondary ${esc(a.classification)} · role ${regVal(a,'role',a.role)} · last state ${regVal(a,'last_state',a.last_state)} · sources ${esc((a.documented_sources||[]).join('; ')||'none')}`)),
+    matrix,
+    regSection('blocked-agents','Blocked, degraded and stale agents','core',filt(['blocked_agent','stale_agent','agent_health']),obsRow,'None observed.'),
+    regSection('worker-health','Worker health','core',d('workers'),r=>regRow(r,r.name||r.source_id,`heartbeat ${esc(r.freshness)} · status ${regVal(r,'status',r.status_raw)} · provider ${regVal(r,'provider',r.provider)}`),'No worker record from HIVE Core.'),
+    regSection('task-assignment','Task assignment (as recorded by HIVE Core; the dashboard does not route)','core',filt(['task_routing']),obsRow,'No routing observation.'),
+    regPart('core').status!=='ok'?regSection('ultron-control','ULTRON observations','core',null,()=>''):`<details class="reg-section" data-section="ultron-control" open><summary><span>ULTRON observations</span>${regChip(u.display,regTip(u))}<small>${obs.length} observation(s) · observation only, no actions</small></summary>${obs.map(obsRow).join('')}<p class="reg-sub">Internet health (configured probes only)</p>${regPart('internet').status==='ok'?(((d('internet')||{}).items||[]).map(c=>regRow(c,c.name,esc(c.target_host||''))).join('')||`<p class="reg-empty">${esc(((d('internet')||{}).evidence||{}).reason||'No probes.')}</p>`):'<p class="reg-empty">loading…</p>'}<p class="reg-sub">Blocked or unavailable connectors (sources loaded so far)</p>${blockedConn.length?blockedConn.map(c=>`<p class="reg-line">${regChip(c.display,regTip(c))} ${esc(c.name||c.id)} — ${esc(c.reason||'')}</p>`).join(''):'<p class="reg-empty">None among the loaded sources.</p>'}</details>`,
+    coverage,
+    regSection('evo-proposals','Self-evolution proposals (display only)','proposals',d('proposals'),propHtml),
+    regSection('experiments','Sandbox / fixture experiments: baseline versus candidate','proposals',d('experiments'),expHtml),
+  ].join('');
 }
 function renderRegistry(){
   const body=$('#registry-body'), mode=$('#registry-mode'), evl=$('#registry-evidence'); if(!body) return;
@@ -692,7 +726,7 @@ function renderRegistry(){
     regSection('obsidian','Obsidian notes (metadata only)','obsidian',cat('obsidian'),r=>regRow(r,r.name,`modified ${esc(r.modified_at||'?')} · ${esc(r.size)} bytes · tags ${regVal(r,'tags',r.tags)} · ${esc(r.outgoing_links)} link(s) out · ${esc(r.backlinks)} backlink(s) · tasks ${r.open_tasks==null?regQ(r,'open_tasks'):esc(r.open_tasks)} open / ${r.done_tasks==null?regQ(r,'done_tasks'):esc(r.done_tasks)} done`)),
     ...[['skills','Skills'],['prompts','Prompts'],['bots','Bots']].map(([k,t])=>regSection(k,`${t} (discovered, not activated)`,'catalogs',cat(k),r=>regRow(r,`${r.name||r.source_id}${r.version?` v${r.version}`:''}`,`${esc(r.description||'no description')} · ${esc(r.source_path||'')} · capabilities ${regVal(r,'declared_capabilities',r.declared_capabilities)} · permissions ${regVal(r,'required_permissions',r.required_permissions)} · risk ${esc(r.risk_class||'unclassified')}${r.risk_basis?` (${esc(r.risk_basis)})`:''} · ${r.content_hash?esc(r.content_hash.slice(0,19))+'…':regQ(r,'content_hash')} · enabled=${esc(r.enabled)}`))),
     regSection('tools','Tool manifests (manifest only, never run)','tools',cat('tools'),r=>regRow(r,`${r.name||r.source_id}${r.version?` v${r.version}`:''}`,`${regVal(r,'transport',r.transport)} · ${regVal(r,'target',r.target)} · timeout ${regVal(r,'timeout_s',r.timeout_s)} s · output ≤ ${regVal(r,'output_limit_bytes',r.output_limit_bytes)} B · risk ${esc(r.risk_class||'unclassified')} · permissions ${regVal(r,'required_permissions',r.required_permissions)} · enabled=${esc(r.enabled)}`)),
-    regSection('proposals','Self-evolution proposals (display only)','proposals',d('proposals'),r=>`<div class="reg-row" data-kind="proposal" data-id="${esc(r.id)}" data-display="${esc(r.display)}">${regChip(r.status,`${r.status} — ${r.reason||''}`)}<div class="reg-text"><strong>${esc(r.proposal_id)} · ${esc(r.gap_id)} · risk ${esc(r.risk)} · ${esc(r.affected_area||'')}</strong><span>${esc(r.problem||'')}</span><small>Benefit: ${esc(r.expected_benefit||'')}</small><small>Tests: ${esc((r.test_plan||[]).join('; '))}</small><small>Rollback: ${esc(r.rollback_plan||'')}</small><small>Evidence: ${esc(r.evidence_file||'')} ${esc(r.evidence_row_prefix||'')} ${esc((r.evidence_row_sha256||'').slice(0,23))}… · created ${esc(r.created_at||'?')} · expires ${esc(r.expires_at||'?')} · correlation ${esc(r.correlation_id||'none')}</small>${r.reason?`<small class="reg-reason">${esc(r.reason)}</small>`:''}</div></div>`),
+    regSection('proposals','Self-evolution proposals (display only; details in Control plane)','proposals',d('proposals'),r=>`<div class="reg-row" data-kind="proposal" data-id="${esc(r.id)}" data-display="${esc(r.display)}">${regChip(r.status,`${r.status} — ${r.reason||''}`)}<div class="reg-text"><strong>${esc(r.proposal_id)} · ${esc(r.domain)} · stage ${esc(r.stage)} · risk ${esc(r.risk)}</strong><span>${esc(r.problem||'')}</span><small>${esc(regMeta(r))} · applied=${esc(r.applied)}</small></div></div>`),
     `<details class="reg-section" data-section="evidence"><summary><span>Evidence log (latest observations)</span><small>in memory, bounded; never sent anywhere</small></summary>${(d('evidence_log')||[]).map(r=>regRow(r,r.subject,'')).join('')||'<p class="reg-empty">Nothing recorded yet.</p>'}</details>`,
   ].join('');
 }

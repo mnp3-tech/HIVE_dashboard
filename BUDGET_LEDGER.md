@@ -130,3 +130,8 @@ Rough effort estimates against the USD 100 allocation (dollar spend is not obser
 
 ## Uncatalogued skill identified (documentation only)
 - ACCEPTANCE, HANDOFF section 31, INTEGRATION_PLAN. No code or test change. Effort ~$0.5 (rough, not observed); estimated remaining on the USER-REPORTED basis ~$30-37.
+
+## P1.3 control plane (observation and proposals)
+- Basis: USER-REPORTED ~$70 remaining at Gate A. ESTIMATED effort since then (rough, not observed): read-only foundation ~$12-15, Registry v2 ~$18-22, follow-ups ~$3, this phase ~$20-24. Estimated remaining on the user-reported basis: about $6-17. The historical ESTIMATED running total (~$97) stays unchanged above; the bases remain unreconciled.
+- Recommendation: the remaining budget covers Windows verification and small fixes, not another phase of this size.
+- Files: see HANDOFF_REPORT section 32. Tests once on the final code: Python 387, UI contract 20, Node 97, Playwright 7+10+11+7+16+6+4, all green. Subagents 5 of 8 (none used). No execution, lifecycle control, external write or PROD/WONG/ROCKET access.

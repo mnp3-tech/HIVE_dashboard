@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = 'http://127.0.0.1:4186/', LIVE = 'http://127.0.0.1:4185/';
-const ENV = { ...process.env, HIVE_API_TOKEN: '', HIVE_SKILLS_ROOTS: '', ORCHESTRATOR_VAULT_ROOT: '', CREATOR_OPS_DB_PATH: '' };
+const ENV = { ...process.env, HIVE_API_TOKEN: '', HIVE_SKILLS_ROOTS: '', ORCHESTRATOR_VAULT_ROOT: '', CREATOR_OPS_DB_PATH: '', HIVE_INTERNET_PROBES: '' };
 const procs = []; let browser;
 async function up(args, url) {
   const p = spawn('python', args, { cwd: root, stdio: 'ignore', env: ENV }); procs.push(p);
@@ -39,7 +39,7 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }, {
   test(`fixture ${vp.width}x${vp.height}: fixture-labelled, distinct states, text-only catalog content, compact unknowns, no aggregate chips, no overflow`, async () => {
     const { p, ctx, errors } = await openRegistry(FIX, vp);
     assert.equal(await p.$eval('#registry-mode', e => e.textContent), 'FIXTURE DATA');
-    assert.match(await p.$eval('#registry-evidence', e => e.textContent), /6 of 6 sources loaded/);
+    assert.match(await p.$eval('#registry-evidence', e => e.textContent), /7 of 7 sources loaded/);
     const r = await rows(p);
     assert.deepEqual(r.filter(x => ['OBSERVED', 'ACTIVE'].includes(x.display)).map(x => x.id), [], 'fixture data never reads as observed/live');
     for (const d of ['FIXTURE', 'STALE', 'UNVERIFIED', 'CONFLICT', 'NOT_VERIFIED']) assert.ok(r.some(x => x.display === d), `state ${d} rendered`);
@@ -74,7 +74,7 @@ test('live (no Core, no configured paths on this host): honest unavailable state
   assert.equal(c('connector:creator-ops').display, 'NOT_CONNECTED'); assert.equal(c('connector:tool-manifests').display, 'OBSERVED');
   assert.ok(['agent', 'worker', 'task_instance', 'capability'].every(k => !r.some(x => x.kind === k)), 'nothing invented while Core is down');
   assert.match(await p.$eval('[data-section="agents"]', e => e.textContent), /HIVE Core has no agents route/);
-  const props = r.filter(x => x.kind === 'proposal'); assert.equal(props.length, 3); assert.ok(props.every(x => /PENDING_HUMAN_REVIEW/.test(x.text)));
+  const props = r.filter(x => x.kind === 'proposal'); assert.equal(props.length, 6); assert.ok(props.every(x => /PENDING_HUMAN_REVIEW/.test(x.text)));
   assert.ok(r.filter(x => x.kind === 'catalog_item' && x.id.startsWith('tool:')).every(x => /enabled=false/.test(x.text)));
   await p.screenshot({ path: join(root, 'docs/hive/screenshots', 'registry-live-1920x1080.png') });
   assert.deepEqual(errors, []); await ctx.close();
@@ -87,7 +87,7 @@ test('one failing source is isolated: the others render, the failed one says so'
   const obs = await p.$eval('[data-section="obsidian"]', e => e.textContent);
   assert.match(obs, /UNAVAILABLE/); assert.match(obs, /source part failed/);
   assert.ok((await rows(p)).some(x => x.kind === 'worker'), 'HIVE Core part still rendered');
-  assert.match(await p.$eval('#registry-evidence', e => e.textContent), /5 of 6 sources loaded/);
+  assert.match(await p.$eval('#registry-evidence', e => e.textContent), /6 of 7 sources loaded/);
   await ctx.close();
 });
 

@@ -423,17 +423,12 @@ class ToolManifestTests(TempDir):
 
 # ------------------------------------------------------------------ proposals
 class ProposalTests(TempDir):
-    def test_statuses_follow_the_reviewed_file_unless_stale_or_expired(self):
-        items = hr.proposal_records(now=NOW)["items"]
-        self.assertEqual(len(items), 3)
-        self.assertTrue(all(p["status"] == "PENDING_HUMAN_REVIEW" and p["correlation_id"] == "prop:" + p["proposal_id"] and p["evidence_row_sha256"] for p in items))
-        data = json.loads(hr.PROPOSALS_PATH.read_text(encoding="utf-8"))
-        data[0]["status"], data[1]["status"], data[2]["status"] = "APPROVED_FOR_PROTOTYPE", "REJECTED", "MERGE_NOW"
-        log = self.tmp / "p.json"; log.write_text(json.dumps(data), encoding="utf-8")
-        self.assertEqual([p["status"] for p in hr.proposal_records(path=log, now=NOW)["items"]], ["APPROVED_FOR_PROTOTYPE", "REJECTED", "PENDING_HUMAN_REVIEW"])
-        acc = self.tmp / "A.md"; acc.write_text(hr.ACCEPTANCE_PATH.read_text(encoding="utf-8").replace("| GAP-1 |", "| GAP-1 | edited", 1), encoding="utf-8")
-        self.assertEqual(hr.proposal_records(acceptance=acc, now=NOW)["items"][0]["status"], "STALE")
-        self.assertTrue(all(p["status"] == "EXPIRED" for p in hr.proposal_records(now=NOW + timedelta(days=400))["items"]))
+    def test_proposals_part_serves_the_evolution_payload(self):
+        reg = build(config=cfg(), parts=["proposals"])
+        self.assertEqual(len(reg["proposals"]["items"]), 6)
+        self.assertTrue(all(p["status"] == "PENDING_HUMAN_REVIEW" and p["applied"] is False for p in reg["proposals"]["items"]))
+        self.assertEqual(len(reg["experiments"]["items"]), 3); self.assertEqual(len(reg["evolution"]["domains"]), 13)
+        # detailed status / stale / expiry rules: tests/test_control.py EvolutionTests
 
     def test_no_server_code_path_acts_on_a_proposal_status(self):
         self.assertNotIn("APPROVED_FOR_PROTOTYPE", (ROOT / "server.py").read_text(encoding="utf-8"))

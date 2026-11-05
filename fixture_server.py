@@ -355,11 +355,18 @@ def fixture_registry(now: datetime, parts=None) -> dict:
         "/tasks": {"items": [
             {"id": "task-fixture-1", "title": "Render live CORE state (fixture)", "status": "running", "worker_id": "claude-subscription",
              "required_capabilities": ["code.review"], "correlation_id": "corr-fixture-1", "created_at": iso(300)},
-            {"id": "task-fixture-2", "title": "Unassigned task (fixture)", "status": "queued", "created_at": iso(120)}]},
+            {"id": "task-fixture-2", "title": "Unassigned task (fixture)", "status": "queued", "created_at": iso(120)},
+            {"id": "task-fixture-3", "title": "Assigned to an unreported worker (fixture)", "status": "queued", "worker_id": "ghost-worker", "created_at": iso(60)}]},
         "/events": {"items": [
             {"event_id": "evt-ultron-1", "role_id": "ULTRON", "state": "working", "timestamp": iso(20), "event_type": "ROUTING_OBSERVED", "title": "fixture routing pulse"},
             {"event_id": "evt-ultron-0", "role_id": "ULTRON", "state": "idle", "timestamp": iso(400), "event_type": "HEALTH_OBSERVED"},
-            {"event_id": "evt-fury-1", "role_id": "FURY", "state": "working", "provider": "claude", "timestamp": iso(30), "task_id": "task-fixture-1", "correlation_id": "corr-fixture-1"},
+            {"event_id": "evt-fury-1", "role_id": "FURY", "state": "working", "provider": "claude", "timestamp": iso(30), "task_id": "task-fixture-1", "correlation_id": "corr-fixture-1", "role": "Planning"},
+            {"event_id": "evt-shuri-blocked", "role_id": "SHURI", "state": "security_blocked", "event_type": "TOOL_PERMISSION_DENIED", "timestamp": iso(15), "severity": "error"},
+            {"event_id": "evt-falcon-role", "role_id": "FALCON", "state": "idle", "timestamp": iso(25), "role": "Research"},
+            {"event_id": "evt-watcher-x", "role_id": "WATCHER_X", "state": "idle", "timestamp": iso(40)},
+            {"event_id": "evt-fail-1", "role_id": "UATU", "state": "failed", "task_id": "task-fixture-2", "timestamp": iso(50), "severity": "error"},
+            {"event_id": "evt-fail-2", "role_id": "UATU", "state": "failed", "task_id": "task-fixture-2", "timestamp": iso(45), "severity": "error"},
+            {"event_id": "evt-fail-3", "role_id": "UATU", "state": "failed", "task_id": "task-fixture-2", "timestamp": iso(35), "severity": "error"},
             {"event_id": "evt-thor-old", "role_id": "THOR", "state": "idle", "timestamp": iso(900)},
             {"event_id": "evt-vision-future", "role_id": "VISION", "state": "working", "timestamp": iso(-3600)}]},
     }
@@ -373,8 +380,28 @@ def fixture_registry(now: datetime, parts=None) -> dict:
         skill_roots=[("fixture", str(FIXTURE_DIR / "skills"))], prompt_roots=[("fixture", str(FIXTURE_DIR / "prompts"))],
         bot_roots=[("fixture", str(FIXTURE_DIR / "bots"))], vault_root=str(FIXTURE_DIR / "vault"), creator_ops_db=str(fixture_creator_db()),
         tool_manifest_dir=str(FIXTURE_DIR / "tools"),
-        sources={k: "fixture (tests/fixtures)" for k in ("skills", "prompts", "bots", "obsidian", "creator_ops", "tools")})
-    return hive_registry.build_registry(fetch, cfg, now=lambda: now, mode="fixture", parts=parts)
+        internet_probes="https://fixture-health.example/ping https://fixture-down.example/ping http://insecure.example https://10.0.0.1/health",
+        sources={k: "fixture (tests/fixtures)" for k in ("skills", "prompts", "bots", "obsidian", "creator_ops", "tools", "internet")})
+    return hive_registry.build_registry(fetch, cfg, now=lambda: now, mode="fixture", parts=parts, probe_opener=FixtureOpener())
+
+
+class FixtureOpener:
+    """Synthetic HEAD responses for fixture Internet probes: no network access ever happens in fixture mode."""
+
+    class _Resp:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def open(self, request, timeout=None):
+        from urllib.error import URLError
+        if "down" in request.full_url:
+            raise URLError("fixture: host does not answer")
+        return self._Resp()
 
 
 def api_payload(path: str, query: dict[str, list[str]], now: datetime | None = None) -> tuple[dict, int]:

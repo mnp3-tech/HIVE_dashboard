@@ -1,0 +1,97 @@
+{
+  "note": "SYNTHETIC FIXTURE DATASET for a sandbox experiment. Not production evidence; results describe this dataset only.",
+  "dataset_id": "routing-fixture-v1",
+  "workers": [
+    {
+      "id": "w-claude",
+      "capabilities": [
+        "code.review",
+        "docs.write"
+      ],
+      "heartbeat": "live"
+    },
+    {
+      "id": "w-gpt",
+      "capabilities": [
+        "code.review",
+        "research.web"
+      ],
+      "heartbeat": "live"
+    },
+    {
+      "id": "w-local",
+      "capabilities": [
+        "chat.local",
+        "docs.write"
+      ],
+      "heartbeat": "offline"
+    },
+    {
+      "id": "w-codex",
+      "capabilities": [
+        "code.write",
+        "code.review"
+      ],
+      "heartbeat": "stale"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "required_capabilities": [
+        "code.review"
+      ],
+      "preferred_worker": "w-claude"
+    },
+    {
+      "id": "t2",
+      "required_capabilities": [
+        "docs.write"
+      ],
+      "preferred_worker": "w-local"
+    },
+    {
+      "id": "t3",
+      "required_capabilities": [
+        "research.web"
+      ],
+      "preferred_worker": null
+    },
+    {
+      "id": "t4",
+      "required_capabilities": [
+        "code.write"
+      ],
+      "preferred_worker": "w-codex"
+    },
+    {
+      "id": "t5",
+      "required_capabilities": [
+        "code.review",
+        "docs.write"
+      ],
+      "preferred_worker": "w-gpt"
+    },
+    {
+      "id": "t6",
+      "required_capabilities": [
+        "chat.local"
+      ],
+      "preferred_worker": null
+    },
+    {
+      "id": "t7",
+      "required_capabilities": [
+        "code.review"
+      ],
+      "preferred_worker": null
+    },
+    {
+      "id": "t8",
+      "required_capabilities": [
+        "docs.write"
+      ],
+      "preferred_worker": "w-claude"
+    }
+  ]
+}

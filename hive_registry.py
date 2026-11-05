@@ -32,10 +32,10 @@ from urllib.parse import urlparse
 
 import hive_events
 
-SCHEMA_VERSION = "hive.readonly.v2"
+SCHEMA_VERSION = "hive.readonly.v3"
 ROOT = Path(__file__).resolve().parent
-SCHEMA_PATH = ROOT / "schemas" / "hive-readonly-v2.schema.json"
-PROPOSALS_PATH = ROOT / "docs" / "hive" / "proposals" / "proposals-v1.json"
+SCHEMA_PATH = ROOT / "schemas" / "hive-readonly-v3.schema.json"
+PROPOSALS_PATH = ROOT / "docs" / "hive" / "proposals" / "proposals.json"
 ACCEPTANCE_PATH = ROOT / "docs" / "hive" / "ACCEPTANCE.md"
 DEFAULT_TOOL_MANIFEST_DIR = ROOT / "manifests" / "tools"
 
@@ -71,7 +71,7 @@ SKIP_DIRS = {".obsidian", ".trash", ".git", "node_modules", "__pycache__"}
 
 # Per-source isolation: (timeout seconds, cache TTL seconds)
 PART_LIMITS = {"core": (6.0, 3.0), "creator_ops": (3.0, 30.0), "obsidian": (5.0, 60.0), "catalogs": (5.0, 60.0),
-               "tools": (2.0, 60.0), "proposals": (2.0, 10.0)}
+               "tools": (2.0, 60.0), "proposals": (3.0, 10.0), "internet": (5.0, 30.0)}
 PARTS = tuple(PART_LIMITS)
 
 # Creator Ops: the only table and columns this adapter will ever read (explicit allowlist; nothing else is queried).
@@ -199,6 +199,8 @@ class RegistryConfig:
     vault_root: str | None = None
     creator_ops_db: str | None = None
     tool_manifest_dir: str | None = None
+    internet_probes: str | None = None
+    agents_config: str | None = None
     sources: dict = field(default_factory=dict)          # which variable or default produced each setting (for the UI)
 
 
@@ -211,15 +213,18 @@ def config_from_env() -> RegistryConfig:
     bots, bot_var = _roots_from_env("HIVE_BOTS_ROOTS")
     tool_dir = os.environ.get("HIVE_TOOL_MANIFEST_DIR") or str(DEFAULT_TOOL_MANIFEST_DIR)
     vault, db = os.environ.get("ORCHESTRATOR_VAULT_ROOT") or None, os.environ.get("CREATOR_OPS_DB_PATH") or None
+    probes = os.environ.get("HIVE_INTERNET_PROBES") or None
     return RegistryConfig(skill_roots=skills, prompt_roots=prompts or [], bot_roots=bots or [], vault_root=vault, creator_ops_db=db, tool_manifest_dir=tool_dir,
-                          sources={"skills": skill_var, "prompts": prompt_var or "not configured (HIVE_PROMPTS_ROOTS)", "bots": bot_var or "not configured (HIVE_BOTS_ROOTS)",
+                          internet_probes=probes,
+                          sources={"internet": "HIVE_INTERNET_PROBES" if probes else "not configured (HIVE_INTERNET_PROBES)","skills": skill_var, "prompts": prompt_var or "not configured (HIVE_PROMPTS_ROOTS)", "bots": bot_var or "not configured (HIVE_BOTS_ROOTS)",
                                    "obsidian": "ORCHESTRATOR_VAULT_ROOT" if vault else "not configured (ORCHESTRATOR_VAULT_ROOT)",
                                    "creator_ops": "CREATOR_OPS_DB_PATH" if db else "not configured (CREATOR_OPS_DB_PATH)",
                                    "tools": "HIVE_TOOL_MANIFEST_DIR" if os.environ.get("HIVE_TOOL_MANIFEST_DIR") else "repository default (manifests/tools)"})
 
 
 def config_signature(cfg: RegistryConfig) -> str:
-    return sha256_text(json.dumps([cfg.skill_roots, cfg.prompt_roots, cfg.bot_roots, cfg.vault_root, cfg.creator_ops_db, cfg.tool_manifest_dir], default=str))
+    return sha256_text(json.dumps([cfg.skill_roots, cfg.prompt_roots, cfg.bot_roots, cfg.vault_root, cfg.creator_ops_db, cfg.tool_manifest_dir,
+                                   cfg.internet_probes, cfg.agents_config], default=str))
 
 
 # ------------------------------------------------------------------ HIVE Core adapter
@@ -260,7 +265,13 @@ class HiveCoreRegistryAdapter:
         events_raw, events_ev = self.fetch("/events?limit=50")
         workers = self._workers(workers_raw, worker_source, now) if worker_source.get("validity") == "valid" else []
         tasks = self._tasks(tasks_raw, tasks_ev) if tasks_ev.get("validity") == "valid" else []
-        events = [e for e in (hive_events.contract_event(i, {"source": "hive:/events"}) for i in _unwrap(events_raw)[:200]) if e] if events_ev.get("validity") == "valid" else []
+        events = []
+        if events_ev.get("validity") == "valid":
+            for raw_event in _unwrap(events_raw)[:200]:
+                e = hive_events.contract_event(raw_event, {"source": "hive:/events"})
+                if e:
+                    e["declared_role"] = raw_event.get("role")[:80] if isinstance(raw_event.get("role"), str) else None
+                    events.append(e)
         return {"connector": connector, "reachable": reachable, "now": now, "events": events, "events_evidence": events_ev,
                 "workers": section(workers, worker_source.get("source", "hive:/workers"), worker_source.get("observed_at"), worker_source.get("validity", "unknown"), worker_source.get("reason")),
                 "tasks": section(tasks, tasks_ev.get("source", "hive:/tasks"), tasks_ev.get("observed_at"), tasks_ev.get("validity", "unknown"), tasks_ev.get("reason"))}
@@ -338,7 +349,8 @@ def observed_agents(events, now):
                             correlation_id=ev.get("correlation_id"), role_id=ev.get("role_id"), classification="UNKNOWN",
                             classification_reason="No authoritative primary/secondary source or approved configuration exists.",
                             provider=ev.get("provider"), model=ev.get("model"), last_state=ev.get("state"), last_event_id=ev.get("event_id"),
-                            last_event_type=ev.get("event_type"), task_id=ev.get("task_id"), age_s=None if age is None else round(age, 1), not_provided=np))
+                            last_event_type=ev.get("event_type"), task_id=ev.get("task_id"), age_s=None if age is None else round(age, 1),
+                            declared_role=ev.get("declared_role"), not_provided=np))
     return out
 
 
@@ -410,17 +422,25 @@ def capability_index(records):
                      declared_by=v["declared_by"][:50]) for name, v in caps.items()]
 
 
-def read_core(fetch, bucket, clock, core_scope):
+def read_core(fetch, bucket, clock, core_scope, agents_config=None):
+    import hive_control  # local import: hive_control builds on this module
     with (core_scope() if core_scope else contextlib.nullcontext()):
         core = HiveCoreRegistryAdapter(fetch, bucket, clock).read()
     t = core["now"]
     observed = utc_iso(t)
     workers = core["workers"]["items"]
     ev = core["events_evidence"]
+    agents = observed_agents(core["events"], t)
+    cfg_agents, cfg_problem = hive_control.load_agent_config(agents_config or hive_control.AGENTS_CONFIG_PATH)
+    profiles, prof_validity, prof_reason = hive_control.agent_profiles(cfg_agents, cfg_problem, agents, core["reachable"], observed)
+    observations = hive_control.ultron_observations(core["connector"], core["reachable"], profiles, workers, core["tasks"]["items"], core["events"], observed, t)
     return {
+        "agent_registry": section(profiles, "config/agents.json + hive:/events", observed, prof_validity, prof_reason),
+        "ultron_observations": section(observations, "derived: HIVE Core health, workers, tasks, events", observed, "valid",
+                                       "Observations only: ULTRON takes no action, grants no permission and changes no external system.", aggregate=True),
         "connectors": [core["connector"]],
         "ultron": ultron_status(core, t),
-        "agents": section(observed_agents(core["events"], t), "hive:/events", ev.get("observed_at"), ev.get("validity", "unknown"),
+        "agents": section(agents, "hive:/events", ev.get("observed_at"), ev.get("validity", "unknown"),
                           ev.get("reason") or "Derived from HIVE Core events (Core has no agents route); primary/secondary classification is UNKNOWN."),
         "roles": section(role_catalog(observed), "local:dashboard-role-catalog", observed, "valid",
                          "Catalog definitions, not runtime evidence; the list has no runtime state of its own.", aggregate=True),
@@ -819,51 +839,7 @@ def read_tool_manifests(dir_raw, observed, source="tools"):
     return {"connectors": [conn], "catalogs": {"tools": section(items, src, observed, "valid", "Manifest-only registry; no tool is executed.")}}
 
 
-# ------------------------------------------------------------------ self-evolution proposals (display only)
-def proposal_records(path=PROPOSALS_PATH, acceptance=ACCEPTANCE_PATH, now=None):
-    """Display-only proposals. Each must cite a documented GAP row by exact text hash. Status is the human-reviewed value from the
-    committed file (PENDING_HUMAN_REVIEW / APPROVED_FOR_PROTOTYPE / REJECTED) unless the evidence changed (STALE) or the proposal
-    expired (EXPIRED). No status causes any action: nothing is applied, generated or merged."""
-    now = now or datetime.now(timezone.utc)
-    observed = utc_iso(now)
-    try:
-        if Path(path).stat().st_size > 512_000:
-            raise ValueError("proposal log larger than 512 KB")
-        raw = json.loads(Path(path).read_text(encoding="utf-8"))
-        rows = {}
-        for line in Path(acceptance).read_text(encoding="utf-8").splitlines():
-            m = re.match(r"^\| (GAP-\d+) \|", line)
-            if m:
-                rows[m.group(1)] = line
-    except (OSError, ValueError) as error:
-        return section([], "local:proposal-log", None, "inaccessible", f"Proposal log unreadable: {error}")
-    items = []
-    for p in raw if isinstance(raw, list) else []:
-        if not isinstance(p, dict) or not p.get("proposal_id"):
-            continue
-        ev = p.get("evidence") or {}
-        row = rows.get(p.get("gap_id"))
-        expires = parse_ts(p.get("expires_at"))
-        human = p.get("status") if p.get("status") in HUMAN_STATUSES else "PENDING_HUMAN_REVIEW"
-        if row is None:
-            status, validity, reason = "STALE", "stale", f"{p.get('gap_id')} is no longer in ACCEPTANCE.md"
-        elif sha256_text(row) != ev.get("row_sha256"):
-            status, validity, reason = "STALE", "stale", f"{p.get('gap_id')} row changed since the proposal was written; re-review required"
-        elif expires is None or expires < now:
-            status, validity, reason = "EXPIRED", "stale", "proposal expired"
-        else:
-            status, validity, reason = human, "valid", "Evidence row matches. Display only: no status triggers any change."
-        items.append(envelope("proposal", f"proposal:{p['proposal_id']}", "local:proposal-log (docs/hive/proposals/proposals-v1.json)", observed,
-                              validity, reason, source_id=p.get("gap_id"), correlation_id=p.get("correlation_id") if isinstance(p.get("correlation_id"), str) else None,
-                              proposal_id=str(p["proposal_id"])[:80], gap_id=p.get("gap_id"), evidence_file=safe_text(ev.get("file"), 120),
-                              evidence_row_prefix=safe_text(ev.get("row_prefix"), 40), evidence_row_sha256=ev.get("row_sha256") if isinstance(ev.get("row_sha256"), str) else None,
-                              problem=safe_text(p.get("problem"), 400), expected_benefit=safe_text(p.get("expected_benefit"), 300),
-                              affected_area=safe_text(p.get("affected_area"), 120), affected_files=_str_list(p.get("affected_files")) or [],
-                              risk=p.get("risk") if p.get("risk") in RISKS else "unclassified", test_plan=_str_list(p.get("test_plan")) or [],
-                              rollback_plan=safe_text(p.get("rollback_plan"), 300), status=status, proposal_only=True,
-                              created_at=p.get("created_at") if isinstance(p.get("created_at"), str) else None,
-                              expires_at=p.get("expires_at") if isinstance(p.get("expires_at"), str) else None))
-    return section(items, "local:proposal-log", observed, "valid", f"{len(items)} proposal(s); status is changed only by a reviewed commit to the log.")
+# Self-evolution proposals and experiments: see hive_evolution.py (read by the `proposals` part).
 
 
 # ------------------------------------------------------------------ evidence log, cache, isolation
@@ -937,7 +913,8 @@ def _run_parts(jobs, cache, cache_prefix):
 
 
 def build_registry(fetch, config: RegistryConfig | None = None, *, bucket=lambda s: str(s).lower(), now=None, mode="live", parts=None,
-                   cache=None, core_scope=None, creator_ops_counts=None, proposals_path=PROPOSALS_PATH, acceptance_path=ACCEPTANCE_PATH):
+                   cache=None, core_scope=None, creator_ops_counts=None, proposals_path=PROPOSALS_PATH, acceptance_path=ACCEPTANCE_PATH,
+                   probe_opener=None, datasets_path=None):
     cfg = config if config is not None else config_from_env()
     clock = now or (lambda: datetime.now(timezone.utc))
     wanted = [p for p in (parts or PARTS) if p in PART_LIMITS]
@@ -970,9 +947,17 @@ def build_registry(fetch, config: RegistryConfig | None = None, *, bucket=lambda
                                                aggregate=True)
         return out
 
-    jobs = {"core": lambda: read_core(fetch, bucket, clock, core_scope), "creator_ops": creator, "obsidian": obsidian, "catalogs": catalogs,
+    def evolution():
+        import hive_evolution
+        return hive_evolution.read_evolution(proposals_path, acceptance_path, clock(), datasets_path or hive_evolution.DATASETS)
+
+    def internet():
+        import hive_probes
+        return hive_probes.read_internet(cfg.internet_probes, observed, probe_opener, "fixture:internet" if fx else "internet")
+
+    jobs = {"core": lambda: read_core(fetch, bucket, clock, core_scope, cfg.agents_config), "creator_ops": creator, "obsidian": obsidian, "catalogs": catalogs,
             "tools": lambda: read_tool_manifests(cfg.tool_manifest_dir, observed, "fixture:tools" if fx else "tools"),
-            "proposals": lambda: {"proposals": proposal_records(proposals_path, acceptance_path, clock())}}
+            "proposals": evolution, "internet": internet}
     results = _run_parts({p: jobs[p] for p in wanted}, cache, f"{mode}|{config_signature(cfg)}")
     reg = {"schema_version": SCHEMA_VERSION, "generated_at": observed, "mode": mode, "read_only": True, "executes_nothing": True,
            "parts": {}, "config_sources": dict(cfg.sources), "connectors": []}
@@ -1020,9 +1005,20 @@ _ENVELOPE = {"kind": _S, "id": _S, "source": _S, "source_id": _N, "observed_at":
              "correlation_id": _N, "schema_version": {"const": SCHEMA_VERSION}, "display": {"enum": sorted(set(DISPLAY.values()))}, "not_provided": _A}
 _KINDS = {
     "connector": {"name": _S, "transport": _S, "part": {"enum": list(PARTS)}, "vault_name": _S, "vault_id": _S, "notes_scanned": _I, "identity_verified": _B,
-                  "table_counts": {"type": "object"}},
+                  "table_counts": {"type": "object"}, "target_host": _N, "status_code": _NI, "latency_ms": _NI},
     "agent": {"role_id": _N, "classification": {"const": "UNKNOWN"}, "classification_reason": _S, "provider": _N, "model": _N, "last_state": {"enum": list(hive_events.STATES)},
-              "last_event_id": _N, "last_event_type": _N, "task_id": _N, "age_s": {"type": ["number", "null"]}},
+              "last_event_id": _N, "last_event_type": _N, "task_id": _N, "age_s": {"type": ["number", "null"]}, "declared_role": _N},
+    "agent_profile": {"agent_id": _S, "display_name": _N, "classification": {"const": "UNKNOWN"}, "classification_reason": _S, "role": _N, "role_basis": _N,
+                      "status": {"enum": ["IMPLEMENTED", "CONFIGURED", "OBSERVED", "PROPOSED", "NOT_VERIFIED", "DISABLED"]},
+                      "lifecycle": {"enum": ["DISCOVERED", "CONFIGURED", "HEALTHY", "DEGRADED", "OFFLINE", "PAUSED", "DISABLED", "PROPOSED", "UNKNOWN"]},
+                      "last_state": {"enum": list(hive_events.STATES) + [None]}, "last_event_id": _N, "task_id": _N, "age_s": {"type": ["number", "null"]},
+                      "documented_sources": _A, "excluded": _A, "responsibilities": _A, "capabilities": _A, "required_permissions": _A, "allowed_tools": _A,
+                      "preferred_task_types": _A, "worker_requirements": _A, "health_checks": _A},
+    "ultron_observation": {"category": {"enum": ["agent_health", "blocked_agent", "stale_agent", "worker_health", "task_routing", "connector_health",
+                                                 "system_stability", "permission_failure", "repeated_failure", "internet_health"]},
+                           "severity": {"enum": ["info", "warning", "critical"]}, "subject": _N, "evidence_ids": _A, "action": {"const": "none (observation only)"}},
+    "experiment": {"experiment_id": _S, "domain": _S, "dataset_path": _S, "dataset_sha256": _N, "baseline": {"type": ["object", "null"]},
+                   "candidates": {"type": "array"}, "fixture_only": {"const": True}, "adopted": {"const": False}},
     "role": {"role_id": _S, "descriptor": _S, "classification": {"const": "UNKNOWN"}, "provider": {"type": "null"}},
     "worker": {"name": _N, "provider": _N, "model": _N, "status_raw": _N, "status": _S, "capabilities": _A, "current_task": _N, "heartbeat": _N,
                "freshness": {"enum": ["live", "stale", "offline", "unknown"]}},
@@ -1036,9 +1032,13 @@ _KINDS = {
                      "size": _I, "modified_at": _N, "tags": {"type": "array"}, "outgoing_links": _I, "backlinks": _I, "open_tasks": _NI, "done_tasks": _NI,
                      "transport": _N, "target": _N, "input_schema_summary": _N, "output_schema_summary": _N, "availability": _N,
                      "timeout_s": {"type": ["number", "null"]}, "output_limit_bytes": _NI},
-    "proposal": {"proposal_id": _S, "gap_id": _N, "evidence_file": _N, "evidence_row_prefix": _N, "evidence_row_sha256": _N, "problem": _N, "expected_benefit": _N,
-                 "affected_area": _N, "affected_files": _A, "risk": {"enum": list(RISKS)}, "test_plan": _A, "rollback_plan": _N, "status": {"enum": list(PROPOSAL_STATUSES)},
-                 "proposal_only": {"const": True}, "created_at": _N, "expires_at": _N},
+    "proposal": {"proposal_id": _S, "domain": _S, "gap_id": _N, "baseline": _N, "candidate": _N, "evidence": {"type": "array"}, "hypothesis": _N, "problem": _N,
+                 "expected_benefit": _N, "success_metrics": {"type": "array"}, "success_met": {"type": ["array", "null"]}, "experiment_id": _N,
+                 "affected_area": _N, "affected_files": _A, "risk": {"enum": list(RISKS)}, "required_permissions": _A, "test_plan": _A, "rollback_plan": _N,
+                 "rollback_ref": _N, "status": {"enum": list(PROPOSAL_STATUSES)},
+                 "stage": {"enum": ["OBSERVE", "MEASURE", "DETECT", "HYPOTHESIZE", "PROPOSE", "SANDBOX_FIXTURE_TEST", "COMPARE_WITH_BASELINE", "HUMAN_REVIEW",
+                                    "VERSION", "MONITOR", "ROLLBACK"]},
+                 "proposal_only": {"const": True}, "applied": {"const": False}, "created_at": _N, "expires_at": _N},
     "evidence_record": {"subject": _S},
     "ultron_status": {"state": {"enum": list(hive_events.STATES)}, "freshness_window_s": _I, "last_event_id": _N, "last_event_type": _N,
                       "last_state": {"enum": list(hive_events.STATES) + [None]}, "age_s": {"type": ["number", "null"]}, "recent": {"type": "array"}},

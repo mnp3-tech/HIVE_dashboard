@@ -1,7 +1,7 @@
-# HIVE read-only registry — data contracts (schema `hive.readonly.v2`)
+# HIVE read-only registry — data contracts (schema `hive.readonly.v3`)
 
-Machine-readable schema: `schemas/hive-readonly-v2.schema.json` (generated from `hive_registry.build_schema()`; a test fails if it drifts).
-Served by `GET /api/registry` (all parts) and `GET /api/registry?part=<core|creator_ops|obsidian|catalogs|tools|proposals>` (one or more,
+Machine-readable schema: `schemas/hive-readonly-v3.schema.json` (generated from `hive_registry.build_schema()`; a test fails if it drifts).
+Served by `GET /api/registry` (all parts) and `GET /api/registry?part=<core|creator_ops|obsidian|catalogs|tools|proposals|internet>` (one or more,
 comma-separated; unknown parts → HTTP 400). There is no write route. The main snapshot (`/api/dashboard/snapshot`) never builds the registry.
 
 ## 1. Evidence envelope (every record)
@@ -14,7 +14,7 @@ comma-separated; unknown parts → HTTP 400). There is no write route. The main 
 | `validity` → `display` | valid→OBSERVED, stale→STALE, unavailable→OFFLINE (transport down), inaccessible→UNAVAILABLE (configured path missing/unreadable), untrusted→UNVERIFIED, conflict→CONFLICT, unknown→UNKNOWN, auth_required→AUTH_REQUIRED, not_configured→NOT_CONNECTED, not_verified→NOT_VERIFIED (rejected path or unknown schema), fixture→FIXTURE |
 | `reason` | why the state is what it is (always set when not OBSERVED) |
 | `correlation_id` | only when the source supplies it; otherwise `null` (and listed in `not_provided`) |
-| `schema_version` | `hive.readonly.v2` |
+| `schema_version` | `hive.readonly.v3` |
 | `not_provided` | fields the source did not supply (rendered as a compact `?` with an accessible label) |
 
 Section evidence (`{evidence, items}`): an aggregate over several sources has `display: null` (no state chip); each source reports its own connector.
@@ -44,3 +44,9 @@ Each part runs in its own worker thread with its own timeout (core 6 s, creator_
 
 ## 5. Fixture mode
 `fixture_server.py` serves the same contract from `tests/fixtures/` (synthetic skills, prompts, bots, vault, tool manifests) and a temporary synthetic Creator Ops database. Every record and section is relabelled FIXTURE / `fixture:` and the fixture evidence log is separate from the live one.
+
+## 6. Control plane (P1.3, observation and proposal phase) — added in v3
+- **Agent registry** (`agent_profile`, part `core`): `config/agents.json` (`hive.agents.v1`, reviewed) merged with identities named by HIVE Core events. Documented agents: FURY, SHURI, THOR, VISION, FALCON, UATU, ULTRON, EVOLVE (spec section 7), JARVIS (section 8, future-only → DISABLED), BLACK_WIDOW (owner instruction, no documentation → PROPOSED / NOT_VERIFIED). `status` ∈ IMPLEMENTED | CONFIGURED | OBSERVED | PROPOSED | NOT_VERIFIED | DISABLED (no agent is IMPLEMENTED: this repository has no agent runtime); `lifecycle` ∈ DISCOVERED | CONFIGURED | HEALTHY | DEGRADED | OFFLINE | PAUSED | DISABLED | PROPOSED | UNKNOWN. HEALTHY/DEGRADED/OFFLINE only from a fresh trusted event (IDLE/WORKING/REVIEW → HEALTHY; FAILED/WAITING_APPROVAL/SECURITY_BLOCKED → DEGRADED); documented-only → CONFIGURED with validity NOT_VERIFIED; Core down → UNKNOWN (not OFFLINE); stale or untrusted → UNKNOWN with STALE / UNVERIFIED. Duplicate ids and a role in an event (`role`) that differs from the configuration ⇒ CONFLICT. `classification` is always UNKNOWN. Profiles carry no worker link; an agent's task comes only from its own event. Event fields can never add permissions or capabilities.
+- **ULTRON observations** (`ultron_observation`, part `core`): categories agent_health, blocked_agent, stale_agent, worker_health, task_routing, connector_health, system_stability, permission_failure, repeated_failure, internet_health; severity info | warning | critical; `evidence_ids`; `action` is always `none (observation only)`. Core down ⇒ one critical connector_health observation. Quiet ⇒ one info "no anomaly … not an ACTIVE claim". Thresholds: 3 FAILED events per task (or role) for repeated_failure; 5 error/critical events for system_stability.
+- **Internet health** (part `internet`): `HIVE_INTERNET_PROBES` only (https, max 5, no credentials, no private/loopback/link-local IP literals or local host names). One HEAD request per URL, 3 s timeout, fixed User-Agent, no body, redirects not followed. Unset ⇒ NOT_CONNECTED and no request. A host answering is not provider connectivity.
+- **Self-evolution v1** (part `proposals`): `docs/hive/proposals/proposals.json` (`hive.proposal.v2`) with `proposal_id, domain (13 domains), baseline, candidate, evidence [{type: gap_row|experiment|document, ref, sha256}], hypothesis, expected_benefit, success_metrics, risk, required_permissions, test_plan, rollback {plan, ref}, created_at, expires_at, correlation_id, status`. Status = reviewed value (PENDING_HUMAN_REVIEW | APPROVED_FOR_PROTOTYPE | REJECTED) unless evidence changed (STALE) or expired (EXPIRED); `stage` is computed (PROPOSE without an experiment, HUMAN_REVIEW after a fixture comparison; VERSION/MONITOR/ROLLBACK are never reached in this phase); `applied` is always false. Experiments (`experiment`): EXP-ROUTING-1, EXP-CONNECTOR-1, EXP-STALENESS-1 — deterministic pure functions over `experiments/datasets/*.json` (synthetic), validity always FIXTURE, `adopted` always false. Domains without evidence get no proposal (no-op) and are listed as such.

@@ -1,0 +1,48 @@
+{
+  "note": "SYNTHETIC FIXTURE DATASET for a sandbox experiment. Not production evidence; results describe this dataset only.",
+  "dataset_id": "staleness-fixture-v1",
+  "horizon_s": 3600,
+  "ultron_event_times_s": [
+    0,
+    45,
+    90,
+    135,
+    180,
+    225,
+    270,
+    315,
+    360,
+    405,
+    450,
+    495,
+    540,
+    585,
+    630,
+    675,
+    720,
+    765,
+    810,
+    855,
+    900,
+    1500,
+    1590,
+    1680,
+    1810,
+    1900,
+    1990,
+    2080,
+    2170,
+    2260,
+    2350
+  ],
+  "truly_active_intervals_s": [
+    [
+      0,
+      960
+    ],
+    [
+      1500,
+      2400
+    ]
+  ]
+}

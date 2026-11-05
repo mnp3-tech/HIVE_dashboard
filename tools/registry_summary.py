@@ -67,8 +67,22 @@ def main(argv=()):
     if "--uncatalogued" in argv:
         for r in odd:
             print(f"    {r['display']:<13} {r['id']}  path={r.get('source_path') or '?'}  reason={mask_paths(r.get('reason'))}"[:300])
+    agents = (reg.get("agent_registry") or {"items": []})["items"]
+    print(f"  agent registry {len(agents):>2}  " + ", ".join(f"{x['agent_id']}={x['status']}/{x['lifecycle']}" for x in agents)[:400])
+    obs = (reg.get("ultron_observations") or {"items": []})["items"]
+    cats = {}
+    for o in obs:
+        cats[f"{o['category']}:{o['severity']}"] = cats.get(f"{o['category']}:{o['severity']}", 0) + 1
+    print(f"  ULTRON observations {len(obs):>2}  " + ", ".join(f"{k}={v}" for k, v in sorted(cats.items())))
+    net = (reg.get("internet") or {"items": [], "evidence": {}})
+    print(f"  internet probes {len(net['items']):>2}  " + (", ".join(f"{c.get('target_host') or '?'}={c['display']}" for c in net["items"]) or str(net["evidence"].get("reason"))))
     props = (reg.get("proposals") or {"items": []})["items"]
-    print(f"  proposals    {len(props):>4}  " + ", ".join(f"{p['proposal_id']}={p['status']}" for p in props))
+    print(f"  proposals    {len(props):>4}  " + ", ".join(f"{p['proposal_id']}={p['status']}/{p.get('stage')}" for p in props))
+    for e in (reg.get("experiments") or {"items": []})["items"]:
+        print(f"  experiment {e['experiment_id']}: {e['display']} (fixture only, adopted={e.get('adopted')})")
+    problems += [f"{x['agent_id']}: documented-only agent shown active" for x in agents
+                 if x.get("lifecycle") in ("HEALTHY", "DEGRADED") and x.get("status") != "OBSERVED"]
+    problems += [f"{p['proposal_id']}: applied" for p in props if p.get("applied") is not False]
     print("PASS" if not problems else "FAIL: " + "; ".join(problems[:10]))
     return 0 if not problems else 1
 

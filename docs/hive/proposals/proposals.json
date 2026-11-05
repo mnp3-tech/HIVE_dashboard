@@ -1,0 +1,361 @@
+{
+  "schema_version": "hive.proposal.v2",
+  "note": "Self-evolution proposal log. Status values PENDING_HUMAN_REVIEW / APPROVED_FOR_PROTOTYPE / REJECTED are changed only by a reviewed commit. STALE and EXPIRED are computed. Nothing here is applied automatically.",
+  "proposals": [
+    {
+      "proposal_id": "PROP-0001",
+      "domain": "error_rate",
+      "evidence": [
+        {
+          "type": "gap_row",
+          "ref": "GAP-1",
+          "sha256": "sha256:571eb6fd1125fd64e18c19e8b6ff2c966de4d0206f85fe71e7c5878fe8488df9"
+        }
+      ],
+      "problem": "HIVE Core events do not carry an observed correlation_id, so movement pulses and task/agent records cannot be linked to the interaction that caused them; registry records carry correlation_id=null.",
+      "baseline": "current behaviour documented in the GAP row",
+      "candidate": "Event-linked pulses, task records and audit entries could be joined on a real id instead of time proximity.",
+      "hypothesis": "Closing GAP-1 as described reduces the documented limitation without weakening fail-closed behaviour.",
+      "expected_benefit": "Event-linked pulses, task records and audit entries could be joined on a real id instead of time proximity.",
+      "success_metrics": [
+        {
+          "metric": "contract test: events with and without correlation_id",
+          "direction": null,
+          "target": "test passes"
+        },
+        {
+          "metric": "no pulse or link is drawn when correlation_id is absent",
+          "direction": null,
+          "target": "test passes"
+        },
+        {
+          "metric": "registry records keep correlation_id=null when the source omits it",
+          "direction": null,
+          "target": "test passes"
+        }
+      ],
+      "affected_area": "event contract / CORE movement",
+      "affected_files": [
+        "hive_events.py",
+        "hive-core.js",
+        "hive_registry.py",
+        "tests/core.test.mjs",
+        "tests/test_events.py"
+      ],
+      "risk": "medium",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "test_plan": [
+        "contract test: events with and without correlation_id",
+        "no pulse or link is drawn when correlation_id is absent",
+        "registry records keep correlation_id=null when the source omits it"
+      ],
+      "rollback": {
+        "plan": "Revert the commit; the current behaviour (no correlation, no inferred link) is the safe fallback.",
+        "ref": "backup/pre-control-plane"
+      },
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "correlation_id": "prop:PROP-0001",
+      "status": "PENDING_HUMAN_REVIEW"
+    },
+    {
+      "proposal_id": "PROP-0002",
+      "domain": "human_intervention",
+      "evidence": [
+        {
+          "type": "gap_row",
+          "ref": "GAP-3",
+          "sha256": "sha256:306d8d54a02d9ffa273336ab682fbfe9da105e7b526837c80e2264f89cd95018"
+        }
+      ],
+      "problem": "No approval source connector exists; Approve/Reject are local only and Edit is disabled, so no approval can be confirmed by its source.",
+      "baseline": "current behaviour documented in the GAP row",
+      "candidate": "Source-confirmed approvals with expiry, replay protection and an audit record, shown separately from local decisions.",
+      "hypothesis": "Closing GAP-3 as described reduces the documented limitation without weakening fail-closed behaviour.",
+      "expected_benefit": "Source-confirmed approvals with expiry, replay protection and an audit record, shown separately from local decisions.",
+      "success_metrics": [
+        {
+          "metric": "a local decision stays labelled local until the source confirms it",
+          "direction": null,
+          "target": "test passes"
+        },
+        {
+          "metric": "replayed or expired approvals are rejected",
+          "direction": null,
+          "target": "test passes"
+        },
+        {
+          "metric": "unavailable source keeps the approval UNKNOWN",
+          "direction": null,
+          "target": "test passes"
+        }
+      ],
+      "affected_area": "approvals",
+      "affected_files": [
+        "server.py",
+        "hive-ops.js",
+        "app.js",
+        "tests/ops.test.mjs",
+        "tests/test_server.py"
+      ],
+      "risk": "high",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "test_plan": [
+        "a local decision stays labelled local until the source confirms it",
+        "replayed or expired approvals are rejected",
+        "unavailable source keeps the approval UNKNOWN"
+      ],
+      "rollback": {
+        "plan": "Revert the connector; local-only labelling remains the fail-closed default.",
+        "ref": "backup/pre-control-plane"
+      },
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "correlation_id": "prop:PROP-0002",
+      "status": "PENDING_HUMAN_REVIEW"
+    },
+    {
+      "proposal_id": "PROP-0003",
+      "domain": "prompts",
+      "evidence": [
+        {
+          "type": "gap_row",
+          "ref": "GAP-6",
+          "sha256": "sha256:acf167deca3c39d086f883851c4f7fbb1dbc72b9eb02f41c19c18ac4c54d6f47"
+        }
+      ],
+      "problem": "Redaction is a best-effort regex with documented limits (short opaque secrets can pass), and the registry reuses it for catalog metadata.",
+      "baseline": "current behaviour documented in the GAP row",
+      "candidate": "Fewer secret-shaped strings reaching the browser from event summaries and catalog descriptions.",
+      "hypothesis": "Closing GAP-6 as described reduces the documented limitation without weakening fail-closed behaviour.",
+      "expected_benefit": "Fewer secret-shaped strings reaching the browser from event summaries and catalog descriptions.",
+      "success_metrics": [
+        {
+          "metric": "extend the pinned redaction corpus",
+          "direction": null,
+          "target": "test passes"
+        },
+        {
+          "metric": "assert no catalog description or event summary in fixtures contains a corpus secret",
+          "direction": null,
+          "target": "test passes"
+        }
+      ],
+      "affected_area": "redaction",
+      "affected_files": [
+        "hive_events.py",
+        "tests/test_events.py",
+        "tests/test_registry.py"
+      ],
+      "risk": "low",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "test_plan": [
+        "extend the pinned redaction corpus",
+        "assert no catalog description or event summary in fixtures contains a corpus secret"
+      ],
+      "rollback": {
+        "plan": "Revert the pattern change; the current regex stays in place.",
+        "ref": "backup/pre-control-plane"
+      },
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "correlation_id": "prop:PROP-0003",
+      "status": "PENDING_HUMAN_REVIEW"
+    },
+    {
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "status": "PENDING_HUMAN_REVIEW",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "proposal_id": "EVO-0001",
+      "domain": "agent_routing",
+      "experiment_id": "EXP-ROUTING-1",
+      "evidence": [
+        {
+          "type": "experiment",
+          "ref": "EXP-ROUTING-1",
+          "sha256": "sha256:c3282333e5caf912c464d050e0ac8f130cbd379c4967cfcf73f3cb5014f0e6fd"
+        },
+        {
+          "type": "document",
+          "ref": "hive_control.py task_routing observations",
+          "sha256": null
+        }
+      ],
+      "problem": "Tasks can carry an explicit assignment to an offline or incapable worker, or none at all; the dashboard can only report this.",
+      "baseline": "explicit assignment only (what HIVE Core records report)",
+      "candidate": "advisory capability + freshness match: keep a good explicit assignment, otherwise suggest the first live worker whose declared capabilities cover the task",
+      "hypothesis": "An advisory capability/freshness match raises the share of good assignments and removes assignments to offline/incapable workers.",
+      "expected_benefit": "Fewer stalled tasks; clearer routing advice for HIVE Core (advice only, never applied by the dashboard).",
+      "success_metrics": [
+        {
+          "metric": "good_assignment_rate",
+          "direction": "higher",
+          "target": null
+        },
+        {
+          "metric": "bad_assignments",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "unassigned",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "assignments_changed",
+          "direction": "lower",
+          "target": "accept a trade-off only with review"
+        }
+      ],
+      "affected_area": "ULTRON task-routing observations (advice text only)",
+      "affected_files": [
+        "hive_control.py",
+        "hive_evolution.py"
+      ],
+      "risk": "medium",
+      "test_plan": [
+        "fixture experiment EXP-ROUTING-1",
+        "advice never changes a task record",
+        "no relationship is shown without an explicit worker field"
+      ],
+      "rollback": {
+        "plan": "Revert the commit that adds the advice; observations return to report-only.",
+        "ref": "backup/pre-control-plane"
+      },
+      "correlation_id": "prop:EVO-0001"
+    },
+    {
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "status": "PENDING_HUMAN_REVIEW",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "proposal_id": "EVO-0002",
+      "domain": "connector_reliability",
+      "experiment_id": "EXP-CONNECTOR-1",
+      "evidence": [
+        {
+          "type": "experiment",
+          "ref": "EXP-CONNECTOR-1",
+          "sha256": "sha256:72b983a917dd78851f85ed91bb9f1324a61942987f504efda139f37ffbca0d40"
+        },
+        {
+          "type": "document",
+          "ref": "docs/hive/HANDOFF_REPORT.md section 24 (GAP-9 preflight)",
+          "sha256": null
+        }
+      ],
+      "problem": "A single failed preflight marks a connector OFFLINE immediately; transient blips appear as outages.",
+      "baseline": "single failure => OFFLINE (current snapshot preflight)",
+      "candidate": "two consecutive failures => OFFLINE, probe every second tick while OFFLINE",
+      "hypothesis": "Requiring two failures removes transient false OFFLINE states and reduces probe calls, at the cost of slower detection.",
+      "expected_benefit": "Fewer false OFFLINE flaps and fewer probe calls during outages.",
+      "success_metrics": [
+        {
+          "metric": "false_offline_ticks",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "missed_outage_ticks",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "mean_detection_delay_ticks",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "probe_calls",
+          "direction": "lower",
+          "target": null
+        }
+      ],
+      "affected_area": "snapshot preflight policy (server.py)",
+      "affected_files": [
+        "server.py",
+        "tests/test_snapshot_latency.py"
+      ],
+      "risk": "medium",
+      "test_plan": [
+        "fixture experiment EXP-CONNECTOR-1",
+        "GAP-9 latency tests stay green",
+        "an unreachable Core is still reported, never hidden"
+      ],
+      "rollback": {
+        "plan": "Revert the policy change; single-failure preflight returns.",
+        "ref": "backup/pre-control-plane"
+      },
+      "correlation_id": "prop:EVO-0002"
+    },
+    {
+      "created_at": "2026-11-05T12:00:00Z",
+      "expires_at": "2027-02-05T12:00:00Z",
+      "status": "PENDING_HUMAN_REVIEW",
+      "required_permissions": [
+        "reviewed code change (pull request); no new runtime permission"
+      ],
+      "proposal_id": "EVO-0003",
+      "domain": "ultron_policies",
+      "experiment_id": "EXP-STALENESS-1",
+      "evidence": [
+        {
+          "type": "experiment",
+          "ref": "EXP-STALENESS-1",
+          "sha256": "sha256:60edcb7fc19a585d812a442167502420f55941e1cf69c40acdc7a41e2d10e7e1"
+        },
+        {
+          "type": "document",
+          "ref": "hive-core.js roleFresh 120 s window",
+          "sha256": null
+        }
+      ],
+      "problem": "The 120 s ULTRON freshness window keeps ULTRON ACTIVE for up to two minutes after its last event.",
+      "baseline": "ULTRON ACTIVE window 120 s",
+      "candidate": "ULTRON ACTIVE window 60 s (180 s also measured for comparison)",
+      "hypothesis": "A shorter window reduces false ACTIVE time; it may increase false STALE time when events are sparse.",
+      "expected_benefit": "ULTRON ACTIVE is closer to real activity; silence turns STALE sooner.",
+      "success_metrics": [
+        {
+          "metric": "false_active_s",
+          "direction": "lower",
+          "target": null
+        },
+        {
+          "metric": "false_stale_s",
+          "direction": "lower",
+          "target": null
+        }
+      ],
+      "affected_area": "ULTRON freshness policy (hive-core.js, hive_registry.py)",
+      "affected_files": [
+        "hive-core.js",
+        "hive_registry.py",
+        "tests/core.test.mjs"
+      ],
+      "risk": "low",
+      "test_plan": [
+        "fixture experiment EXP-STALENESS-1",
+        "silence never becomes ACTIVE",
+        "ring and registry use the same window"
+      ],
+      "rollback": {
+        "plan": "Revert the window constant to 120 s.",
+        "ref": "backup/pre-control-plane"
+      },
+      "correlation_id": "prop:EVO-0003"
+    }
+  ]
+}
