@@ -102,7 +102,16 @@ try {
     if (expectUnknown) note(m.validity === 'unavailable' && m.value === null && !!m.reason, `${k} UNKNOWN with a reason`);
     else note(m.validity === 'valid' && typeof m.value === 'number' && m.value >= 0 && m.value <= 100 && !!m.source && !!m.observed_at, `${k} valid with source and observed_at`);
   }
-  for (const k of ['gpu', 'temperature']) note(items[k].validity === 'unavailable' ? items[k].value === null && !!items[k].reason : items[k].source === 'nvidia-smi', `${k} UNKNOWN (or valid only from nvidia-smi)`);
+  // GPU/TEMP come from the slow tier. Accepted states, nothing else:
+  //   unknown     = first slow probe still pending (slow tier pending/not_started): value null, no observed_at, a reason -> renders ?
+  //   unavailable = no reliable source: value null, a reason -> renders ?
+  //   valid       = only from nvidia-smi, with a numeric value and observed_at
+  const slowState = sys.tiers && sys.tiers.slow ? sys.tiers.slow.state : null;
+  const slowItemOk = m => m.validity === 'unknown' ? m.value === null && !m.observed_at && !!m.reason && ['pending', 'not_started'].includes(slowState)
+    : m.validity === 'unavailable' ? m.value === null && !!m.reason
+    : m.validity === 'valid' ? m.source === 'nvidia-smi' && typeof m.value === 'number' && !!m.observed_at
+    : false;
+  for (const k of ['gpu', 'temperature']) note(slowItemOk(items[k]), `${k} UNKNOWN (pending slow probe or unavailable, with a reason) or valid only from nvidia-smi with observed_at` + (slowItemOk(items[k]) ? '' : `: validity=${items[k].validity} value=${items[k].value} source=${items[k].source} observed_at=${items[k].observed_at} slow tier=${slowState}`));
   if (fails.length) { exit = 1; console.log('browser checks skipped: the API checks above already failed, so gauge/layout results would be meaningless'); }
   else {
   const t1 = Date.now(); let snap;

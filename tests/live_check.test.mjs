@@ -64,6 +64,55 @@ test('a slow /api/dashboard/snapshot with valid system metrics is reported as SN
   assert.doesNotMatch(r.out, /^PASS$/m); assert.doesNotMatch(r.out, /^FAIL/m);
 });
 
+// GPU/TEMP slow-tier contract: a pending first slow probe (validity=unknown) is an honest ?, not a failure; anything that
+// would claim hardware data without nvidia-smi + observed_at, or a pending state with a value/timestamp, is a FAIL.
+const slowCase = async (gpu, temperature, slow = 'pending') => {
+  const http = await import('node:http');
+  const ok = { value: 41, unit: '%', validity: 'valid', source: 'windows:powershell/x', observed_at: '2026-11-05T00:00:00Z', reason: null };
+  const body = JSON.stringify({ items: { cpu: ok, memory: ok, disk: ok, gpu, temperature }, evidence: { source: 'windows:powershell', validity: 'valid', observed_at: '2026-11-05T00:00:00Z', reason: null },
+    tiers: { fast: { state: 'fresh', attempts: [] }, slow: { state: slow, attempts: [] } }, diagnostics: {} });
+  const srv = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json', Connection: 'close' }); res.end(req.url.startsWith('/api/system/resources') ? body : '{}'); });
+  await new Promise(r => srv.listen(0, '127.0.0.1', r));
+  const r = await run([TOOL, '--base', `http://127.0.0.1:${srv.address().port}`, '--skip-browser']); srv.close();
+  return r;
+};
+const pending = u => ({ value: null, unit: u, validity: 'unknown', source: 'windows:powershell (slow tier)', observed_at: null, reason: 'first slow probe in progress (started 4.9 s ago)', freshness: 'pending', age_s: null });
+const unavail = u => ({ value: null, unit: u, validity: 'unavailable', source: 'none', observed_at: null, reason: 'no reliable local source' });
+const nv = (v, u) => ({ value: v, unit: u, validity: 'valid', source: 'nvidia-smi', observed_at: '2026-11-05T00:00:00Z', reason: null });
+
+test('GPU/TEMP pending first slow probe (unknown, null value, no observed_at, reason) is accepted: API PASS', async () => {
+  for (const slow of ['pending', 'not_started']) {
+    const r = await slowCase(pending('%'), pending('C'), slow);
+    assert.equal(r.code, 3, r.out); assert.match(last(r.out), /^API PASS; browser NOT_RUN$/); assert.doesNotMatch(r.out, /^FAIL/m);
+  }
+});
+test('GPU/TEMP unavailable with a reason, and valid nvidia-smi with observed_at, are accepted', async () => {
+  for (const [g, t] of [[unavail('%'), unavail('C')], [nv(12, '%'), nv(48, 'C')], [nv(12, '%'), pending('C')]]) {
+    const r = await slowCase(g, t);
+    assert.equal(r.code, 3, r.out); assert.doesNotMatch(r.out, /^FAIL/m);
+  }
+});
+test('GPU/TEMP fake or inconsistent states are a FAIL, never a PASS', async () => {
+  const bad = [
+    [{ ...pending('%'), value: 0 }, 'unknown with a value'],
+    [{ ...pending('%'), observed_at: '2026-11-05T00:00:00Z' }, 'unknown with observed_at'],
+    [{ ...pending('%'), reason: null }, 'unknown without a reason'],
+    [{ ...unavail('%'), reason: '' }, 'unavailable without a reason'],
+    [{ ...unavail('%'), value: 5 }, 'unavailable with a value'],
+    [{ ...nv(12, '%'), source: 'windows:powershell/acpi' }, 'valid not from nvidia-smi'],
+    [{ ...nv(12, '%'), observed_at: null }, 'valid nvidia-smi without observed_at'],
+    [{ ...nv(12, '%'), value: null }, 'valid nvidia-smi without a value'],
+    [{ ...pending('%'), validity: 'stale' }, 'unrecognised validity'],
+  ];
+  for (const [gpu, label] of bad) {
+    const r = await slowCase(gpu, unavail('C'));
+    assert.equal(r.code, 1, `${label}: ${r.out}`); assert.match(r.out, /FAIL gpu UNKNOWN/, label); assert.match(last(r.out), /^FAIL:/, label); assert.doesNotMatch(r.out, /^(API )?PASS/m, label);
+  }
+  // unknown is only legitimate while the slow tier has not produced its first result
+  const r = await slowCase(pending('%'), pending('C'), 'fresh');
+  assert.equal(r.code, 1, r.out); assert.match(r.out, /FAIL temperature UNKNOWN.*slow tier=fresh/);
+});
+
 test('Playwright missing or Chromium not launchable is NOT_RUN (exit 3) with the install hint, never a FAIL and never a PASS', async () => {
   const http = await import('node:http');
   const ok = { value: 41, unit: '%', validity: 'valid', source: 'windows:powershell/x', observed_at: '2026-11-05T00:00:00Z', reason: null };
