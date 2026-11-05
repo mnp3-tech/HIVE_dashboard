@@ -66,23 +66,41 @@ function normalize(raw){
 async function load(){
   $('#refresh-button').disabled = true;
   state.error = null;
-  if(demoMode){ state.snapshot = normalize(demoSnapshot()); state.workerPolicy = demoWorkerPolicy(); state.capabilities = demoCapabilities(); state.chat = demoChat(); $('#demo-banner').hidden = false; }
-  else {
-    try { const response = await fetch('/api/dashboard/snapshot', {headers:{Accept:'application/json'}, cache:'no-store'}); if(!response.ok) throw new Error(`adapter returned HTTP ${response.status}`); state.snapshot = normalize(await response.json()); }
-    catch(error){ state.error = error; state.snapshot = normalize(null); }
-    try { const response = await fetch('/api/control/worker-policy', {headers:{Accept:'application/json'}, cache:'no-store'}); state.workerPolicy = response.ok ? await response.json() : null; }
-    catch(_error){ state.workerPolicy = null; }
-    try { const response = await fetch('/api/control/capabilities', {headers:{Accept:'application/json'}, cache:'no-store'}); state.capabilities = response.ok ? await response.json() : null; }
-    catch(_error){ state.capabilities = null; }
-    try { const response = await fetch('/api/local-workers/cli-status', {headers:{Accept:'application/json'}, cache:'no-store'}); state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; }
-    catch(error){ state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }
-    try { const response = await fetch('/api/memory/status', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(6000)}); state.memory = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
-    catch(error){ state.memory = {error:String(error.message||error)}; }
-    try { const response = await fetch('/api/system/resources', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(6000)}); state.system = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
-    catch(error){ state.system = {error:String(error.message||error)}; }
-    await loadChat();
-  }
+  if(demoMode){ state.snapshot = normalize(demoSnapshot()); state.workerPolicy = demoWorkerPolicy(); state.capabilities = demoCapabilities(); state.chat = demoChat(); $('#demo-banner').hidden = false; render(); $('#refresh-button').disabled = false; return; }
+  // System resources load on their own: the gauges render as soon as that answer arrives, never after the slower endpoints.
+  loadSystem();
+  // The other endpoints load in parallel; each panel renders when its data arrives (no request waits for another).
+  const get = (url, opts={}) => fetch(url, Object.assign({headers:{Accept:'application/json'}, cache:'no-store'}, opts));
+  const jobs = [
+    get('/api/dashboard/snapshot').then(async response => { if(!response.ok) throw new Error(`adapter returned HTTP ${response.status}`); state.snapshot = normalize(await response.json()); })
+      .catch(error => { state.error = error; state.snapshot = normalize(null); }),
+    get('/api/control/worker-policy').then(async response => { state.workerPolicy = response.ok ? await response.json() : null; }).catch(() => { state.workerPolicy = null; }),
+    get('/api/control/capabilities').then(async response => { state.capabilities = response.ok ? await response.json() : null; }).catch(() => { state.capabilities = null; }),
+    get('/api/local-workers/cli-status').then(async response => { state.cliWorkers = response.ok ? await response.json() : {items:[],evidence:{validity:'unavailable',reason:`CLI probe returned HTTP ${response.status}`}}; })
+      .catch(error => { state.cliWorkers = {items:[],evidence:{validity:'unavailable',reason:`CLI probe unavailable: ${error.message}`}}; }),
+    get('/api/memory/status', {signal: AbortSignal.timeout(6000)}).then(async response => { state.memory = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; })
+      .catch(error => { state.memory = {error:String(error.message||error)}; }),
+    loadChat(),
+  ].map(job => job.then(scheduleRender));
+  await Promise.allSettled(jobs);
   render(); $('#refresh-button').disabled = false;
+}
+
+let renderQueued = false;
+function scheduleRender(){ if(renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); }
+
+// System resources: the server answers immediately from cached fast/slow observations. While a tier has no observation yet,
+// or its observation is STALE and a refresh is already running (e.g. after the tab was hidden), re-check every second (bounded)
+// so the gauges fill in as soon as that probe completes; otherwise the 15 s cycle applies (a failing tier is not re-polled faster).
+let systemTimer = null, systemPolls = 0;
+async function loadSystem(){
+  try { const response = await fetch('/api/system/resources', {headers:{Accept:'application/json'}, cache:'no-store', signal: AbortSignal.timeout(4000)}); state.system = response.ok ? await response.json() : {error:`HTTP ${response.status}`}; }
+  catch(error){ state.system = {error:String(error.message||error)}; }
+  renderResources(state.snapshot || normalize(null));
+  const tiers = (state.system && state.system.tiers) || {};
+  const waiting = ['fast','slow'].some(t => { const m = tiers[t]; return !!m && (['pending','not_started'].includes(m.state) || (m.state === 'stale' && m.refreshing === true)); });
+  clearTimeout(systemTimer);
+  if(waiting && systemPolls < 20){ systemPolls += 1; systemTimer = setTimeout(loadSystem, 1000); } else if(!waiting) systemPolls = 0;
 }
 
 function safeChatText(value){
@@ -346,12 +364,13 @@ function providerObservation(snapshot, key){
 function gaugeMarkup(v){
   const pct=v.known&&v.pct!==null?Math.max(0,Math.min(100,v.pct)):0; const c=2*Math.PI*40;
   const inner=v.known?v.text:'?';
-  const compact=!v.known; // every UNAVAILABLE gauge: neutral ? glyph instead of the UNKNOWN caption (status stays UNKNOWN; details in tooltip and aria-description)
+  const compact=!v.known; // every UNAVAILABLE gauge: neutral ? glyph instead of the caption (status stays UNKNOWN, or STALE for an expired cached value)
   const detail=compact?`Reason: ${v.reason||'not provided'}\nSource: ${v.source||'none reported'}\nObserved at: ${v.observed_at||'none (no valid observation)'}`:'';
-  const sub=compact?`<span class="g-sub g-glyph" role="img" tabindex="0" aria-label="${esc(UNKNOWN_TIP)}" aria-description="${esc(detail.replace(/\n/g,'; '))}" data-tip="${esc(UNKNOWN_TIP+'\n'+detail)}">?</span>`:`<small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small>`;
-  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" data-status="${v.known?'KNOWN':'UNKNOWN'}" title="${compact?'':esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${sub}</div>`;
+  const tip=v.stale?STALE_TIP:UNKNOWN_TIP;
+  const sub=compact?`<span class="g-sub g-glyph" role="img" tabindex="0" aria-label="${esc(tip)}" aria-description="${esc(detail.replace(/\n/g,'; '))}" data-tip="${esc(tip+'\n'+detail)}">?</span>`:`<small class="g-sub">${esc(v.known?(v.sub||''):'UNKNOWN')}</small>`;
+  return `<div class="gauge ${v.known?'':'unknown'}" data-k="${esc(v.key)}" data-status="${v.known?'KNOWN':v.stale?'STALE':'UNKNOWN'}" title="${compact?'':esc(v.title)}"><svg viewBox="0 0 100 100" role="img" aria-label="${esc(v.label)} ${esc(v.text)}"><circle class="g-track" cx="50" cy="50" r="40"/><circle class="g-val" cx="50" cy="50" r="40" stroke-dasharray="${(c*pct/100).toFixed(1)} ${c.toFixed(1)}"/><text x="50" y="50">${esc(inner)}</text></svg><label><svg class="lbl-ico" aria-hidden="true"><use href="#ico-${({cpu:'cpu',ram:'layers',disk:'disk',gpu:'grid',temp:'temp'})[v.key]||'cpu'}"/></svg>${esc(v.label)}</label>${sub}</div>`;
 }
-const UNKNOWN_TIP='UNKNOWN \u2014 no fresh telemetry';
+const STALE_TIP='STALE \u2014 last observation is older than its fresh window', UNKNOWN_TIP='UNKNOWN \u2014 no fresh telemetry';
 let gaugeTip=null;
 function showGaugeTip(el){ // tooltip lives on .stage (panels clip overflow); positioned in stage units
   const stage=document.querySelector('.stage'); if(!stage) return;
@@ -371,7 +390,7 @@ function renderResources(snapshot){
   const g=$('#resource-gauges'); if(g){ const html=views.map(gaugeMarkup).join(''); if(g.dataset.sig!==html){ g.dataset.sig=html; g.innerHTML=html; } } // unchanged markup is not re-rendered, so keyboard focus survives polling
   state.unknownGauges=views.filter(v=>!v.known).map(v=>v.label);
   const lines=OPS.deviceLines(state.system); const el=$('#sys-summary');
-  if(el){ const all=lines?lines:['USB / devices: UNKNOWN'].concat(state.system&&state.system.evidence&&state.system.evidence.reason?[state.system.evidence.reason]:[]); el.innerHTML=all.map(t=>`<div>${esc(t)}</div>`).join(''); el.title=all.join(' · '); }
+  if(el){ const why=state.system&&state.system.items&&state.system.items.inventory_reason || state.system&&state.system.evidence&&state.system.evidence.reason; const all=lines?lines:['USB / devices: UNKNOWN'].concat(why?[why]:[]); el.innerHTML=all.map(t=>`<div>${esc(t)}</div>`).join(''); el.title=all.join(' · '); }
   setSvgText('devices-state', OPS.devicesNodeText(state.system));
   renderSystemConsole();
 }

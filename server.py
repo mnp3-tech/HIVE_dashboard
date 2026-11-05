@@ -1453,7 +1453,25 @@ def local_worker_status():
     return items, evidence("local:worker-probe", utc_now(), validity, "Only allowlisted loopback endpoints were probed; no worker was started.")
 
 
+CLI_STATUS_TTL_S = 60.0
+_cli_cache = {"t": None, "value": None}
+_cli_lock = threading.Lock()
+
+
 def local_cli_worker_status() -> tuple[list, dict]:
+    """Cached for 60 s: the fixed version probes start external processes (wsl.exe), so they must not run on every dashboard
+    refresh. A cached answer keeps its original observation time and states its age; it is never re-labelled as fresh."""
+    with _cli_lock:
+        if _cli_cache["value"] is not None and time.monotonic() - _cli_cache["t"] < CLI_STATUS_TTL_S:
+            items, ev = _cli_cache["value"]
+            age = round(time.monotonic() - _cli_cache["t"], 1)
+            return [dict(i) for i in items], dict(ev, cached=True, age_s=age, reason=f"{ev['reason']} (cached answer, {age} s old; re-probed every {int(CLI_STATUS_TTL_S)} s)")
+        items, ev = _probe_local_cli_workers()
+        _cli_cache.update(t=time.monotonic(), value=([dict(i) for i in items], dict(ev)))
+        return items, dict(ev, cached=False, age_s=0.0)
+
+
+def _probe_local_cli_workers() -> tuple[list, dict]:
     """Probe installed CLI workers with fixed argv and no task execution."""
     items = []
     for worker_id, name, argv in LOCAL_CLI_PROBES:
@@ -2043,7 +2061,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path == "/api/system/resources":
-                return self.json_response(hive_system.cached_system())
+                # Non-blocking: answers from the latest fast/slow observations; probes refresh in the background.
+                return self.json_response(hive_system.SYSTEM.snapshot())
             if path == "/api/events/stream":
                 return self.stream_events(parse_qs(urlparse(self.path).query))
             if path == "/api/dashboard/snapshot":
@@ -2209,6 +2228,7 @@ def main():
     if not CORE_URL_IS_LOOPBACK:
         parser.error(f"HIVE_CORE_URL must target a loopback address; got {CORE_URL!r}")
     server = ThreadingHTTPServer((args.bind, args.port), Handler)
+    hive_system.SYSTEM.snapshot()  # warm-up: starts the first fast/slow probes in the background (returns immediately)
     print(f"Unified dashboard adapter listening on http://{args.bind}:{args.port}/", flush=True)
     server.serve_forever()
 

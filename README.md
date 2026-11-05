@@ -592,6 +592,35 @@ result. A 404 from HIVE Core on an allowlisted path is treated as `unknown` (end
 present on this Core version); a connection failure or timeout is treated as
 `unavailable`.
 
+### System resources (`GET /api/system/resources`)
+
+Takes no parameters (none reach the probe). On Windows the request never runs a probe: it answers at once from the
+latest observations of two independent background tiers (`hive_system.TieredSystem`, two fixed PowerShell scripts):
+
+| Tier | Sections | Refresh after | Fresh window | Feeds |
+|---|---|---|---|---|
+| fast | cpu, memory, volumes (`Get-Volume`: same source and meaning as the full probe's disk gauge) | 5 s | 15 s | CPU, RAM, DISK gauges |
+| slow | gpu, disks, usb, then optional `nvidia-smi` | 60 s | 180 s | GPU/TEMP, Local Devices inventory |
+
+- One probe per tier at a time, each bounded by `PROBE_TIMEOUT_S` = 8 s (unchanged); a failed tier waits one refresh
+  interval before retrying. On a cold start the slow tier starts only after the first fast result or failure, so the two
+  PowerShell processes do not compete for CPU.
+- No observation yet: `value: null`, validity `unknown` ("first fast probe in progress") or `unavailable` (the failure;
+  a timeout names the finished and stalled sections). Older than the fresh window: validity `stale` with the age in the
+  reason; the UI shows `?` with a STALE label and the old `observed_at`, never the old value. Without a fresh slow
+  observation the inventory is `disks: []`, `usb: []`, `disks_known`/`usb_known: false` plus `items.inventory_reason`.
+- Unchanged: `items.{cpu,memory,disk,gpu,temperature}` (`value, unit, validity, source, observed_at, reason`),
+  `items.{disks,usb,disks_known,usb_known}`, `evidence.{source,validity,observed_at,reason,probe_ms,probe_timings_ms}`
+  (the evidence now describes the fast tier; its validity can also be `stale` or `unknown`). Added: per-metric
+  `freshness` and `age_s`, `items.inventory_reason`, and `tiers.{fast,slow}` with `state`
+  (fresh | stale | failed | pending | not_started), `observed_at`, `age_s`, `refreshing`, `probe_ms`, `timings_ms`,
+  `last_error`, `fresh_window_s`, `refresh_after_s`, `reason`. Other platforms: an immediate answer with every value
+  UNKNOWN (no probe exists there).
+- The browser renders the shell first, requests system resources ahead of and independently from the other endpoints
+  (4 s abort), renders each response as it arrives, and re-polls every 1 s (at most 20 times) while a tier is pending
+  or STALE with a refresh already running (e.g. after the tab was hidden); a failing tier is not re-polled faster.
+  `/api/local-workers/cli-status` (`--version` probes) is cached for 60 s and is no longer on the gauge path.
+
 ## Security hardening applied after independent review
 
 An independent review of an earlier commit on this branch found four issues, all

@@ -26,6 +26,7 @@ import os
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 PROBE_TIMEOUT_S = 8
@@ -59,6 +60,24 @@ SECTION_ORDER = tuple(name for name, _ in _PS_SECTIONS)
 POWERSHELL_SCRIPT = _PS_HEADER + "".join(f"{snippet}\nMark '{name}'\n" for name, snippet in _PS_SECTIONS) + "$r | ConvertTo-Json -Compress -Depth 5\n"
 POWERSHELL_ARGV = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", POWERSHELL_SCRIPT]
 NVIDIA_ARGV = ["nvidia-smi", "--query-gpu=name,utilization.gpu,temperature.gpu", "--format=csv,noheader,nounits"]
+
+# Tiered probes (used by /api/system/resources). Same sources and meaning as the full script above:
+#   FAST: CPU (perf counter), RAM (Win32_OperatingSystem), lettered volumes from Get-Volume (size/free -> system-drive gauge).
+#         Only the per-volume Get-Partition / Get-Disk bus lookup is left out: it feeds the device inventory, not the gauge.
+#   SLOW: GPU adapters (capability, not telemetry), the full volume inventory with bus/read-only, USB/PnP, then nvidia-smi.
+_PS_VOLUMES_BASIC = r"""try { $r.volumes = @(Get-Volume | Where-Object { $_.DriveLetter } | ForEach-Object { [ordered]@{ letter = [string]$_.DriveLetter; label = [string]$_.FileSystemLabel; drive_type = [string]$_.DriveType; size = [int64]$_.Size; free = [int64]$_.SizeRemaining } }) } catch { $r.errors.disks = $_.Exception.Message }"""
+_SNIPPETS = dict(_PS_SECTIONS, volumes=_PS_VOLUMES_BASIC)
+KNOWN_SECTIONS = SECTION_ORDER + ("volumes",)
+
+
+def _script(names):
+    return _PS_HEADER + "".join(f"{_SNIPPETS[n]}\nMark '{n}'\n" for n in names) + "$r | ConvertTo-Json -Compress -Depth 5\n"
+
+
+FAST_SECTIONS, SLOW_SECTIONS = ("cpu", "memory", "volumes"), ("gpu", "disks", "usb")
+FAST_SCRIPT, SLOW_SCRIPT = _script(FAST_SECTIONS), _script(SLOW_SECTIONS)
+FAST_ARGV = POWERSHELL_ARGV[:-1] + [FAST_SCRIPT]
+SLOW_ARGV = POWERSHELL_ARGV[:-1] + [SLOW_SCRIPT]
 
 
 def _now() -> str:
@@ -97,7 +116,7 @@ def parse_progress(stderr):
     out = {}
     for line in str(stderr or "").splitlines()[:50]:
         parts = line.strip().split()
-        if len(parts) == 3 and parts[0] == "HIVE_T" and parts[1] in SECTION_ORDER and parts[2].isdigit():
+        if len(parts) == 3 and parts[0] == "HIVE_T" and parts[1] in KNOWN_SECTIONS and parts[2].isdigit():
             out[parts[1]] = int(parts[2])
     return out
 
@@ -323,6 +342,175 @@ def cached_system(runner=None, platform_name=None, clock=time.monotonic):
         value = collect_system(runner, platform_name)
         _cache.update(at=clock(), value=value)
         return value
+
+
+# ---------------------------------------------------------------- tiered, non-blocking collection
+FAST_KEYS = ("cpu", "memory", "disk")
+SLOW_KEYS = ("gpu", "temperature", "disks", "usb", "disks_known", "usb_known")
+FAST_REFRESH_S, FAST_FRESH_S = 5.0, 15.0     # refresh when older than 5 s; older than 15 s is STALE, never fresh
+SLOW_REFRESH_S, SLOW_FRESH_S = 60.0, 180.0
+_TIER_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="hive-system")
+
+
+class _Tier:
+    def __init__(self, name, sections, argv, refresh_s, fresh_s):
+        self.name, self.sections, self.argv, self.refresh_s, self.fresh_s = name, sections, argv, refresh_s, fresh_s
+        self.reset()
+
+    def reset(self):
+        self.result = None          # {"items", "observed_at", "t", "probe_ms", "timings"}
+        self.error = None           # last failure text (the previous good result, if any, is kept)
+        self.error_t = None
+        self.running = False
+        self.started_t = None
+
+
+class TieredSystem:
+    """Non-blocking system resources. snapshot() always answers immediately from the latest observations; each tier refreshes
+    in the background (one probe at a time per tier, bounded by PROBE_TIMEOUT_S, retried after its refresh interval).
+    A value older than its fresh window becomes STALE; a tier without any observation yet reports UNKNOWN with the reason.
+    Nothing is estimated: a failed probe never produces a value, it keeps the reason."""
+
+    def __init__(self, runner=None, platform_name=None, clock=time.monotonic, now=None, executor=None):
+        self.runner, self.platform, self.clock, self.now = runner, platform_name, clock, now or _now
+        self.executor = executor or _TIER_EXECUTOR
+        self.lock = threading.RLock()  # re-entrant: a synchronous executor (tests) refreshes while snapshot() holds it
+        self.fast = _Tier("fast", FAST_SECTIONS, FAST_ARGV, FAST_REFRESH_S, FAST_FRESH_S)
+        self.slow = _Tier("slow", SLOW_SECTIONS, SLOW_ARGV, SLOW_REFRESH_S, SLOW_FRESH_S)
+
+    def reset(self):
+        with self.lock:
+            self.fast.reset()
+            self.slow.reset()
+
+    def _run_cmd(self, argv):
+        return (self.runner or default_runner)(argv)  # module-level default_runner looked up at call time
+
+    def snapshot(self):
+        plat = self.platform or os.name
+        if plat != "nt":
+            return collect_system(platform_name=plat)  # immediate and honest: no probe exists on this platform
+        with self.lock:
+            self._maybe_start(self.fast)
+            if self.fast.result is not None or self.fast.error is not None:
+                self._maybe_start(self.slow)  # cold start: the first fast probe gets the machine to itself (two PowerShells compete for CPU)
+            return self._compose()
+
+    def _maybe_start(self, tier):
+        t = self.clock()
+        due = tier.result is None or t - tier.result["t"] >= tier.refresh_s
+        backing_off = tier.error_t is not None and t - tier.error_t < tier.refresh_s
+        if tier.running or not due or backing_off:
+            return
+        tier.running, tier.started_t = True, t
+        self.executor.submit(self._refresh, tier)
+
+    def _refresh(self, tier):
+        t0 = self.clock()
+        try:
+            code, out = self._run_cmd(tier.argv)
+            try:
+                raw = json.loads(out)
+                if not isinstance(raw, dict) or code != 0:
+                    raise ValueError("unexpected output")
+            except ValueError:
+                raise RuntimeError(f"PowerShell exit {code}; output was not valid JSON") from None
+            observed = self.now()
+            parsed = parse_powershell(raw, observed)
+            if tier is self.fast:
+                items = {k: parsed[k] for k in FAST_KEYS}
+            else:
+                items = {k: parsed[k] for k in SLOW_KEYS}
+                try:  # optional vendor tool; absence is normal and silent
+                    c2, o2 = self._run_cmd(NVIDIA_ARGV)
+                    if c2 == 0:
+                        apply_nvidia(items, o2, observed)
+                except (OSError, subprocess.TimeoutExpired, ValueError):
+                    pass
+            tm = raw.get("timings_ms") if isinstance(raw.get("timings_ms"), dict) else {}
+            timings = {k: int(v) for k, v in tm.items() if k in KNOWN_SECTIONS and _num(v) is not None and 0 <= v < 3_600_000}
+            with self.lock:
+                tier.result = {"items": items, "observed_at": observed, "t": self.clock(), "probe_ms": round((self.clock() - t0) * 1000), "timings": timings}
+                tier.error, tier.error_t = None, None
+        except subprocess.TimeoutExpired as e:
+            done = parse_progress(getattr(e, "stderr", None))
+            stalled = next((n for n in tier.sections if n not in done), None)
+            self._fail(tier, f"{tier.name} probe timed out after {PROBE_TIMEOUT_S} s (finished: {', '.join(done) or 'nothing'}; stalled in: {stalled or 'unknown'})")
+        except (OSError, ValueError, RuntimeError) as e:
+            self._fail(tier, f"{tier.name} probe failed: {str(e)[:140]}")
+        except Exception as e:  # a parser bug must not leave the tier stuck in "running"
+            self._fail(tier, f"{tier.name} probe error: {type(e).__name__}: {str(e)[:120]}")
+        finally:
+            with self.lock:
+                tier.running = False
+
+    def _fail(self, tier, text):
+        with self.lock:
+            tier.error, tier.error_t = text, self.clock()
+
+    def _tier_meta(self, tier, t):
+        r = tier.result
+        age = None if r is None else round(t - r["t"], 1)
+        if r is not None:
+            state = "fresh" if age <= tier.fresh_s else "stale"
+        elif tier.error:
+            state = "failed"
+        else:
+            state = "pending" if tier.running else "not_started"
+        if state == "pending":
+            reason = f"first {tier.name} probe in progress (started {round(t - tier.started_t, 1)} s ago)"
+        elif state == "not_started":
+            reason = f"{tier.name} probe not started yet" + ("; it starts after the first fast probe" if tier is self.slow and self.fast.result is None and self.fast.error is None else "")
+        elif state == "failed":
+            reason = f"no {tier.name} observation yet: {tier.error}"
+        elif state == "stale":
+            reason = f"last {tier.name} observation is {age} s old (fresh window {int(tier.fresh_s)} s)" + (f"; latest attempt: {tier.error}" if tier.error else "") + ("; refreshing" if tier.running else "")
+        else:
+            reason = f"{tier.name} observation {age} s old" + ("; refreshing" if tier.running else "") + (f"; latest attempt failed: {tier.error}" if tier.error else "")
+        return {"sections": list(tier.sections), "state": state, "observed_at": None if r is None else r["observed_at"], "age_s": age,
+                "refreshing": tier.running, "probe_ms": None if r is None else r["probe_ms"], "timings_ms": {} if r is None else r["timings"],
+                "last_error": tier.error, "fresh_window_s": tier.fresh_s, "refresh_after_s": tier.refresh_s, "reason": reason}
+
+    def _compose(self):
+        t = self.clock()
+        fast_meta, slow_meta = self._tier_meta(self.fast, t), self._tier_meta(self.slow, t)
+        items = {}
+        units = {"cpu": "%", "memory": "%", "disk": "%", "gpu": "%", "temperature": "C"}
+        for tier, meta, keys in ((self.fast, fast_meta, FAST_KEYS), (self.slow, slow_meta, ("gpu", "temperature"))):
+            for k in keys:
+                if tier.result is None:
+                    validity = "unavailable" if meta["state"] == "failed" else "unknown"
+                    items[k] = _rec(None, units[k], validity, f"windows:powershell ({tier.name} tier)", meta["reason"], None, freshness=meta["state"], age_s=None)
+                    continue
+                m = dict(tier.result["items"][k])
+                m["freshness"], m["age_s"] = meta["state"], meta["age_s"]
+                if meta["state"] == "stale" and m.get("validity") == "valid":
+                    m["validity"], m["reason"] = "stale", meta["reason"]  # never presented as fresh; the old value stays for audit only
+                items[k] = m
+        if self.slow.result is not None and slow_meta["state"] == "fresh":
+            for k in ("disks", "usb", "disks_known", "usb_known"):
+                items[k] = self.slow.result["items"][k]
+        else:  # no fresh inventory: honest UNKNOWN, never an old list presented as current
+            items.update(disks=[], usb=[], disks_known=False, usb_known=False)
+        items["inventory_reason"] = None if slow_meta["state"] == "fresh" else slow_meta["reason"]
+        states = [items[k]["validity"] for k in FAST_KEYS]
+        if all(v == "valid" for v in states):
+            validity, reason = "valid", None
+        elif any(v == "valid" for v in states):
+            validity, reason = "degraded", "Some OS values were not returned or are stale; see per-field reasons"
+        elif any(v == "stale" for v in states):
+            validity, reason = "stale", fast_meta["reason"]
+        elif self.fast.result is None and fast_meta["state"] in ("pending", "not_started"):
+            validity, reason = "unknown", fast_meta["reason"]
+        else:
+            validity, reason = "unavailable", fast_meta["reason"] if self.fast.result is None else "OS values were not returned; see per-field reasons"
+        return {"items": items, "evidence": {"source": "windows:powershell (tiered: fast gauges, slow inventory)", "validity": validity,
+                                             "observed_at": fast_meta["observed_at"], "reason": reason, "probe_ms": fast_meta["probe_ms"],
+                                             "probe_timings_ms": fast_meta["timings_ms"]},
+                "tiers": {"fast": fast_meta, "slow": slow_meta}}
+
+
+SYSTEM = TieredSystem()  # module singleton used by server.py; no thread starts until snapshot() is called on Windows
 
 
 # ---------------------------------------------------------------- model limits

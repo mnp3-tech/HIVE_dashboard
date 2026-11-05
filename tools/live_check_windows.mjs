@@ -19,6 +19,7 @@ const expectUnknown = process.argv.includes('--expect-unknown');
 const PW_HINT = 'to run the browser checks install Playwright once in the repo root: npm install --no-save --no-package-lock playwright@1.63.0   then: npx playwright install chromium';
 const baseArg = process.argv.indexOf('--base') > 0 ? process.argv[process.argv.indexOf('--base') + 1] : null;
 const PORT = 4195, BASE = baseArg || `http://127.0.0.1:${PORT}`;
+const COLD_FIRST_MAX_MS = 2000, FAST_VALID_MAX_MS = 12000, WARM_MAX_MS = 1000; // fast probe timeout is 8 s; 12 s allows one slow cold start
 let stderrTail = ''; let finished = false;
 const finish = (code, line) => { if (finished) return; finished = true; if (code !== 0 && stderrTail.trim()) console.log('--- server stderr (last 2 kB; request log lines are normal) ---\n' + stderrTail.slice(-2048).trim() + '\n--- end ---'); console.log(line); try { server?.kill(); } catch { /* ignore */ } process.exit(code); };
 process.on('uncaughtException', e => finish(1, `FAIL: uncaught ${e && e.name}: ${String(e && e.message).split('\n')[0]} (checker error, no hardware result is claimed)`));
@@ -50,8 +51,31 @@ let exit = 0; let snapMs = 0;
 const warnMs = process.argv.includes('--snapshot-warn-ms') ? (Number.isFinite(Number(process.argv[process.argv.indexOf('--snapshot-warn-ms') + 1])) ? Number(process.argv[process.argv.indexOf('--snapshot-warn-ms') + 1]) : 10000) : 10000;
 try {
   // --- API: the data the dashboard receives
-  const t0 = Date.now(); const sys = await getJson(BASE + '/api/system/resources');
+  // Cold run: the server was just started, so the first answer comes from an empty cache. It must arrive at once (never wait
+  // for a probe); CPU/RAM/disk must then become valid as soon as the fast probe completes; a warm request must be fast too.
+  const timed = async () => { const t = Date.now(); const body = await getJson(BASE + '/api/system/resources'); return [body, Date.now() - t]; };
+  const [cold, coldMs] = await timed();
+  const tierState = b => (b.tiers ? `fast=${b.tiers.fast.state} slow=${b.tiers.slow.state}` : 'no tier block');
+  console.log(`cold first system answer: ${coldMs} ms (${tierState(cold)})`);
+  note(coldMs <= COLD_FIRST_MAX_MS, `cold first answer within ${COLD_FIRST_MAX_MS} ms (not blocked by any probe): ${coldMs} ms`);
+  const fastValid = b => ['cpu', 'memory', 'disk'].every(k => b.items[k].validity === 'valid');
+  let sys = cold, validAt = null, slowAtValid = null;
+  if (!expectUnknown) {
+    const tStart = Date.now();
+    while (Date.now() - tStart < 20000) {
+      if (fastValid(sys)) { validAt = Date.now() - tStart + coldMs; slowAtValid = sys.tiers ? sys.tiers.slow.state : null; break; }
+      await new Promise(r => setTimeout(r, 250)); [sys] = await timed();
+    }
+    console.log(`time until CPU/RAM/disk valid (cold): ${validAt === null ? 'not within 20 s' : validAt + ' ms'}; slow inventory at that moment: ${slowAtValid}`);
+    note(validAt !== null && validAt <= FAST_VALID_MAX_MS, `CPU/RAM/disk valid within ${FAST_VALID_MAX_MS} ms of the cold start: ${validAt === null ? 'never' : validAt + ' ms'}`);
+    if (slowAtValid && slowAtValid !== 'fresh') console.log('  -> the fast gauges were valid while the slow device inventory was still ' + slowAtValid + ' (slow inventory did not delay them)');
+  }
+  const [warm, warmMs] = await timed();
+  console.log(`warm system answer: ${warmMs} ms (${tierState(warm)})`);
+  note(warmMs <= WARM_MAX_MS, `warm answer within ${WARM_MAX_MS} ms: ${warmMs} ms`);
+  sys = warm;
   const items = sys.items, ev = sys.evidence;
+  const t0 = Date.now() - warmMs;
   console.log(`system request took ${Date.now() - t0} ms`);
   console.log(`evidence: ${ev.validity} source=${ev.source} observed_at=${ev.observed_at} probe_ms=${ev.probe_ms} timings=${JSON.stringify(ev.probe_timings_ms)} completed=${JSON.stringify(ev.probe_completed)} stalled_in=${ev.probe_stalled_in}`);
   note(!/timed out/i.test(String(ev.reason || '') + String(items.cpu.reason || '')), 'OS probe did not time out (a timeout is a FAILURE of the probe, never a valid UNKNOWN)' + (/timed out/i.test(String(ev.reason || '')) ? `: ${ev.reason}` : ''));

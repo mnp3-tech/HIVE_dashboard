@@ -315,6 +315,12 @@ class LocalInferenceAdapterTests(unittest.TestCase):
 
 
 class LocalCliWorkerProbeTests(unittest.TestCase):
+    def setUp(self):
+        server._cli_cache.update(t=None, value=None)  # each test exercises the probe itself, not the 60 s cache
+
+    def tearDown(self):
+        server._cli_cache.update(t=None, value=None)
+
     def test_fixed_version_probes_report_available_without_task_execution(self):
         calls = []
 

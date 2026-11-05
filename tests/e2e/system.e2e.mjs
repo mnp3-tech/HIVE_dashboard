@@ -140,3 +140,78 @@ test('live adapter: every UNKNOWN gauge is a ? glyph that keeps UNKNOWN in DOM/a
   assert.match(await p.$eval('#system-evidence', e => e.textContent), /GPU UNKNOWN, TEMP UNKNOWN/);
   assert.deepEqual(errors, []); await ctx.close();
 });
+
+// ---- Phase A: the gauges never wait for slower endpoints; a pending fast tier is re-checked quickly; STALE is never fresh.
+const delay = ms => new Promise(r => setTimeout(r, ms));
+async function openWithRoutes(url, vp, routes) {
+  const ctx = await browser.newContext({ viewport: vp }); const p = await ctx.newPage(); const errors = [];
+  p.on('pageerror', e => errors.push(String(e)));
+  for (const [pattern, handler] of routes) await p.route(pattern, handler);
+  const t0 = Date.now(); await p.goto(url, { waitUntil: 'domcontentloaded' });
+  return { p, ctx, errors, t0 };
+}
+
+test('gauges render as soon as /api/system/resources answers, even while the snapshot and CLI probe are still slow', async () => {
+  const slow = async route => { await delay(6000); await route.continue(); };
+  const { p, ctx, errors, t0 } = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/dashboard/snapshot', slow], ['**/api/local-workers/cli-status', slow]]);
+  await p.waitForFunction(() => /^\d+(\.\d+)? ?%$/.test(document.querySelector('#resource-gauges .gauge[data-k="cpu"] text')?.textContent || ''), null, { timeout: 4000 });
+  const took = Date.now() - t0;
+  assert.ok(took < 4000, `CPU gauge took ${took} ms although the slow endpoints need 6000 ms`);
+  assert.ok(await p.$eval('#topbar', e => e.getBoundingClientRect().height > 0), 'shell rendered');
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('a pending fast tier shows ? at once and the gauges fill in on the quick re-check, without waiting for the 15 s cycle', async () => {
+  let calls = 0;
+  const pending = { items: { cpu: { value: null, unit: '%', validity: 'unknown', source: 'windows:powershell (fast tier)', observed_at: null, reason: 'first fast probe in progress (started 0.2 s ago)', freshness: 'pending' },
+                             memory: { value: null, unit: '%', validity: 'unknown', source: 'windows:powershell (fast tier)', observed_at: null, reason: 'first fast probe in progress', freshness: 'pending' },
+                             disk: { value: null, unit: '%', validity: 'unknown', source: 'windows:powershell (fast tier)', observed_at: null, reason: 'first fast probe in progress', freshness: 'pending' },
+                             gpu: { value: null, unit: '%', validity: 'unknown', source: 'x', observed_at: null, reason: 'first slow probe in progress' },
+                             temperature: { value: null, unit: 'C', validity: 'unknown', source: 'x', observed_at: null, reason: 'first slow probe in progress' },
+                             disks: [], usb: [], disks_known: false, usb_known: false, inventory_reason: 'first slow probe in progress' },
+                    evidence: { source: 'windows:powershell (tiered)', validity: 'unknown', observed_at: null, reason: 'first fast probe in progress' },
+                    tiers: { fast: { state: 'pending' }, slow: { state: 'pending' } } };
+  const { p, ctx, errors, t0 } = await openWithRoutes(FIX, { width: 1920, height: 1080 }, [['**/api/system/resources', async route => {
+    calls += 1;
+    if (calls === 1) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(pending) });
+    return route.continue();
+  }]]);
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'UNKNOWN', null, { timeout: 3000 });
+  assert.match(await p.$eval('.gauge[data-k="cpu"] .g-glyph', e => e.dataset.tip), /first fast probe in progress/);
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'KNOWN', null, { timeout: 5000 });
+  assert.ok(Date.now() - t0 < 6000, 'filled in by the quick re-check, not the 15 s cycle'); assert.ok(calls >= 2);
+  assert.match(await p.$eval('#sys-summary', e => e.textContent), /E:\\/);
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('a STALE tier that is already refreshing is re-checked quickly (gauges return within seconds, not the 15 s cycle); a stale tier that is not refreshing is not re-polled faster', async () => {
+  const staleBody = async (route, refreshing) => {
+    const res = await route.fetch(); const body = await res.json();
+    for (const k of ['cpu', 'memory', 'disk']) body.items[k] = Object.assign({}, body.items[k], { validity: 'stale', freshness: 'stale', observed_at: '2026-11-05T00:00:00Z', reason: 'last fast observation is 600 s old (fresh window 15 s)' + (refreshing ? '; refreshing' : '') });
+    body.tiers = { fast: { state: 'stale', refreshing }, slow: { state: 'fresh', refreshing: false } };
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  };
+  let calls = 0;
+  const a = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/system/resources', async route => { calls += 1; return calls === 1 ? staleBody(route, true) : route.continue(); }]]);
+  await a.p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'STALE', null, { timeout: 3000 });
+  await a.p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'KNOWN', null, { timeout: 4000 });
+  assert.ok(Date.now() - a.t0 < 6000, 'refilled by the quick re-check'); assert.ok(calls >= 2); assert.deepEqual(a.errors, []); await a.ctx.close();
+  let idle = 0;
+  const b = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/system/resources', async route => { idle += 1; return staleBody(route, false); }]]);
+  await b.p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'STALE', null, { timeout: 3000 });
+  await delay(2500);
+  assert.equal(idle, 1, 'no 1 s polling while the tier is not refreshing (e.g. backing off after a failure)'); await b.ctx.close();
+});
+
+test('a STALE cached metric is shown as ? with the STALE label and its old observation time, never as a value', async () => {
+  const { p, ctx } = await openWithRoutes(FIX, { width: 1280, height: 720 }, [['**/api/system/resources', async route => {
+    const res = await route.fetch(); const body = await res.json();
+    body.items.cpu = Object.assign({}, body.items.cpu, { validity: 'stale', freshness: 'stale', observed_at: '2026-11-05T00:00:00Z', reason: 'last fast observation is 40 s old (fresh window 15 s)' });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  }]]);
+  await p.waitForFunction(() => document.querySelector('#resource-gauges .gauge[data-k="cpu"]')?.dataset.status === 'STALE', null, { timeout: 5000 });
+  const g = await p.$eval('.gauge[data-k="cpu"]', g => ({ ring: g.querySelector('text').textContent, glyph: g.querySelector('.g-glyph').textContent, label: g.querySelector('.g-glyph').getAttribute('aria-label'), tip: g.querySelector('.g-glyph').dataset.tip }));
+  assert.equal(g.ring, '?'); assert.equal(g.glyph, '?'); assert.match(g.label, /^STALE/);
+  assert.match(g.tip, /fresh window 15 s/); assert.match(g.tip, /Observed at: 2026-11-05T00:00:00Z/);
+  await ctx.close();
+});

@@ -287,3 +287,11 @@ test('resourceViews: an unavailable gauge carries reason/source/observed_at for 
   assert.deepEqual([v[2].known, v[2].reason, v[2].observed_at], [false, 'out-of-range value rejected', null]); // a rejected value never shows as observed
   assert.equal(O.resourceViews(null)[0].reason, 'not provided');
 });
+
+test('resourceViews: a STALE cached metric is not shown as a value; it keeps its old observed_at and its reason', () => {
+  const v = O.resourceViews({ items: { cpu: { value: 41, unit: '%', validity: 'stale', source: 'windows:powershell/x', observed_at: '2026-11-05T00:00:00Z', reason: 'last fast observation is 40 s old (fresh window 15 s)' } } })[0];
+  assert.deepEqual([v.known, v.stale, v.text, v.pct, v.observed_at], [false, true, 'UNKNOWN', null, '2026-11-05T00:00:00Z']);
+  assert.match(v.reason, /fresh window/);
+  const u = O.resourceViews({ items: { cpu: { value: null, unit: '%', validity: 'unknown', source: 'windows:powershell (fast tier)', observed_at: null, reason: 'first fast probe in progress' } } })[0];
+  assert.deepEqual([u.known, u.stale, u.observed_at], [false, false, null]);
+});

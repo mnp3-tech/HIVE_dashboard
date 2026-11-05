@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import time
 import subprocess
 import sys
 import threading
@@ -401,37 +402,53 @@ def _get(httpd, path):
 
 
 class EndpointTests(unittest.TestCase):
+    def setUp(self):
+        hs.SYSTEM.reset()
+
+    def tearDown(self):
+        hs.SYSTEM.reset()
+
+    def _poll(self, httpd, path, until, timeout=5.0):
+        deadline, body = time.monotonic() + timeout, None
+        while time.monotonic() < deadline:
+            status, body = _get(httpd, path)
+            if until(body):
+                return body
+            time.sleep(0.05)
+        self.fail(f"condition not met within {timeout} s: {json.dumps(body)[:300]}")
+
     def test_live_endpoint_on_this_host_is_honest_unknown(self):
-        hs._cache.update(at=0.0, value=None)
         httpd = _serve(server.Handler)
         try:
             with patch.object(hs, "os") as fake_os:
                 fake_os.name = "posix"; fake_os.environ = {}
                 status, body = _get(httpd, "/api/system/resources")
         finally:
-            httpd.shutdown(); httpd.server_close(); hs._cache.update(at=0.0, value=None)
+            httpd.shutdown(); httpd.server_close()
         self.assertEqual(status, 200); self.assertEqual(body["evidence"]["validity"], "unavailable")
         self.assertTrue(all(body["items"][k]["value"] is None for k in ("cpu", "memory", "disk", "gpu", "temperature")))
 
-    def test_live_endpoint_serves_mocked_windows_output(self):
-        hs._cache.update(at=0.0, value=None)
+    def test_live_endpoint_answers_at_once_then_serves_mocked_windows_output(self):
         httpd = _serve(server.Handler)
         try:
             with patch.object(hs, "default_runner", side_effect=run_ok()), patch.object(hs.os, "name", "nt"):
-                status, body = _get(httpd, "/api/system/resources")
+                body = self._poll(httpd, "/api/system/resources", lambda b: b["items"]["cpu"]["validity"] == "valid")
         finally:
-            httpd.shutdown(); httpd.server_close(); hs._cache.update(at=0.0, value=None)
+            httpd.shutdown(); httpd.server_close()
         self.assertEqual(body["items"]["cpu"]["value"], 23.0)
+        self.assertEqual(body["items"]["cpu"]["freshness"], "fresh"); self.assertIsNotNone(body["items"]["cpu"]["observed_at"])
+        self.assertIn(body["tiers"]["fast"]["state"], ("fresh",))
 
     def test_endpoint_takes_no_parameters_that_reach_the_probe(self):
-        hs._cache.update(at=0.0, value=None); seen = []
+        seen = []
         httpd = _serve(server.Handler)
         try:
-            with patch.object(hs, "default_runner", side_effect=lambda argv, timeout=0: (seen.append(list(argv)), (0, json.dumps(RAW)))[1] if argv[0] != "nvidia-smi" else (_ for _ in ()).throw(FileNotFoundError())), patch.object(hs.os, "name", "nt"):
-                _get(httpd, "/api/system/resources?cmd=calc.exe&path=C:/Windows&argv=x")
+            with patch.object(hs, "default_runner", side_effect=lambda argv, timeout=0: (seen.append(list(argv)), (0, json.dumps(RAW)))[1] if argv[0] != "nvidia-smi" else (_ for _ in ()).throw(FileNotFoundError())), \
+                    patch.object(hs.os, "name", "nt"):
+                self._poll(httpd, "/api/system/resources?cmd=calc.exe&path=C:/Windows&argv=x", lambda b: b["tiers"]["slow"]["state"] == "fresh" and b["tiers"]["fast"]["state"] == "fresh")
         finally:
-            httpd.shutdown(); httpd.server_close(); hs._cache.update(at=0.0, value=None)
-        self.assertEqual(seen, [hs.POWERSHELL_ARGV])
+            httpd.shutdown(); httpd.server_close()
+        self.assertEqual(sorted(seen, key=lambda a: a[-1]), sorted([hs.FAST_ARGV, hs.SLOW_ARGV], key=lambda a: a[-1]), "only the two fixed scripts ever run")
 
     def test_fixture_endpoint_is_labelled_fixture_and_phone_is_not_a_disk(self):
         httpd = _serve(fixture_server.FixtureHandler)

@@ -280,3 +280,28 @@ Gate (VERIFIED): remote HEAD c010e12; worktree clean; `backup/pre-control-plane`
 **Tests (Linux, once on the final code):** Python 387 OK (new `tests/test_control.py` 29; `tests/test_registry.py` 48); UI contract 20; Node core/ops/html_ids/live_check 97/97; Playwright shell 7, core 10, chat 11, system 7, visual 16, registry 6, control 4 (new); py_compile OK; `git diff --check` clean; content scan: no secret-shaped strings, no user-specific paths in code; only `hive_probes.py` (configured HTTPS HEAD) and `server.py` (existing loopback Core transport) open network connections. Screenshots: `docs/hive/screenshots/control-fixture-{1280x720,1920x1080,2560x1440}.png`, `control-live-1920x1080.png`.
 
 - GAP-10 stays OPEN; GAP-1 to GAP-7, GAP-5 and ASSET-1 unchanged. P1.3 is limited to observation and proposals; execution, lifecycle control and adoption of proposals are not started.
+
+## Phase A: System Resources latency (base 0771754, tag backup/pre-perf-visual)
+Gate (VERIFIED): HEAD = remote `hive/dashboard-v1` = 07717544caeec3c6ed99cbb960f29ce70dc7e63c, worktree clean; `backup/pre-perf-visual` -> 0771754 confirmed with `git ls-remote --tags` (the owner's message quoted a mistyped 37-character SHA; the full SHA was checked mechanically). Owner decisions applied: Phase A first as its own checkpoint; CORE scale and agent geometry unchanged; CLI version probe cached 60 s and off the gauge path; `Win32_LogicalDisk` only after Windows validation (not used); API compatible; truthfulness rules unchanged.
+
+**Root causes (VERIFIED by reading the code at 0771754):** (1) `load()` awaited seven requests in sequence before the first render; (2) `/api/local-workers/cli-status` ran two `--version` probes (4 s timeout each) every 15 s, before the system request; (3) the browser aborted `/api/system/resources` after 6 s while the Windows probe measured up to 6.95 s (USER-REPORTED at 4456991); (4) a cache miss ran the whole probe (CPU, memory, volumes, GPU, partitions/disks, PnP/USB) inside the request.
+
+| Criterion | Evidence | Status |
+|---|---|---|
+| Shell renders immediately; gauges never wait for slower endpoints | system e2e: CPU gauge rendered < 4 s while snapshot and CLI status were held 6 s (the same test fails with the 0771754 app.js) | VERIFIED (Linux, mocked endpoints) |
+| CPU/RAM/disk appear as soon as the fast probe completes | tier tests (slow tier stuck: fast gauges valid, slow pending); e2e: pending answer, then the 1 s re-check fills the gauges | VERIFIED (mocked runner) |
+| Slow inventory cannot delay the fast gauges | separate scripts and workers; on a cold start the slow tier starts only after the first fast result or failure (test fails on the earlier code) | VERIFIED (mocked) |
+| Honest unavailable metrics; stale never shown as fresh | cold start: UNKNOWN "first fast probe in progress"; timeout: unavailable, naming finished and stalled sections; older than the fresh window: STALE (`?`, STALE label, old observed_at, no value); no fresh slow observation: inventory UNKNOWN, never an old list | VERIFIED (mocked) |
+| No long blank after the tab was hidden | STALE with a refresh running: 1 s re-check (e2e, fails on the earlier condition); STALE without a refresh (backing off): no faster polling | VERIFIED (Linux, mocked) |
+| `/api/system/resources` compatible | shape test and existing endpoint tests; fields only added (`tiers`, `freshness`, `age_s`, `inventory_reason`) | VERIFIED |
+| Disk telemetry meaning unchanged | fast tier keeps `Get-Volume` with the same source string and gauge computation as the full probe (test); `Win32_LogicalDisk` not used | VERIFIED (mocked) |
+| CLI version probe off the gauge path | 60 s cache (test_server); its request no longer precedes the system request | VERIFIED |
+| Tests: timeout, stale cache, partial fast result, slow inventory failure | `tests/test_system_tiers.py` (13) | VERIFIED |
+| Windows cold and warm live check | `tools/live_check_windows.mjs` measures the cold first answer (<= 2 s), the time until CPU/RAM/disk are valid (<= 12 s) and a warm answer (<= 1 s) in one run | NOT_RUN (owner) |
+
+- `PROBE_TIMEOUT_S` unchanged (8 s). Nothing is estimated; a failed probe never yields a value.
+- GAP-8 residual (5), intermittent OS-probe timeouts: mitigated structurally (no request waits on a probe; the fast script runs only cpu/memory/volumes; a timeout surfaces as UNKNOWN or STALE with the stalled section), NOT_VERIFIED on Windows until the owner's run.
+- Screenshots not regenerated for this checkpoint: no visual change is intended, and re-captures differed only by clock digits, the vortex frame and now-relative fixture timestamps.
+- Phase B (visual finalization) NOT started: the estimated budget is at or below the reserve (BUDGET_LEDGER). GAP-5 stays OPEN; GAP-1 to GAP-7, GAP-10 and ASSET-1 unchanged.
+
+**Tests (Linux, on the final code):** Python 400 (new tier tests 13); UI contract OK; Node core 49, ops 39, html_ids 3, live_check 7; Playwright shell 7, core 10, chat 11, system 11, visual 16, registry 6, control 4; `node tools/live_check_windows.mjs --expect-unknown` PASS (checker only, Linux); py_compile; `git diff --check` clean; content scan: no secret-shaped strings or user-specific paths added.
